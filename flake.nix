@@ -1,7 +1,8 @@
 {
-  description = "NixOS configuration";
+  description = "Custom config for myself";
 
   inputs = {
+    systems.url = "github:nix-systems/default-linux";
     nixpkgs.url = "github:nixos/nixpkgs/nixos-24.11";
     # home-manager, used for managing user configuration
     home-manager = {
@@ -12,40 +13,49 @@
       # to avoid problems caused by different versions of nixpkgs.
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    # Add grub2 themes to your inputs ...
-    grub2-themes = {
-      url = "github:vinceliuice/grub2-themes";
+
+    nix-vscode-extensions = {
+      url = "github:nix-community/nix-vscode-extensions";
+      inputs.nixpkgs.follows = "nixpkgs";
     };
+    stylix.url = "github:danth/stylix/release-24.11";
   };
 
   outputs =
     inputs@{
       nixpkgs,
       home-manager,
-      grub2-themes,
       ...
     }:
+    let
+      pkgs = nixpkgs.legacyPackages."x86_64-linux";
+    in
     {
       nixosConfigurations = {
-        nixos = nixpkgs.lib.nixosSystem {
+        desktop = nixpkgs.lib.nixosSystem {
           system = "x86_64-linux";
           modules = [
-            ./configuration.nix
-            grub2-themes.nixosModules.default
-
-            # make home-manager as a module of nixos
-            # so that home-manager configuration will be deployed automatically when executing `nixos-rebuild switch`
+            ./hosts/desktop/configuration.nix
+            inputs.stylix.nixosModules.stylix
             home-manager.nixosModules.home-manager
             {
               home-manager.useGlobalPkgs = true;
               home-manager.useUserPackages = true;
 
-              home-manager.users.flodet = import ./home.nix;
-
-              # Optionally, use home-manager.extraSpecialArgs to pass arguments to home.nix
+              home-manager.users.flodet = import ./hosts/desktop/home/flodet.nix;
             }
           ];
         };
+      };
+
+      devShells."x86_64-linux".default = pkgs.mkShell {
+        NIX_CONFIG = "extra-experimental-features = nix-command flakes";
+
+        packages = with pkgs; [
+          nix
+          git
+          nixfmt-rfc-style
+        ];
       };
     };
 }
