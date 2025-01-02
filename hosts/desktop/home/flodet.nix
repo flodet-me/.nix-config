@@ -6,7 +6,7 @@
 
   programs.vscode = {
     enable = true;
-    package = pkgs.vscode.fhs;
+    package = pkgs.vscodium;
     extensions = with pkgs.vscode-extensions; [
       vscodevim.vim
       jnoortheen.nix-ide
@@ -27,12 +27,22 @@
       bierner.markdown-emoji
       bierner.markdown-checkbox
       bierner.markdown-footnotes
+
       timonwong.shellcheck
       mads-hartmann.bash-ide-vscode
     ];
     userSettings = {
       "workbench.sideBar.location" = "right";
       "editor.renderWhitespace" = "all";
+      "editor.inlineSuggest.syntaxHighlightingEnabled" = true;
+      "files.autoSave" = "afterDelay";
+      "files.autoSaveWhenNoErrors" = true;
+      "accessibility.dimUnfocused.enabled" = false;
+      "explorer.fileNesting.enabled" = true;
+      "vim.enableNeovim" = true;
+      "vim.highlightedyank.enable" = true;
+      "vim.useSystemClipboard" = true;
+      "vim.useCtrlKeys" = false;
     };
   };
 
