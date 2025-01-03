@@ -46,6 +46,20 @@
             }
           ];
         };
+        laptop = nixpkgs.lib.nixosSystem {
+          system = "x86_64-linux";
+          modules = [
+            ./hosts/laptop/configuration.nix
+            inputs.stylix.nixosModules.stylix
+            home-manager.nixosModules.home-manager
+            {
+              home-manager.useGlobalPkgs = true;
+              home-manager.useUserPackages = true;
+
+              home-manager.users.flodet = import ./hosts/laptop/home/flodet.nix;
+            }
+          ];
+        };
       };
 
       devShells."x86_64-linux".default = pkgs.mkShell {
