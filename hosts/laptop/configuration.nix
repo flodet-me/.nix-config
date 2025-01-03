@@ -24,7 +24,7 @@
 
   programs.zsh.enable = true;
 
-  networking.hostName = "desktop"; # Define your hostname.
+  networking.hostName = "laptop"; # Define your hostname.
 
   nix.gc = {
     automatic = true;
