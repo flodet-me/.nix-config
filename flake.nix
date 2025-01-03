@@ -14,19 +14,16 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
-    nix-vscode-extensions = {
-      url = "github:nix-community/nix-vscode-extensions";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
     stylix.url = "github:danth/stylix/release-24.11";
   };
 
   outputs =
-    inputs@{
+    {
+      self,
       nixpkgs,
       home-manager,
       ...
-    }:
+    }@inputs:
     let
       pkgs = nixpkgs.legacyPackages."x86_64-linux";
     in
