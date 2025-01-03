@@ -4,13 +4,10 @@
   imports = [
     ./hardware-configuration.nix
     ./users.nix
-    ../../modules/nvidia-graphics-driver.nix
     ../../modules/gnome.nix
-    ../../modules/nvidia-cuda.nix
     ../../modules/boot.nix
     ../../modules/cli-defaults.nix
     ../../modules/stylix/stylix.nix
-    ../../modules/gaming.nix
     ../../modules/culture.nix
   ];
 
