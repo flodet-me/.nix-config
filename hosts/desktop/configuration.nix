@@ -25,6 +25,7 @@
     "flakes"
   ];
 
+  programs.streamcontroller.enable = true;
   programs.zsh.enable = true;
 
   networking.hostName = "desktop"; # Define your hostname.
@@ -85,6 +86,9 @@
 
     jdk23
     nodejs
+    zotero
+    openconnect
+    nextcloud-client
 
     # voip
     discord
