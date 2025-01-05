@@ -89,6 +89,9 @@
     zotero
     openconnect
     nextcloud-client
+    tenacity
+    alsa-utils
+    easyeffects
 
     # voip
     discord

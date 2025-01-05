@@ -141,6 +141,10 @@
     };
   };
 
+  imports = [
+    ../../../config/easyeffects/default.nix
+  ];
+
   # ...
   dconf.settings = {
 
