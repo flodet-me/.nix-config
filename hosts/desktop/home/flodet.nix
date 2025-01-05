@@ -144,6 +144,7 @@
   imports = [
     ../../../config/easyeffects/default.nix
     ../../../config/qmk/default.nix
+    ../../../config/stream-controller/default.nix
   ];
 
   # ...
