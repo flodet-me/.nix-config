@@ -143,6 +143,7 @@
 
   imports = [
     ../../../config/easyeffects/default.nix
+    ../../../config/qmk/default.nix
   ];
 
   # ...
