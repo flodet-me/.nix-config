@@ -3,7 +3,7 @@
 {
   # Set monitor configuration, as present in home setup
   home.file.".config/monitors.xml" = {
-    source = ./minitors.xml;
+    source = ./monitors.xml;
     force = true;
   };
 }
