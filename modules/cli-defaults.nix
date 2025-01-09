@@ -20,6 +20,7 @@
     curl
     wget
     python3Full
+    pipx
 
     # archives
     zip
@@ -74,9 +75,6 @@
     ethtool
     pciutils # lspci
     usbutils # lsusb
-
-    # editor tools
-    neovim
 
     # media tools
     ffmpeg

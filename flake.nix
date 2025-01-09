@@ -13,6 +13,7 @@
       # to avoid problems caused by different versions of nixpkgs.
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    nvf.url = "github:notashelf/nvf";
 
     stylix.url = "github:danth/stylix/release-24.11";
   };
@@ -22,6 +23,7 @@
       self,
       nixpkgs,
       home-manager,
+      nvf,
       ...
     }@inputs:
     let
@@ -41,6 +43,7 @@
 
               home-manager.users.flodet = import ./hosts/desktop/home/flodet.nix;
             }
+	    nvf.nixosModules.default
           ];
         };
         laptop = nixpkgs.lib.nixosSystem {
