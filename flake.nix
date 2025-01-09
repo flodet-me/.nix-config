@@ -36,8 +36,7 @@
       pkgs-vscode-extensions-daily = nix-vscode-extensions.extensions."x86_64-linux";
     in
     {
-      nixpkgs.config.allowUnfree = true;
-      nixpkgs-unstable.config.allowUnfree = true;
+
 
       nixosConfigurations = {
         desktop = nixpkgs.lib.nixosSystem {
