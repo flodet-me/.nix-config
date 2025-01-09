@@ -1,4 +1,4 @@
-{ config, pkgs, ... }:
+{ config, pkgs, pkgs-unstable, pkgs-vscode-extensions-daily , ... }:
 
 {
   home.username = "flodet";
@@ -6,8 +6,8 @@
 
   programs.vscode = {
     enable = true;
-    package = pkgs.vscodium;
-    extensions = with pkgs.vscode-extensions; [
+    package = pkgs-unstable.vscodium;
+    extensions = with pkgs-unstable.vscode-extensions; [
       vscodevim.vim
       jnoortheen.nix-ide
       mkhl.direnv
