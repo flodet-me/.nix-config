@@ -111,6 +111,8 @@
 
     # encryption
     veracrypt
+
+    jetbrains.rider
   ];
 
   environment.pathsToLink = [ "/share/zsh-vi-mode" ];
