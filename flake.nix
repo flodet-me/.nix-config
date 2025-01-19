@@ -37,7 +37,6 @@
     in
     {
 
-
       nixosConfigurations = {
         desktop = nixpkgs.lib.nixosSystem {
           system = "x86_64-linux";
@@ -59,7 +58,7 @@
                 inherit pkgs-vscode-extensions-daily;
               };
             }
-	          nvf.nixosModules.default
+            nvf.nixosModules.default
           ];
         };
         laptop = nixpkgs.lib.nixosSystem {
@@ -75,6 +74,12 @@
               home-manager.users.flodet = import ./hosts/laptop/home/flodet.nix;
             }
           ];
+          lunar = nixpkgs.lib.nixosSystem {
+            system = "x86_64-linux";
+            modules = [
+              ./hosts/lunar/configuration.nix
+            ];
+          };
         };
       };
 

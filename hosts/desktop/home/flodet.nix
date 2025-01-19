@@ -116,6 +116,7 @@
     cameractrls
     cameractrls-gtk3
     stremio
+    drawio
   ];
 
   programs.git = {
