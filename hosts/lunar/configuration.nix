@@ -31,9 +31,9 @@
     ];
   };
 
-  environment.systemPackages = with pkgs; {
+  environment.systemPackages = with pkgs; [
     ctop
-  };
+  ];
 
   system.stateVersion = "24.11";
 }
