@@ -1,4 +1,4 @@
-{ ... }:
+{ pkgs, ... }:
 {
   imports = [
     ./hardware-configuration.nix
@@ -15,6 +15,11 @@
     ''ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIN9l0ZWdNgRv7wS68DquWySb+Zc5x9tJf3viat54Az0b''
   ];
 
+  nix.settings.experimental-features = [
+    "nix-command"
+    "flakes"
+  ];
+
   virtualisation.docker.enable = true;
 
   users.users.flodet = {
@@ -24,6 +29,10 @@
       "docker"
       "wheels"
     ];
+  };
+
+  environment.systemPackages = with pkgs; {
+    ctop
   };
 
   system.stateVersion = "24.11";
