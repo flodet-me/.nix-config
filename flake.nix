@@ -74,12 +74,12 @@
               home-manager.users.flodet = import ./hosts/laptop/home/flodet.nix;
             }
           ];
-          lunar = nixpkgs.lib.nixosSystem {
-            system = "x86_64-linux";
-            modules = [
-              ./hosts/lunar/configuration.nix
-            ];
-          };
+        };
+        lunar = nixpkgs.lib.nixosSystem {
+          system = "x86_64-linux";
+          modules = [
+            ./hosts/lunar/configuration.nix
+          ];
         };
       };
 

@@ -1,4 +1,10 @@
-{ config, pkgs, pkgs-unstable, pkgs-vscode-extensions-daily , ... }:
+{
+  config,
+  pkgs,
+  pkgs-unstable,
+  pkgs-vscode-extensions-daily,
+  ...
+}:
 
 {
   home.username = "flodet";

@@ -1,4 +1,9 @@
-{ config, pkgs, pkgs-unstable, ... }:
+{
+  config,
+  pkgs,
+  pkgs-unstable,
+  ...
+}:
 
 {
   imports = [
@@ -19,8 +24,6 @@
     pkgs.headsetcontrol
     pkgs.vial
   ];
-
-
 
   nix.settings.experimental-features = [
     "nix-command"
