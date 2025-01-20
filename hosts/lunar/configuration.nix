@@ -1,10 +1,12 @@
-{ pkgs, ... }:
+{ pkgs, config, ... }:
 {
   imports = [
     ./hardware-configuration.nix
     ./networking.nix # generated at runtime by nixos-infect
 
   ];
+
+  security.sudo.wheelNeedsPassword = false;
 
   boot.tmp.cleanOnBoot = true;
   zramSwap.enable = true;
@@ -19,6 +21,50 @@
     "nix-command"
     "flakes"
   ];
+
+    services.traefik = {
+    enable = true;
+
+    staticConfigOptions = {
+      entryPoints = {
+        web = {
+          address = ":80";
+          asDefault = true;
+          http.redirections.entrypoint = {
+            to = "websecure";
+            scheme = "https";
+          };
+        };
+
+        websecure = {
+          address = ":443";
+          asDefault = true;
+          http.tls.certResolver = "letsencrypt";
+        };
+      };
+
+      log = {
+        level = "INFO";
+        filePath = "${config.services.traefik.dataDir}/traefik.log";
+        format = "json";
+      };
+
+      certificatesResolvers.letsencrypt.acme = {
+        email = "postmaster@flodet.me";
+        storage = "${config.services.traefik.dataDir}/acme.json";
+        httpChallenge.entryPoint = "web";
+      };
+
+      api.dashboard = true;
+      # Access the Traefik dashboard on <Traefik IP>:8080 of your server
+      # api.insecure = true;
+    };
+
+    dynamicConfigOptions = {
+      http.routers = {};
+      http.services = {};
+    };
+  };
 
   virtualisation.docker.enable = true;
 

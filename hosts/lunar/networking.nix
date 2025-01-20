@@ -3,6 +3,15 @@
   # This file was populated at runtime with the networking
   # details gathered from the active system.
   networking = {
+    firewall = {
+      enable = true;
+
+      allowedTCPPorts = [
+        22
+        80
+        433
+      ];
+    };
     nameservers = [
       "8.8.8.8"
     ];
@@ -49,6 +58,5 @@
   };
   services.udev.extraRules = ''
     ATTR{address}=="96:00:04:00:54:b5", NAME="eth0"
-
   '';
 }
