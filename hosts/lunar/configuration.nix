@@ -7,6 +7,7 @@
   ];
 
   security.sudo.wheelNeedsPassword = false;
+  nix.settings.trusted-users = [ "root" ];
 
   boot.tmp.cleanOnBoot = true;
   zramSwap.enable = true;
@@ -22,7 +23,7 @@
     "flakes"
   ];
 
-    services.traefik = {
+  services.traefik = {
     enable = true;
 
     staticConfigOptions = {
@@ -61,8 +62,8 @@
     };
 
     dynamicConfigOptions = {
-      http.routers = {};
-      http.services = {};
+      http.routers = { };
+      http.services = { };
     };
   };
 

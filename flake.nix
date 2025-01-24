@@ -18,6 +18,7 @@
     nix-vscode-extensions.url = "github:nix-community/nix-vscode-extensions";
 
     stylix.url = "github:danth/stylix/release-24.11";
+    nixos-wsl.url = "github:nix-community/NixOS-WSL/main";
   };
 
   outputs =
@@ -25,6 +26,7 @@
       self,
       nixpkgs,
       nixpkgs-unstable,
+      nixos-wsl,
       nix-vscode-extensions,
       home-manager,
       nvf,
@@ -79,6 +81,25 @@
           system = "x86_64-linux";
           modules = [
             ./hosts/lunar/configuration.nix
+          ];
+        };
+        wsl = nixpkgs.lib.nixosSystem {
+          system = "x86_64-linux";
+          modules = [
+            ./hosts/wsl/configuration.nix
+            nixos-wsl.nixosModules.default
+            {
+              system.stateVersion = "24.05";
+              wsl.enable = true;
+              wsl.defaultUser = "flodet";
+            }
+            home-manager.nixosModules.home-manager
+            {
+              home-manager.useGlobalPkgs = true;
+              home-manager.useUserPackages = true;
+
+              home-manager.users.flodet = import ./hosts/wsl/home/flodet.nix;
+            }
           ];
         };
       };
