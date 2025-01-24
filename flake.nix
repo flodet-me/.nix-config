@@ -14,7 +14,6 @@
       # to avoid problems caused by different versions of nixpkgs.
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    nvf.url = "github:notashelf/nvf";
     nix-vscode-extensions.url = "github:nix-community/nix-vscode-extensions";
 
     stylix.url = "github:danth/stylix/release-24.11";
@@ -29,7 +28,6 @@
       nixos-wsl,
       nix-vscode-extensions,
       home-manager,
-      nvf,
       ...
     }@inputs:
     let
@@ -60,7 +58,6 @@
                 inherit pkgs-vscode-extensions-daily;
               };
             }
-            nvf.nixosModules.default
           ];
         };
         laptop = nixpkgs.lib.nixosSystem {

@@ -123,7 +123,12 @@
     cameractrls-gtk3
     stremio
     drawio
+
+    lunarvim
+    fira-code
   ];
+
+  fonts.fontconfig.enable = true;
 
   programs.git = {
     enable = true;

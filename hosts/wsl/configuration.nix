@@ -11,6 +11,7 @@
     tree
     wget
     curl
+    fzf
   ];
 
   programs.nix-ld = {
