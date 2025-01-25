@@ -125,7 +125,8 @@
     drawio
 
     lunarvim
-    fira-code
+    fira-code-nerdfont
+
   ];
 
   fonts.fontconfig.enable = true;
