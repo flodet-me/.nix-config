@@ -11,12 +11,18 @@ in
   users.users.flodet = {
     isNormalUser = true;
     description = "flodet";
+    shell = pkgs.zsh;
     extraGroups = ifTheyExist [
       "networkmanager"
+      "audio"
+      "git"
+      "libvirtd"
+      "lxd"
+      "wireshark"
+      "video"
       "wheel"
       "docker"
       "vboxusers"
     ];
-    shell = pkgs.zsh;
   };
 }

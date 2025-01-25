@@ -8,14 +8,12 @@
 {
   imports = [
     ./hardware-configuration.nix
+    ../_shared/global.nix
     ../_shared/global/nvidia-graphics-driver.nix
-    ../../modules/gnome.nix
     ../_shared/global/nvidia-cuda.nix
-    ../_shared/global/boot.nix
+    ../../modules/gnome.nix
     ../../modules/cli-defaults.nix
     ../../modules/gaming.nix
-    ../_shared/global/locale.nix
-    ../_shared/users/flodet/default.nix
   ];
 
   hardware.keyboard.qmk.enable = true;
