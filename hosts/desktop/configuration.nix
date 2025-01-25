@@ -9,11 +9,13 @@
   imports = [
     ./hardware-configuration.nix
     ../_shared/global.nix
-    ../_shared/global/nvidia-graphics-driver.nix
-    ../_shared/global/nvidia-cuda.nix
-    ../../modules/gnome.nix
-    ../../modules/cli-defaults.nix
-    ../../modules/gaming.nix
+    ../_shared/components/nvidia-graphics-driver.nix
+    ../_shared/components/nvidia-cuda.nix
+    ../_shared/components/pipewire.nix
+    ../_shared/components/wireshark.nix
+    ../_shared/components/gnome.nix
+    ../_shared/components/cli-defaults.nix
+    ../_shared/components/gaming.nix
   ];
 
   hardware.keyboard.qmk.enable = true;
@@ -41,12 +43,6 @@
 
   networking.hostName = "desktop"; # Define your hostname.
 
-  nix.gc = {
-    automatic = true;
-    dates = "weekly";
-    options = "--delete-older-than 1w";
-  };
-
   fonts.fontDir.enable = true;
 
   # Enable networking
@@ -54,16 +50,6 @@
 
   # Enable CUPS to print documents.
   services.printing.enable = true;
-
-  # Enable sound with pipewire.
-  services.pulseaudio.enable = false;
-  security.rtkit.enable = true;
-  services.pipewire = {
-    enable = true;
-    alsa.enable = true;
-    alsa.support32Bit = true;
-    pulse.enable = true;
-  };
 
   services.mullvad-vpn = {
     enable = true;

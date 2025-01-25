@@ -2,6 +2,11 @@
 {
   boot = {
 
+    console = {
+      useXkbConfig = true;
+      earlySetup = false;
+    };
+
     # Enable "Silent Boot"
     consoleLogLevel = 0;
     initrd.verbose = false;
@@ -18,6 +23,5 @@
     # It's still possible to open the bootloader list by pressing any key
     # It will just not appear on screen unless a key is pressed
     loader.timeout = 0;
-
   };
 }

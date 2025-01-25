@@ -3,17 +3,17 @@
   inputs,
   outputs,
   ...
-}: {
-  imports =
-    [
-      inputs.home-manager.nixosModules.home-manager
-      ./components/zsh.nix
-      ./components/locale.nix
-      ./components/nix.nix
-      ./components/nix-ld.nix
-      ./users/flodet/default.nix
-    ]
-    ++ (builtins.attrValues outputs.nixosModules);
+}:
+{
+  imports = [
+    inputs.home-manager.nixosModules.home-manager
+    ./components/zsh.nix
+    ./components/locale.nix
+    ./components/nix.nix
+    ./components/nix-ld.nix
+    ./components/silentboot.nix
+    ./users/flodet/default.nix
+  ];
 
   home-manager.useGlobalPkgs = true;
   home-manager.extraSpecialArgs = {
