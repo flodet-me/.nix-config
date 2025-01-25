@@ -9,6 +9,7 @@
   home.username = "flodet";
   home.homeDirectory = "/home/flodet";
 
+  nix.package = pkgs.nix;
   programs.vscode = {
     enable = true;
     package = pkgs.vscodium;
@@ -124,8 +125,7 @@
     drawio
 
     lunarvim
-    fira-code-nerdfont
-
+    nerd-fonts.fira-code
   ];
 
   fonts.fontconfig.enable = true;
@@ -158,7 +158,7 @@
     ../../../config/easyeffects/default.nix
     ../../../config/qmk/default.nix
     ../../../config/stream-controller/default.nix
-    ./monitors/default.nix
+    ../../../modules/home-manager/stylix/stylix.nix
   ];
 
   # ...

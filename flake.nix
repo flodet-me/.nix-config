@@ -16,7 +16,7 @@
     };
     nix-vscode-extensions.url = "github:nix-community/nix-vscode-extensions";
 
-    stylix.url = "github:danth/stylix/release-24.11";
+    stylix.url = "github:danth/stylix";
     nixos-wsl.url = "github:nix-community/NixOS-WSL/main";
     hyprland.url = "github:hyprwm/Hyprland";
   };
@@ -64,7 +64,6 @@
           };
           modules = [
             ./hosts/desktop/configuration.nix
-            inputs.stylix.nixosModules.stylix
           ];
         };
         laptop = nixpkgs.lib.nixosSystem {
@@ -113,6 +112,7 @@
         };
         "flodet@laptop" = lib.homeManagerConfiguration {
           modules = [
+            stylix.homeManagerModules.stylix
             ./home/flodet/laptop/default.nix
             ./home/flodet/nixpkgs.nix
           ];
