@@ -2,11 +2,6 @@
 {
   boot = {
 
-    console = {
-      useXkbConfig = true;
-      earlySetup = false;
-    };
-
     # Enable "Silent Boot"
     consoleLogLevel = 0;
     initrd.verbose = false;
