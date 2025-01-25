@@ -30,61 +30,68 @@
       nix-vscode-extensions,
       home-manager,
       hyprland,
+      systems,
       ...
     }@inputs:
     let
+      inherit (self) outputs;
       pkgs = nixpkgs.legacyPackages."x86_64-linux";
       pkgs-unstable = nixpkgs-unstable.legacyPackages."x86_64-linux";
       pkgs-vscode-extensions-daily = nix-vscode-extensions.extensions."x86_64-linux";
+
+      lib = nixpkgs.lib // home-manager.lib;
+      forEachSystem = f: lib.genAttrs (import systems) (system: f pkgsFor.${system});
+      pkgsFor = lib.genAttrs (import systems) (
+        system:
+        import nixpkgs {
+          inherit system;
+          config.allowUnfree = true;
+        }
+      );
     in
     {
+      inherit lib;
+      nixosModules = import ./modules/nixos;
+      homeManagerModules = import ./modules/home-manager;
+
+      overlays = import ./overlays { inherit inputs outputs; };
+      hydraJobs = import ./hydra.nix { inherit inputs outputs; };
+
+      packages = forEachSystem (pkgs: import ./packages { inherit pkgs; });
+      devShells = forEachSystem (pkgs: import ./shell.nix { inherit pkgs; });
+      formatter = forEachSystem (pkgs: pkgs.alejandra);
 
       nixosConfigurations = {
         desktop = nixpkgs.lib.nixosSystem {
-          system = "x86_64-linux";
           specialArgs = {
-            inherit inputs;
-            inherit pkgs-unstable;
-            inherit pkgs-vscode-extensions-daily;
+            inherit inputs outputs;
           };
           modules = [
             ./hosts/desktop/configuration.nix
             inputs.stylix.nixosModules.stylix
-            home-manager.nixosModules.home-manager
-            {
-              home-manager.useGlobalPkgs = true;
-              home-manager.useUserPackages = true;
-
-              home-manager.users.flodet = import ./hosts/desktop/home/flodet.nix;
-              home-manager.extraSpecialArgs = {
-                inherit pkgs-unstable;
-                inherit pkgs-vscode-extensions-daily;
-              };
-            }
           ];
         };
         laptop = nixpkgs.lib.nixosSystem {
-          system = "x86_64-linux";
+          specialArgs = {
+            inherit inputs outputs;
+          };
           modules = [
             ./hosts/laptop/configuration.nix
             inputs.stylix.nixosModules.stylix
-            home-manager.nixosModules.home-manager
-            {
-              home-manager.useGlobalPkgs = true;
-              home-manager.useUserPackages = true;
-
-              home-manager.users.flodet = import ./hosts/laptop/home/flodet.nix;
-            }
           ];
         };
         lunar = nixpkgs.lib.nixosSystem {
-          system = "x86_64-linux";
+          specialArgs = {
+            inherit inputs outputs;
+          };
           modules = [
             ./hosts/lunar/configuration.nix
           ];
         };
         wsl = nixpkgs.lib.nixosSystem {
-          system = "x86_64-linux";
+          specialArgs = {
+            inherit inputs outputs;
+          };
           modules = [
             ./hosts/wsl/configuration.nix
             nixos-wsl.nixosModules.default
@@ -93,25 +100,41 @@
               wsl.enable = true;
               wsl.defaultUser = "flodet";
             }
-            home-manager.nixosModules.home-manager
-            {
-              home-manager.useGlobalPkgs = true;
-              home-manager.useUserPackages = true;
-
-              home-manager.users.flodet = import ./hosts/wsl/home/flodet.nix;
-            }
           ];
         };
       };
 
-      devShells."x86_64-linux".default = pkgs.mkShell {
-        NIX_CONFIG = "extra-experimental-features = nix-command flakes";
-
-        packages = with pkgs; [
-          nix
-          git
-          nixfmt-rfc-style
-        ];
+      homeConfigurations = {
+        "flodet@desktop" = lib.homeManagerConfiguration {
+          modules = [
+            ./home/flodet/desktop/default.nix
+            ./home/flodet/nixpkgs.nix
+          ];
+          pkgs = pkgsFor.x86_64-linux;
+          extraSpecialArgs = {
+            inherit inputs outputs;
+          };
+        };
+        "flodet@laptop" = lib.homeManagerConfiguration {
+          modules = [
+            ./home/flodet/laptop/default.nix
+            ./home/flodet/nixpkgs.nix
+          ];
+          pkgs = pkgsFor.x86_64-linux;
+          extraSpecialArgs = {
+            inherit inputs outputs;
+          };
+        };
+        "flodet@wsl" = lib.homeManagerConfiguration {
+          modules = [
+            ./home/flodet/wsl/default.nix
+            ./home/flodet/nixpkgs.nix
+          ];
+          pkgs = pkgsFor.x86_64-linux;
+          extraSpecialArgs = {
+            inherit inputs outputs;
+          };
+        };
       };
     };
 }
