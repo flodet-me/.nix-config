@@ -9,14 +9,14 @@
   imports = [
     ./hardware-configuration.nix
     ./users.nix
-    ../../modules/nvidia-graphics-driver.nix
+    ../_shared/global/nvidia-graphics-driver.nix
     ../../modules/gnome.nix
-    ../../modules/nvidia-cuda.nix
-    ../../modules/boot.nix
+    ../_shared/global/nvidia-cuda.nix
+    ../_shared/global/boot.nix
     ../../modules/cli-defaults.nix
-    ../../modules/stylix/stylix.nix
     ../../modules/gaming.nix
-    ../../modules/culture.nix
+    ../_shared/global/locale.nix
+    ../_shared/users/
   ];
 
   hardware.keyboard.qmk.enable = true;
