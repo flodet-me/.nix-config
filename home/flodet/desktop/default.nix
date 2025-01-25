@@ -11,8 +11,8 @@
 
   programs.vscode = {
     enable = true;
-    package = inputs.nixpkgs-unstable.vscodium;
-    extensions = with inputs.nix-vscode-extensions.vscode-extensions; [
+    package = pkgs.vscodium;
+    extensions = with pkgs.vscode-extensions; [
       vscodevim.vim
       jnoortheen.nix-ide
       mkhl.direnv

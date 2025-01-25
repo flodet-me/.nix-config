@@ -26,7 +26,7 @@ in {
 
   # Adds pkgs.stable == inputs.nixpkgs-stable.legacyPackages.${pkgs.system}
   stable = final: _: {
-    stable = inputs.nixpkgs-stable.legacyPackages.${final.system};
+    stable = inputs.nixpkgs.legacyPackages.${final.system};
   };
 
   # Adds my custom packages
