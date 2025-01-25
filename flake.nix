@@ -18,6 +18,7 @@
 
     stylix.url = "github:danth/stylix/release-24.11";
     nixos-wsl.url = "github:nix-community/NixOS-WSL/main";
+    hyprland.url = "github:hyprwm/Hyprland";
   };
 
   outputs =
@@ -28,6 +29,7 @@
       nixos-wsl,
       nix-vscode-extensions,
       home-manager,
+      hyprland,
       ...
     }@inputs:
     let
@@ -41,6 +43,7 @@
         desktop = nixpkgs.lib.nixosSystem {
           system = "x86_64-linux";
           specialArgs = {
+            inherit inputs;
             inherit pkgs-unstable;
             inherit pkgs-vscode-extensions-daily;
           };

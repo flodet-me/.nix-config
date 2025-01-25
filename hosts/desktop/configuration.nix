@@ -1,5 +1,6 @@
 {
   config,
+  inputs,
   pkgs,
   pkgs-unstable,
   ...
@@ -25,6 +26,14 @@
     pkgs.vial
   ];
 
+  programs.hyprland = {
+    enable = true;
+    # set the flake package
+    package = inputs.hyprland.packages.${pkgs.stdenv.hostPlatform.system}.hyprland;
+    # make sure to also set the portal package, so that they are in sync
+    portalPackage = inputs.hyprland.packages.${pkgs.stdenv.hostPlatform.system}.xdg-desktop-portal-hyprland;
+  };
+
   nix.settings.experimental-features = [
     "nix-command"
     "flakes"
@@ -39,6 +48,11 @@
     automatic = true;
     dates = "weekly";
     options = "--delete-older-than 1w";
+  };
+
+  nix.settings = {
+    substituters = ["https://hyprland.cachix.org"];
+    trusted-public-keys = ["hyprland.cachix.org-1:a7pgxzMz7+chwVL3/pzj6jIBMioiJM7ypFP8PwtkuGc="];
   };
 
   fonts.fontDir.enable = true;
@@ -105,6 +119,7 @@
     veracrypt
 
     jetbrains.rider
+    kitty
   ];
 
   environment.pathsToLink = [ "/share/zsh-vi-mode" ];
