@@ -30,6 +30,7 @@
       nix-vscode-extensions,
       home-manager,
       hyprland,
+      stylix,
       systems,
       ...
     }@inputs:
@@ -102,6 +103,7 @@
       homeConfigurations = {
         "flodet@desktop" = lib.homeManagerConfiguration {
           modules = [
+            stylix.homeManagerModules.stylix
             ./home/flodet/desktop/default.nix
             ./home/flodet/nixpkgs.nix
           ];

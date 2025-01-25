@@ -1,2 +1,6 @@
-{pkgs ? import <nixpkgs> {}, ...}: rec {
+{
+  pkgs ? import <nixpkgs> { },
+  ...
+}:
+rec {
 }
