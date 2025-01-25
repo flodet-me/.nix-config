@@ -35,10 +35,6 @@
     }@inputs:
     let
       inherit (self) outputs;
-      pkgs = nixpkgs.legacyPackages."x86_64-linux";
-      pkgs-unstable = nixpkgs-unstable.legacyPackages."x86_64-linux";
-      pkgs-vscode-extensions-daily = nix-vscode-extensions.extensions."x86_64-linux";
-
       lib = nixpkgs.lib // home-manager.lib;
       forEachSystem = f: lib.genAttrs (import systems) (system: f pkgsFor.${system});
       pkgsFor = lib.genAttrs (import systems) (
@@ -59,7 +55,7 @@
 
       packages = forEachSystem (pkgs: import ./packages { inherit pkgs; });
       devShells = forEachSystem (pkgs: import ./shell.nix { inherit pkgs; });
-      formatter = forEachSystem (pkgs: pkgs.alejandra);
+      formatter = forEachSystem (pkgs: pkgs.nixfmt-rfc-style);
 
       nixosConfigurations = {
         desktop = nixpkgs.lib.nixosSystem {
