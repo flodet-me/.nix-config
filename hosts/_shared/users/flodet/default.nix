@@ -1,12 +1,13 @@
 {
   pkgs,
   config,
+  lib,
   ...
-}: let
-  ifTheyExist = groups: builtins.filter (group: builtins.hasAttr group config.users.groups) groups;;
+}:
+let
+  ifTheyExist = groups: builtins.filter (group: builtins.hasAttr group config.users.groups) groups;
 in
 {
-  users.mutableUsers = false;
   users.users.flodet = {
     isNormalUser = true;
     description = "flodet";
@@ -17,9 +18,5 @@ in
       "vboxusers"
     ];
     shell = pkgs.zsh;
-    packages = [pkgs.home-manager];
   };
-
-
-  home-manager.users.gabriel = import ../../../../home/flodet/${config.networking.hostName}/default.nix;
 }
