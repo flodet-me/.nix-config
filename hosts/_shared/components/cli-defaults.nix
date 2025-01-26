@@ -3,11 +3,7 @@
 {
   environment.systemPackages = with pkgs; [
     # CLI Tools and more
-    neofetch
-
-    # Nix
-    nixfmt-rfc-style
-    nix-output-monitor
+    fastfetch
 
     # git
     git

@@ -9,6 +9,9 @@
   imports = [
     ./components/zsh.nix
     ./components/bash.nix
+    ./components/bat.nix
+    ./components/direnv.nix
+    ./components/fzf.nix
     ./components/tmux.nix
     ./components/git/default.nix
   ];

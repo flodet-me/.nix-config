@@ -15,6 +15,7 @@
       gnupg
       age
       nixfmt-rfc-style
+      nix-output-monitor
     ];
   };
 }
