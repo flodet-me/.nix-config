@@ -10,6 +10,7 @@
   imports = [
     ../_shared/global.nix
     ../_shared/desktop.nix
+    ../_shared/components/hyprland
     ../_shared/components/qmk
     ../_shared/components/stream-controller
     ../_shared/components/easyeffects
