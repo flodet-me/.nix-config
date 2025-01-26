@@ -2,6 +2,7 @@
 {
   inputs,
   outputs,
+  pkgs,
   ...
 }:
 {
@@ -11,4 +12,8 @@
     ./components/tmux.nix
     ./components/git/default.nix
   ];
+
+  nix.package = pkgs.nix;
+
+  programs.home-manager.enable = true;
 }

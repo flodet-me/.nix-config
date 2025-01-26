@@ -18,8 +18,6 @@
   home.username = "flodet";
   home.homeDirectory = "/home/flodet";
 
-  nix.package = pkgs.nix;
-
   # Packages that should be installed to the user profile.
   home.packages = with pkgs; [
     # Gnome
@@ -100,7 +98,4 @@
   # the home Manager release notes for a list of state version
   # changes in each release.
   home.stateVersion = "24.11";
-
-  # Let home Manager install and manage itself.
-  programs.home-manager.enable = true;
 }
