@@ -11,7 +11,6 @@
     ./components/locale.nix
     ./components/nix.nix
     ./components/nix-ld.nix
-    ./components/silentboot.nix
     ./users/flodet/default.nix
   ];
 

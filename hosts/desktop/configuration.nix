@@ -7,8 +7,13 @@
 
 {
   imports = [
+    inputs.hardware.nixosModules.common-cpu-amd
+    inputs.hardware.nixosModules.common-gpu-amd
+    inputs.hardware.nixosModules.common-pc-ssd
+
     ./hardware-configuration.nix
     ../_shared/global.nix
+    ../_shared/components/silentboot.nix
     ../_shared/components/nvidia-graphics-driver.nix
     ../_shared/components/nvidia-cuda.nix
     ../_shared/components/pipewire.nix

@@ -6,108 +6,22 @@
 }:
 
 {
+  imports = [
+    ../_shared/global.nix
+    ../_shared/components/vscode.nix
+    ../_shared/components/stylix
+    ../_shared/components/qmk
+    ../_shared/components/stream-controller
+    ../_shared/components/easyeffects
+  ];
+
   home.username = "flodet";
   home.homeDirectory = "/home/flodet";
 
   nix.package = pkgs.nix;
-  programs.vscode = {
-    enable = true;
-    package = pkgs.vscodium;
-    extensions = with pkgs.vscode-extensions; [
-      vscodevim.vim
-      jnoortheen.nix-ide
-      mkhl.direnv
-      arrterian.nix-env-selector
-      ms-azuretools.vscode-docker
-      editorconfig.editorconfig
-      ms-python.python
-      github.copilot
-      github.copilot-chat
-      esbenp.prettier-vscode
-      streetsidesoftware.code-spell-checker
-      sonarsource.sonarlint-vscode
-      mhutchie.git-graph
-      waderyan.gitblame
-      bierner.markdown-mermaid
-      bierner.markdown-preview-github-styles
-      bierner.markdown-emoji
-      bierner.markdown-checkbox
-      bierner.markdown-footnotes
-
-      timonwong.shellcheck
-      mads-hartmann.bash-ide-vscode
-    ];
-    userSettings = {
-      "workbench.sideBar.location" = "right";
-      "editor.renderWhitespace" = "all";
-      "editor.inlineSuggest.syntaxHighlightingEnabled" = true;
-      "files.autoSave" = "afterDelay";
-      "files.autoSaveWhenNoErrors" = true;
-      "accessibility.dimUnfocused.enabled" = false;
-      "explorer.fileNesting.enabled" = true;
-      "vim.enableNeovim" = true;
-      "vim.highlightedyank.enable" = true;
-      "vim.useSystemClipboard" = true;
-      "vim.useCtrlKeys" = false;
-    };
-  };
-
-  programs.tmux = {
-    enable = true;
-    plugins = with pkgs; [
-      tmuxPlugins.better-mouse-mode
-    ];
-  };
-
-  programs.zsh = {
-    enable = true;
-    enableCompletion = true;
-    autosuggestion.enable = true;
-    syntaxHighlighting.enable = true;
-    initExtra = ''
-      if command -v tmux &> /dev/null && [ -z "$TMUX" ]; then
-        tmux
-      fi
-    '';
-
-    shellAliases = {
-      ll = "ls -l";
-      update = "sudo nixos-rebuild switch";
-    };
-    history.size = 10000;
-    history.ignoreAllDups = true;
-    history.path = "$HOME/.zsh_history";
-    history.ignorePatterns = [
-      "rm *"
-      "pkill *"
-      "cp *"
-    ];
-
-    oh-my-zsh = {
-      enable = true;
-      plugins = [
-        "git"
-        "fzf"
-        "aliases"
-        "git-extras"
-      ];
-      theme = "robbyrussell";
-    };
-
-    plugins = [
-      {
-        name = "vi-mode";
-        src = pkgs.zsh-vi-mode;
-        file = "share/zsh-vi-mode/zsh-vi-mode.plugin.zsh";
-      }
-
-    ];
-  };
 
   # Packages that should be installed to the user profile.
   home.packages = with pkgs; [
-    # jetbrains.rider
-
     # Gnome
     gnome-tweaks
     gnomeExtensions.headsetcontrol
@@ -130,38 +44,6 @@
 
   fonts.fontconfig.enable = true;
 
-  programs.git = {
-    enable = true;
-    lfs = {
-      enable = true;
-    };
-    includes = [
-      {
-        path = ./gitconfig;
-      }
-    ];
-  };
-
-  programs.bash = {
-    enable = true;
-    enableCompletion = true;
-
-    # set some aliases, feel free to add more or remove some
-    shellAliases = {
-      k = "kubectl";
-      urldecode = "python3 -c 'import sys, urllib.parse as ul; print(ul.unquote_plus(sys.stdin.read()))'";
-      urlencode = "python3 -c 'import sys, urllib.parse as ul; print(ul.quote_plus(sys.stdin.read()))'";
-    };
-  };
-
-  imports = [
-    ../../../config/easyeffects/default.nix
-    ../../../config/qmk/default.nix
-    ../../../config/stream-controller/default.nix
-    ../../../modules/home-manager/stylix/stylix.nix
-  ];
-
-  # ...
   dconf.settings = {
 
     # ...

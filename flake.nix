@@ -2,9 +2,14 @@
   description = "Custom config for myself";
 
   inputs = {
+    hardware.url = "github:nixos/nixos-hardware";
     systems.url = "github:nix-systems/default-linux";
     nixpkgs-stable.url = "github:nixos/nixpkgs/nixos-24.11";
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
+    sops-nix = {
+      url = "github:mic92/sops-nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     # home-manager, used for managing user configuration
     home-manager = {
       url = "github:nix-community/home-manager";
