@@ -23,6 +23,13 @@
     ../_shared/components/gaming.nix
   ];
 
+  networking.networkmanager.ensureProfiles.profiles = {
+    uni-vpn.connection = {
+        id = "fernuni-hagen";
+        type ="vpn";
+    };
+  };
+
   hardware.keyboard.qmk.enable = true;
   services.udev.packages = [
     pkgs.headsetcontrol

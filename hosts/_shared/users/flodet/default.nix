@@ -28,9 +28,14 @@ in
     hashedPasswordFile = config.sops.secrets.flodet-password.path;
   };
 
-  sops.secrets.flodet-password = {
-    sopsFile = ./secrets.yaml;
-    neededForUsers = true;
+  sops = {
+    age.keyFile = "/home/flodet/.config/sops/age/keys.txt"; 
+    defaultSopsFile = ./secrets.yaml;
+    secrets.flodet-password = {
+      sopsFile = ./secrets.yaml;
+      neededForUsers = true;
+    };
+
   };
 
 }
