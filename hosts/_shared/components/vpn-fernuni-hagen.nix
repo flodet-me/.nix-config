@@ -7,7 +7,7 @@
     openconnect
   ];
 
-    networking.networkmanager.ensureProfiles.profiles = {
+  networking.networkmanager.ensureProfiles.profiles = {
     uni = {
       connection = {
         id = "fernuni-hagen";
@@ -16,7 +16,7 @@
       vpn = {
         gateway = "vpn.fernuni-hagen.de";
         protocol = "anyconnect";
-        service-type= "org.freedesktop.NetworkManager.openconnect";
+        service-type = "org.freedesktop.NetworkManager.openconnect";
       };
     };
   };

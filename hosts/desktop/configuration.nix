@@ -24,8 +24,6 @@
     ../_shared/components/vpn-fernuni-hagen.nix
   ];
 
-
-
   hardware.keyboard.qmk.enable = true;
   services.udev.packages = [
     pkgs.headsetcontrol
@@ -63,9 +61,6 @@
     enable = true;
     package = pkgs.mullvad-vpn;
   };
-
-  # Install firefox.
-  programs.firefox.enable = true;
 
   virtualisation.docker = {
     enable = true;
