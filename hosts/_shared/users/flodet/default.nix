@@ -8,6 +8,7 @@ let
   ifTheyExist = groups: builtins.filter (group: builtins.hasAttr group config.users.groups) groups;
 in
 {
+  users.mutableUsers = false;
   users.users.flodet = {
     isNormalUser = true;
     description = "flodet";
@@ -24,5 +25,12 @@ in
       "docker"
       "vboxusers"
     ];
+    hashedPasswordFile = config.sops.secrets.flodet-password.path;
   };
+
+  sops.secrets.flodet-password = {
+    sopsFile = ./secrets.yaml;
+    neededForUsers = true;
+  };
+
 }

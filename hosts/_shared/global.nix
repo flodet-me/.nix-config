@@ -7,6 +7,7 @@
 {
   imports = [
     inputs.home-manager.nixosModules.home-manager
+    inputs.sops-nix.nixosModules.sops
     ./components/zsh.nix
     ./components/locale.nix
     ./components/nix.nix
