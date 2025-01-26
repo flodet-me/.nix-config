@@ -9,27 +9,34 @@
     enable = true;
     profiles.flodet = {
 
-      extensions = with pkgs.inputs.firefox-addons; 
-      let
-        bpc-update = bypass-paywalls-clean.override {
-          version = "4.0.1.0";
-          url = "https://gitflic.ru/project/magnolia1234/bpc_uploads/blob/raw?file=bypass_paywalls_clean-4.0.1.0.xpi";
-          sha256= "sha256-J8ABW3mODdXpJ8lm5KpZr6Fhrmjf3CTTKT/uK6nkbSA=";
-        };
-      in [
-        ublock-origin
-        darkreader
-        bitwarden
-        clearurls
-        zotero-connector
-        sponsorblock
-        istilldontcareaboutcookies
-        unpaywall
-        vimium
-        videospeed
-        gnome-shell-integration
-        bpc-update
-      ];
+      extensions =
+        with pkgs.inputs.firefox-addons;
+        let
+          bpc-update = bypass-paywalls-clean.override {
+            version = "4.0.1.0";
+            url = "https://gitflic.ru/project/magnolia1234/bpc_uploads/blob/raw?file=bypass_paywalls_clean-4.0.1.0.xpi";
+            sha256 = "sha256-J8ABW3mODdXpJ8lm5KpZr6Fhrmjf3CTTKT/uK6nkbSA=";
+          };
+        in
+        [
+          # Essentials
+          ublock-origin
+          darkreader
+          bitwarden
+          clearurls
+          istilldontcareaboutcookies
+          vimium
+
+          # Content
+          sponsorblock
+          unpaywall
+          videospeed
+          bpc-update
+
+          # Integration
+          zotero-connector
+          gnome-shell-integration
+        ];
 
       settings = {
         # Disable irritating first-run stuff

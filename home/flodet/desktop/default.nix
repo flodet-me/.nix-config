@@ -10,8 +10,6 @@
   imports = [
     ../_shared/global.nix
     ../_shared/desktop.nix
-    ../_shared/components/vscode.nix
-    ../_shared/components/stylix
     ../_shared/components/qmk
     ../_shared/components/stream-controller
     ../_shared/components/easyeffects
@@ -49,7 +47,6 @@
 
     lunarvim
     neovim
-    nerd-fonts.fira-code
   ];
 
   fonts.fontconfig.enable = true;
