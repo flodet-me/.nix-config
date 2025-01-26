@@ -19,8 +19,9 @@
   home.username = "flodet";
   home.homeDirectory = "/home/flodet";
 
-  home.sessionVariables = {
-    mail = config.sops.secrets.openai_api_key.path;
+  programs.git = {
+    userName  = "flodet";
+    userEmail = config.sops.secrets.git_mail.path;
   };
 
   sops = {
@@ -60,6 +61,7 @@
     drawio
 
     lunarvim
+    neovim
     nerd-fonts.fira-code
   ];
 
