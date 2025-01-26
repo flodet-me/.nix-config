@@ -3,7 +3,7 @@
   ...
 }:
 {
-   # Packages that should be installed to the user profile.
+  # Packages that should be installed to the user profile.
   home.packages = with pkgs; [
     # Gnome
     gnome-tweaks
@@ -17,7 +17,7 @@
     gnomeExtensions.color-picker
   ];
 
-   dconf.settings = {
+  dconf.settings = {
 
     # ...
     "org/gnome/shell" = {

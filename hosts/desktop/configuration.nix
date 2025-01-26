@@ -21,14 +21,10 @@
     ../_shared/components/gnome.nix
     ../_shared/components/cli-defaults.nix
     ../_shared/components/gaming.nix
+    ../_shared/components/vpn-fernuni-hagen.nix
   ];
 
-  networking.networkmanager.ensureProfiles.profiles = {
-    uni-vpn.connection = {
-        id = "fernuni-hagen";
-        type ="vpn";
-    };
-  };
+
 
   hardware.keyboard.qmk.enable = true;
   services.udev.packages = [
@@ -93,7 +89,6 @@
     jdk23
     nodejs
     zotero
-    openconnect
     nextcloud-client
     tenacity
     alsa-utils

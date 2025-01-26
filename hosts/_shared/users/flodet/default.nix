@@ -29,7 +29,7 @@ in
   };
 
   sops = {
-    age.keyFile = "/home/flodet/.config/sops/age/keys.txt"; 
+    age.keyFile = "/home/flodet/.config/sops/age/keys.txt";
     defaultSopsFile = ./secrets.yaml;
     secrets.flodet-password = {
       sopsFile = ./secrets.yaml;
