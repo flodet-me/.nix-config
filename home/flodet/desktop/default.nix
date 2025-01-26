@@ -13,10 +13,33 @@
     ../_shared/components/qmk
     ../_shared/components/stream-controller
     ../_shared/components/easyeffects
+    inputs.sops-nix.homeManagerModules.sops
   ];
 
   home.username = "flodet";
   home.homeDirectory = "/home/flodet";
+
+  home.sessionVariables = {
+    mail = config.sops.secrets.openai_api_key.path;
+  };
+
+  sops = {
+    age.keyFile = "/home/flodet/.config/sops/age/keys.txt"; # must have no password!
+    # It's also possible to use a ssh key, but only when it has no password:
+    #age.sshKeyPaths = [ "/home/user/path-to-ssh-key" ];
+    defaultSopsFile = ./secrets.yaml;
+    defaultSymlinkPath = "/run/user/1000/secrets";
+    defaultSecretsMountPoint = "/run/user/1000/secrets.d";
+
+    secrets.git_mail = {
+      # sopsFile = ./secrets.yml.enc; # optionally define per-secret files
+
+      # %r gets replaced with a runtime directory, use %% to specify a '%'
+      # sign. Runtime dir is $XDG_RUNTIME_DIR on linux and $(getconf
+      # DARWIN_USER_TEMP_DIR) on darwin.
+      path = "${config.sops.defaultSymlinkPath}/git_mail";
+    };
+  };
 
   # Packages that should be installed to the user profile.
   home.packages = with pkgs; [

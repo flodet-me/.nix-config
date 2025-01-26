@@ -21,6 +21,7 @@
     ../_shared/components/gnome.nix
     ../_shared/components/cli-defaults.nix
     ../_shared/components/gaming.nix
+    inputs.sops-nix.nixosModules.sops
   ];
 
   hardware.keyboard.qmk.enable = true;
