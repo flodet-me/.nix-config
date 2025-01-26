@@ -24,6 +24,12 @@
     stylix.url = "github:danth/stylix";
     nixos-wsl.url = "github:nix-community/NixOS-WSL/main";
     hyprland.url = "github:hyprwm/Hyprland";
+
+    # Third party programs, packaged with nix
+    firefox-addons = {
+      url = "gitlab:rycee/nur-expressions?dir=pkgs/firefox-addons";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs =
@@ -53,8 +59,8 @@
     in
     {
       inherit lib;
-      # nixosModules = import ./modules/nixos;
-      # homeManagerModules = import ./modules/home-manager;
+      nixosModules = import ./modules/nixos;
+      homeManagerModules = import ./modules/home-manager;
 
       overlays = import ./overlays { inherit inputs outputs; };
       # hydraJobs = import ./hydra.nix { inherit inputs outputs; };

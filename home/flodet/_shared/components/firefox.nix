@@ -1,5 +1,5 @@
 {
-  pgks,
+  pkgs,
   lib,
   ...
 }:
@@ -7,9 +7,31 @@
   # Install firefox.
   programs.firefox = {
     enable = true;
-    settings = {
-        "browser.startup.homepage" = "moz-extension://08e91b4d-0e8a-497b-a7ac-be245fd0faf9/pages/blank.html";
+    profiles.flodet = {
 
+      extensions = with pkgs.inputs.firefox-addons; 
+      let
+        bpc-update = bypass-paywalls-clean.override {
+          version = "4.0.1.0";
+          url = "https://gitflic.ru/project/magnolia1234/bpc_uploads/blob/raw?file=bypass_paywalls_clean-4.0.1.0.xpi";
+          sha256= "sha256-J8ABW3mODdXpJ8lm5KpZr6Fhrmjf3CTTKT/uK6nkbSA=";
+        };
+      in [
+        ublock-origin
+        darkreader
+        bitwarden
+        clearurls
+        zotero-connector
+        sponsorblock
+        istilldontcareaboutcookies
+        unpaywall
+        vimium
+        videospeed
+        gnome-shell-integration
+        bpc-update
+      ];
+
+      settings = {
         # Disable irritating first-run stuff
         "browser.disableResetPrompt" = true;
         "browser.download.panel.shown" = true;
@@ -24,6 +46,12 @@
         "trailhead.firstrun.didSeeAboutWelcome" = true;
         "browser.bookmarks.restore_default_bookmarks" = false;
         "browser.bookmarks.addedImportButton" = true;
+
+        # Disable pocket
+        "extensions.pocket.enabled" = false;
+
+        # Disable password remembering in firefox
+        "signon.rememberSignons" = false;
 
         # Don't ask for download dir
         "browser.download.useDownloadDir" = false;
@@ -76,6 +104,10 @@
         # Harden
         "privacy.trackingprotection.enabled" = true;
         "dom.security.https_only_mode" = true;
+
+        # Layout adoptions
+        "browser.toolbars.bookmarks.visibility" = "always";
+      };
     };
   };
 
