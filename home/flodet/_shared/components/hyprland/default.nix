@@ -4,4 +4,8 @@
   programs.wofi = {
     enable = true;
   };
+
+  programs.waybar = {
+    enable = true;
+  };
 }
