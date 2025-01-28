@@ -8,16 +8,16 @@
     polarity = "dark";
     fonts = {
       monospace = {
-        name = "FiraCode Nerd Font Mono";
-        package = pkgs.nerdfonts.override { fonts = [ "FiraCode" ]; };
+        name = "MonaspiceNe Nerd Font Mono";
+        package = nerd-fonts.monaspace;
       };
       sansSerif = {
-        name = "FiraCode Nerd Font";
-        package = pkgs.nerdfonts.override { fonts = [ "FiraCode" ]; };
+        name = "MonaspiceNe Nerd Font";
+        package = nerd-fonts.monaspace;
       };
       serif = {
-        name = "FiraCode Nerd Font";
-        package = pkgs.nerdfonts.override { fonts = [ "FiraCode" ]; };
+        name = "MonaspiceNe Nerd Font";
+        package = nerd-fonts.monaspace;
       };
     };
   };
