@@ -48,7 +48,6 @@
 
     lunarvim
     neovim
-    nerd-fonts.fira-code
   ];
 
   fonts.fontconfig.enable = true;

@@ -5,7 +5,7 @@
   ...
 }:
 {
-    environment.etc."blocky/config.yml".source = ./config.yml;
+  environment.etc."blocky/config.yml".source = ./config.yml;
 
   virtualisation.oci-containers = {
     backend = "docker";
@@ -17,10 +17,10 @@
           "53:53/udp"
         ];
         environment = {
-            TZ = "Europe/Berlin";
+          TZ = "Europe/Berlin";
         };
         volumes = [
-           "/etc/blocky/config.yml:/app/config.yml"
+          "/etc/blocky/config.yml:/app/config.yml"
         ];
       };
     };

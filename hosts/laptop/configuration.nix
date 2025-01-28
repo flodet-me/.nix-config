@@ -1,7 +1,13 @@
-{ config, pkgs, ... }:
+{
+  config,
+  inputs,
+  pkgs,
+  ...
+}:
 
 {
   imports = [
+    inputs.hardware.nixosModules.lenovo-thinkpad-t480
     ./hardware-configuration.nix
     ./users.nix
     ../../modules/gnome.nix
