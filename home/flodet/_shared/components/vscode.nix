@@ -32,6 +32,9 @@
     ];
     userSettings = {
       "workbench.sideBar.location" = "right";
+      "workbench.tree.indent" = 10;
+      "workbench.tree.renderIndentGuides"= "always";
+      "workbench.iconTheme" = null;
       "editor.renderWhitespace" = "all";
       "editor.inlineSuggest.syntaxHighlightingEnabled" = true;
       "files.autoSave" = "afterDelay";
