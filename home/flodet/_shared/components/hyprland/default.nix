@@ -3,14 +3,14 @@
   ...
 }:
 {
+  imports = [
+    ./waybar
+  ];
+
   home.file.".config/hypr/hyprland.conf".source = ./hyprland.conf;
-  home.file.".config/waybar/config.jsonc".source = ./config.jsonc;
 
+  # Application launcher
   programs.fuzzel = {
-    enable = true;
-  };
-
-  programs.waybar = {
     enable = true;
   };
 

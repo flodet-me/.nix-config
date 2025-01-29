@@ -8,15 +8,15 @@
     polarity = "dark";
     fonts = {
       monospace = {
-        name = "MonaspiceNe Nerd Font Mono";
+        name = "MonaspiceNe NFM";
         package = nerd-fonts.monaspace;
       };
       sansSerif = {
-        name = "MonaspiceNe Nerd Font";
+        name = "MonaspiceNe NF";
         package = nerd-fonts.monaspace;
       };
       serif = {
-        name = "MonaspiceNe Nerd Font";
+        name = "MonaspiceNe NF";
         package = nerd-fonts.monaspace;
       };
     };

@@ -33,7 +33,7 @@
     userSettings = {
       "workbench.sideBar.location" = "right";
       "workbench.tree.indent" = 10;
-      "workbench.tree.renderIndentGuides"= "always";
+      "workbench.tree.renderIndentGuides" = "always";
       "workbench.iconTheme" = null;
       "editor.renderWhitespace" = "all";
       "editor.inlineSuggest.syntaxHighlightingEnabled" = true;
@@ -41,6 +41,7 @@
       "files.autoSaveWhenNoErrors" = true;
       "accessibility.dimUnfocused.enabled" = false;
       "explorer.fileNesting.enabled" = true;
+      "explorer.confirmDragAndDrop" = false;
       "vim.enableNeovim" = true;
       "vim.highlightedyank.enable" = true;
       "vim.useSystemClipboard" = true;

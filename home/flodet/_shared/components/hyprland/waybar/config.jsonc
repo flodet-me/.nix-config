@@ -7,32 +7,40 @@
     "spacing": 4, // Gaps between modules (4px)
     // Choose the order of the modules
     "modules-left": [
-        "hyprland/workspaces",
-        "sway/mode",
-        "sway/scratchpad",
-        "custom/media"
+        "hyprland/workspaces"
     ],
     "modules-center": [
-        "sway/window"
+        "hyprland/window",
+        "custom/media"
     ],
     "modules-right": [
+        "tray",
+        "privacy",
         "mpd",
         "idle_inhibitor",
         "pulseaudio",
-        "network",
         "power-profiles-daemon",
-        "cpu",
-        "memory",
-        "temperature",
-        "backlight",
         "keyboard-state",
-        "sway/language",
-        "battery",
-        "battery#bat2",
         "clock",
         "tray",
+        "group/hardware",
         "custom/power"
     ],
+
+    "group/hardware": {
+        "orientation": "horizontal",
+        "modules": [
+            "cpu",
+            "memory",
+            "temperature",
+            "network",
+            "bluetooth"
+        ],
+        "drawer": {
+
+        }
+    },
+
     // Modules configuration
     // "hyprland/workspaces": {
     //     "disable-scroll": true,
@@ -59,16 +67,16 @@
             "unlocked": ""
         }
     },
-    "sway/mode": {
-        "format": "<span style=\"italic\">{}</span>"
+
+    "hyprland/window": {
+    "format": "👉 {}",
+    "rewrite": {
+        "(.*) — Mozilla Firefox": "🌎 $1",
+        "(.*) - tmux": "> [$1]"
     },
-    "sway/scratchpad": {
-        "format": "{icon} {count}",
-        "show-empty": false,
-        "format-icons": ["", ""],
-        "tooltip": true,
-        "tooltip-format": "{app}: {title}"
-    },
+    "separate-outputs": true
+},
+
     "mpd": {
         "format": "{stateIcon} {consumeIcon}{randomIcon}{repeatIcon}{singleIcon}{artist} - {album} - {title} ({elapsedTime:%M:%S}/{totalTime:%M:%S}) ⸨{songPosition}|{queueLength}⸩ {volume}% ",
         "format-disconnected": "Disconnected ",
@@ -131,24 +139,6 @@
         "format": "{percent}% {icon}",
         "format-icons": ["", "", "", "", "", "", "", "", ""]
     },
-    "battery": {
-        "states": {
-            // "good": 95,
-            "warning": 30,
-            "critical": 15
-        },
-        "format": "{capacity}% {icon}",
-        "format-full": "{capacity}% {icon}",
-        "format-charging": "{capacity}% ",
-        "format-plugged": "{capacity}% ",
-        "format-alt": "{time} {icon}",
-        // "format-good": "", // An empty format will hide the module
-        // "format-full": "",
-        "format-icons": ["", "", "", "", ""]
-    },
-    "battery#bat2": {
-        "bat": "BAT2"
-    },
     "power-profiles-daemon": {
       "format": "{icon}",
       "tooltip-format": "Power profile: {profile}\nDriver: {driver}",
@@ -204,7 +194,7 @@
         "format" : "⏻ ",
 		"tooltip": false,
 		"menu": "on-click",
-		"menu-file": "$HOME/.config/waybar/power_menu.xml", // Menu file in resources folder
+		"menu-file": "$HOME/.config/waybar/custom_modules/power_menu.xml", // Menu file in resources folder
 		"menu-actions": {
 			"shutdown": "shutdown",
 			"reboot": "reboot",
