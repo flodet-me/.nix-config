@@ -14,7 +14,13 @@
     enable = true;
   };
 
+  programs.hyprlock.enable = true;
+  services.hyprpaper.enable = true;
+
   home.packages = with pkgs; [
     playerctl
+    hyprpicker
   ];
+
+
 }
