@@ -46,6 +46,7 @@
       "vim.highlightedyank.enable" = true;
       "vim.useSystemClipboard" = true;
       "vim.useCtrlKeys" = false;
+      "git.enableSmartCommit" = true;
     };
   };
 }
