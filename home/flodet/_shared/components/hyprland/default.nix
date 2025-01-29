@@ -19,7 +19,10 @@
 
   home.packages = with pkgs; [
     playerctl
+    # Color picker
     hyprpicker
+    # Allow red filtering
+    hyprsunset
   ];
 
 
