@@ -23,6 +23,16 @@
   # Notification daemon
   services.dunst.enable = true;
 
+  # Clipboard manager
+  services.cliphist.enable = true;
+
+  # TUI Filemanager
+  programs.yazi.enable = true;
+
+
+  # Terminal 
+  programs.foot.enable = true;
+
   home.packages = with pkgs; [
     playerctl
     # Color picker
@@ -35,7 +45,9 @@
     # Authentication agent
     hyprpolkitagent
 
-    yazi
+
+    # Utility for clipboard
+    wl-clipboard
   ];
 
 

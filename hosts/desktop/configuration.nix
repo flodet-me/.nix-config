@@ -99,7 +99,6 @@
     veracrypt
 
     jetbrains.rider
-    kitty
   ];
 
   environment.pathsToLink = [ "/share/zsh-vi-mode" ];

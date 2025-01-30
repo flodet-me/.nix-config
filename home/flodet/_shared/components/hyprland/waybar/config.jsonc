@@ -10,7 +10,6 @@
         "hyprland/workspaces"
     ],
     "modules-center": [
-        "hyprland/window",
         "custom/media"
     ],
     "modules-right": [
@@ -69,8 +68,7 @@
     "hyprland/window": {
         "format": "{}",
         "rewrite": {
-            "(.*) — Mozilla Firefox": "🌎 $1",
-            "(.*) - kitty": "> [$1]"
+            "(.*) — Mozilla Firefox": "🌎 $1"
         },
         "separate-outputs": true
     },
@@ -177,6 +175,7 @@
         "format-disconnected": "Disconnected ⚠",
         "format-alt": "{ifname}: {ipaddr}/{cidr}"
     },
+
     "pulseaudio": {
         // "scroll-step": 1, // %, can be a float
         "format": "{volume}% {icon} {format_source}",
