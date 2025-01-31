@@ -19,6 +19,10 @@
         name = "MonaspiceNe NF";
         package = nerd-fonts.monaspace;
       };
+      emoji = {
+        package = pkgs.noto-fonts-emoji;
+        name = "Noto Color Emoji";
+      };
     };
   };
 }

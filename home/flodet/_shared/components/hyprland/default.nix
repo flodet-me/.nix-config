@@ -10,11 +10,14 @@
   home.file.".config/hypr/hyprland.conf".source = ./hyprland.conf;
   home.file.".config/hypr/tab.sh".source = ./tab.sh;
   home.file.".local/share/icons/hyprland.png".source = ./hyprland.png;
+  home.file.".config/networkmanager-dmenu/config.ini".source = ./nm_dmenu.ini;
 
   # Application launcher
   programs.fuzzel = {
     enable = true;
   };
+
+  fonts.fontconfig.enable = true;
 
   # Lockscreen tool
   programs.hyprlock.enable = true;
@@ -55,8 +58,21 @@
     # UI for network adjustments
     networkmanagerapplet
 
+    # UI for audio devices
+    pavucontrol
+
     # CLI for notification
     libnotify
+    cascadia-code
+
+    # Emoji picker
+    bemoji
+
+    # Secret manager
+    bitwarden-cli
+
+    # Dmenu for network
+    networkmanager_dmenu
   ];
 
 
