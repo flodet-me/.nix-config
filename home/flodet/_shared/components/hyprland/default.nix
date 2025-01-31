@@ -7,10 +7,20 @@
     ./waybar
   ];
 
+# Environment
+  home.sessionVariables = {
+    EDITOR = "nvim";
+    BROWSER = "firefox";
+    TERMINAL = "foot";
+  };
+
   home.file.".config/hypr/hyprland.conf".source = ./hyprland.conf;
   home.file.".config/hypr/tab.sh".source = ./tab.sh;
   home.file.".local/share/icons/hyprland.png".source = ./hyprland.png;
-  home.file.".config/networkmanager-dmenu/config.ini".source = ./nm_dmenu.ini;
+  home.file.".config/wlogout/layout".source = ./layout;
+
+  # Logout screen
+  programs.wlogout.enable = true;
 
   # Application launcher
   programs.fuzzel = {
@@ -67,12 +77,12 @@
 
     # Emoji picker
     bemoji
+    # Tool to type emoji
+    wtype
 
     # Secret manager
     bitwarden-cli
 
-    # Dmenu for network
-    networkmanager_dmenu
   ];
 
 
