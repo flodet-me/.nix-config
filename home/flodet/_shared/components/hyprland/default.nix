@@ -9,6 +9,7 @@
 
   home.file.".config/hypr/hyprland.conf".source = ./hyprland.conf;
   home.file.".config/hypr/tab.sh".source = ./tab.sh;
+  home.file.".local/share/icons/hyprland.png".source = ./hyprland.png;
 
   # Application launcher
   programs.fuzzel = {
@@ -22,7 +23,7 @@
   services.hyprpaper.enable = true;
 
   # Notification daemon
-  services.dunst.enable = true;
+  services.swaync.enable = true;
 
   # Clipboard manager
   services.cliphist.enable = true;
@@ -51,7 +52,11 @@
     # Utility for clipboard
     wl-clipboard
 
+    # UI for network adjustments
     networkmanagerapplet
+
+    # CLI for notification
+    libnotify
   ];
 
 
