@@ -8,6 +8,7 @@
   ];
 
   home.file.".config/hypr/hyprland.conf".source = ./hyprland.conf;
+  home.file.".config/hypr/tab.sh".source = ./tab.sh;
 
   # Application launcher
   programs.fuzzel = {
@@ -29,8 +30,10 @@
   # TUI Filemanager
   programs.yazi.enable = true;
 
+  # Audio effects
+  services.easyeffects.enable = true;
 
-  # Terminal 
+  # Terminal
   programs.foot.enable = true;
 
   home.packages = with pkgs; [
@@ -45,9 +48,10 @@
     # Authentication agent
     hyprpolkitagent
 
-
     # Utility for clipboard
     wl-clipboard
+
+    networkmanagerapplet
   ];
 
 
