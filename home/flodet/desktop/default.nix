@@ -16,7 +16,6 @@
     ../_shared/components/easyeffects
     ../_shared/components/gnome.nix
     ../_shared/secrets
-    inputs.sops-nix.homeManagerModules.sops
   ];
 
   home.username = "flodet";
