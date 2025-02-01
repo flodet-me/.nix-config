@@ -61,10 +61,10 @@
   # Enable CUPS to print documents.
   services.printing.enable = true;
 
-  services.mullvad-vpn = {
-    enable = true;
-    package = pkgs.mullvad-vpn;
-  };
+  # services.mullvad-vpn = {
+  #   enable = true;
+  #   package = pkgs.mullvad-vpn;
+  # };
 
   virtualisation.docker = {
     enable = true;

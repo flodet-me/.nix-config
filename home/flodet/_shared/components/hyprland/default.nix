@@ -5,6 +5,7 @@
 {
   imports = [
     ./waybar
+    ../mullvad-vpn
   ];
 
 # Environment
@@ -79,6 +80,9 @@
 
     # Secret manager
     bitwarden-cli
+
+
+    material-symbols
 
   ];
 

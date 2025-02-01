@@ -14,4 +14,3 @@ case "$CHOICE" in
     *Logout) hyprctl dispatch exit ;;
     *Restart\ Hyprland) hyprctl reload ;;
 esac
-
