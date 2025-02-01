@@ -10,11 +10,11 @@
   imports = [
     ../_shared/global.nix
     ../_shared/desktop.nix
-    ../_shared/components/hyprland
+    ../_shared/desktop-environments/hyprland
     ../_shared/components/qmk
     ../_shared/components/stream-controller
     ../_shared/components/easyeffects
-    ../_shared/components/gnome.nix
+    ../_shared/desktop-environments/gnome.nix
     ../_shared/secrets
   ];
 

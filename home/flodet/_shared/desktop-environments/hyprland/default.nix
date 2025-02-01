@@ -41,9 +41,6 @@
   # TUI Filemanager
   programs.yazi.enable = true;
 
-  # Audio effects
-  services.easyeffects.enable = true;
-
   # Terminal
   programs.foot.enable = true;
 

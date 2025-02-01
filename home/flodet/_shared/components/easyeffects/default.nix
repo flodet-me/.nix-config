@@ -1,6 +1,11 @@
 { config, pkgs, ... }:
 
 {
+  services.easyeffects = {
+    enable = true;
+    preset = "Perfect_EQ";
+  };
+
   # Input filter for easyeffects
   # Source: https://gist.github.com/jtrv/47542c8be6345951802eebcf9dc7da31
   home.file.".config/easyeffects/input/" = {
