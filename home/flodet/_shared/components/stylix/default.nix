@@ -3,7 +3,7 @@
 {
   stylix = with pkgs; {
     enable = true;
-    image = ${config.home.homeDirectory}/planets-3440x1440.png;
+    image = "./planets-3440x1440.png";
     base16Scheme = "${pkgs.base16-schemes}/share/themes/dracula.yaml";
     polarity = "dark";
     fonts = {
