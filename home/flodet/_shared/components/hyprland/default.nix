@@ -17,10 +17,7 @@
   home.file.".config/hypr/hyprland.conf".source = ./hyprland.conf;
   home.file.".config/hypr/tab.sh".source = ./tab.sh;
   home.file.".local/share/icons/hyprland.png".source = ./hyprland.png;
-  home.file.".config/wlogout/layout".source = ./layout;
-
-  # Logout screen
-  programs.wlogout.enable = true;
+  home.file.".config/hypr/menu-power.sh".source = ./menu-power.sh;
 
   # Application launcher
   programs.fuzzel = {
