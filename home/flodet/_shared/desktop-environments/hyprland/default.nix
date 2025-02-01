@@ -5,7 +5,6 @@
 {
   imports = [
     ./waybar
-    ../mullvad-vpn
   ];
 
   # Environment

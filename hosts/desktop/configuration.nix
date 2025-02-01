@@ -76,36 +76,8 @@
   # List packages installed in system profile. To search, run:
   # $ nix search wget
   environment.systemPackages = with pkgs; [
-    spotify
-    vlc
-    gimp
-    obs-studio
-    blender
-    krita
-    kdenlive
-    imagemagick
-    headsetcontrol
-    vial
-    pandoc
-
     jdk23
     nodejs
-    zotero
-    nextcloud-client
-    tenacity
-    alsa-utils
-    easyeffects
-
-    # voip
-    discord
-
-    # browser
-    chromium
-
-    # encryption
-    veracrypt
-
-    jetbrains.rider
   ];
 
   environment.pathsToLink = [ "/share/zsh-vi-mode" ];

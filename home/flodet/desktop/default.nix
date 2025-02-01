@@ -14,7 +14,7 @@
     ../_shared/components/qmk
     ../_shared/components/stream-controller
     ../_shared/components/easyeffects
-    ../_shared/desktop-environments/gnome.nix
+    ../_shared/desktop-environments/gnome
     ../_shared/secrets
   ];
 
