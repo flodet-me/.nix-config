@@ -1,9 +1,9 @@
-{ pkgs, ... }:
+{ pkgs, config,... }:
 
 {
   stylix = with pkgs; {
     enable = true;
-    image = ./background.png;
+    image = ${config.home.homeDirectory}/planets-3440x1440.png;
     base16Scheme = "${pkgs.base16-schemes}/share/themes/dracula.yaml";
     polarity = "dark";
     fonts = {
