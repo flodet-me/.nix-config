@@ -8,15 +8,15 @@
     polarity = "dark";
     fonts = {
       monospace = {
-        name = "MonaspiceNe NFM";
+        name = "MonaspiceAr NFM";
         package = nerd-fonts.monaspace;
       };
       sansSerif = {
-        name = "MonaspiceNe NF";
+        name = "MonaspiceAr NF";
         package = nerd-fonts.monaspace;
       };
       serif = {
-        name = "MonaspiceNe NF";
+        name = "MonaspiceAr NF";
         package = nerd-fonts.monaspace;
       };
       emoji = {

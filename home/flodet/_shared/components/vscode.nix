@@ -3,6 +3,8 @@
   ...
 }:
 {
+  stylix.targets.vscode.enable = false;
+
   programs.vscode = {
     enable = true;
     package = pkgs.vscodium;
@@ -27,6 +29,7 @@
       bierner.markdown-checkbox
       bierner.markdown-footnotes
 
+      dracula-theme.theme-dracula
       timonwong.shellcheck
       mads-hartmann.bash-ide-vscode
     ];
@@ -35,8 +38,10 @@
       "workbench.tree.indent" = 10;
       "workbench.tree.renderIndentGuides" = "always";
       "workbench.iconTheme" = null;
+      "workbench.colorTheme" = "Dracula Theme";
       "editor.renderWhitespace" = "all";
       "editor.inlineSuggest.syntaxHighlightingEnabled" = true;
+      "editor.fontFamily" = "MonaspiceAr NFM";
       "files.autoSave" = "afterDelay";
       "files.autoSaveWhenNoErrors" = true;
       "accessibility.dimUnfocused.enabled" = false;

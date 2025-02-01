@@ -8,7 +8,7 @@
     ../mullvad-vpn
   ];
 
-# Environment
+  # Environment
   home.sessionVariables = {
     EDITOR = "nvim";
     BROWSER = "firefox";
@@ -81,10 +81,8 @@
     # Secret manager
     bitwarden-cli
 
-
     material-symbols
 
   ];
-
 
 }
