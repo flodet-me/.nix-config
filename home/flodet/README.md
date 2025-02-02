@@ -5,6 +5,16 @@ This is the [home manager](https://github.com/nix-community/home-manager) config
 Public SSH Key: [Reference](./ssh.pub)
 Public GPG Key: [Reference](./public.pgp)
 
+## Structure
+
+The following structure is used for organizing the home-manager configuration per host.
+
+```
+.
+├── _shared     | Configuration files shared and / or optional for different hosts
+└── <<HOST>>    | Host specific configuration for home-manager
+```
+
 ## Secrets
 
 Secrets are provided by using [sops-nix](https://github.com/Mic92/sops-nix).
