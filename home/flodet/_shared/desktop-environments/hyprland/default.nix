@@ -1,10 +1,12 @@
 {
   pkgs,
   config,
+  inputs,
   ...
 }:
 {
   imports = [
+    inputs.hyprpanel.homeManagerModules.hyprpanel
   ];
 
   # Environment
@@ -12,6 +14,7 @@
     EDITOR = "nvim";
     BROWSER = "firefox";
     TERMINAL = "foot";
+    HOME_LOCATION = "$(cat ${config.sops.secrets.home-location.path})";
   };
 
   sops.secrets.home-location.path = "${config.sops.defaultSymlinkPath}/home-location";
@@ -50,7 +53,7 @@
   programs.hyprpanel = {
     enable = true;
     hyprland.enable = true;
-    override.enable = true;
+    overwrite.enable = true;
 
     theme = "dracula_split";
 
@@ -90,18 +93,71 @@
     };
 
     settings = {
-      menus.clock = {
-        time = {
-          military = true;
-          hideSeconds = true;
+      bar = {
+        autoHide = "never";
+        battery.label = false;
+        bluetooth.label = false;
+        clock.format = "%a %b %d  %H:%M";
+        clock.showIcon = true;
+        clock.showTime = true;
+        customModules.hyprsunset.label = false;
+        customModules.hyprsunset.offIcon = "󰖙";
+        customModules.hyprsunset.onIcon = "󰖚";
+        customModules.updates.label = false;
+        launcher.icon = "";
+        network.label = true;
+        network.showWifiInfo = true;
+        notifications.hideCountWhenZero = true;
+        notifications.show_total = true;
+        volume.label = false;
+        windowtitle.class_name = true;
+        windowtitle.custom_title = true;
+        windowtitle.icon = true;
+        windowtitle.truncation = true;
+        workspaces.applicationIconOncePerWorkspace = true;
+        workspaces.monitorSpecific = true;
+        workspaces.numbered_active_indicator = "underline";
+        workspaces.showAllActive = false;
+        workspaces.showApplicationIcons = false;
+        workspaces.showWsIcons = false;
+        workspaces.show_icons = false;
+        workspaces.show_numbered = false;
+        workspaces.workspaceMask = false;
+      };
+      menus = {
+        clock = {
+          time = {
+            military = true;
+            hideSeconds = true;
+          };
+          weather = {
+            # location = "${builtins.readFile config.sops.secrets.home-location.path}";
+            unit = "metric";
+            # key = "${builtins.readFile config.sops.secrets.weather-api-key.path}";
+          };
         };
-        weather.location = "${builtins.readFile config.sops.secrets.home-location.path}";
-        weather.unit = "metric";
-        weather.key = "${builtins.readFile config.sops.secrets.weather-api-key.path}";
+        dashboard = {
+          controls.enabled = true;
+          directories.enabled = false;
+          shortcuts.enabled = false;
+          stats.enable_gpu = true;
+          stats.enabled = true;
+          powermenu.avatar.image = "${config.home.homeDirectory}/.local/share/icons/logo.ico";
+        };
+        media.displayTime = false;
+        media.displayTimeTooltip = false;
+        media.hideAlbum = false;
+        volume.raiseMaximumVolume = false;
       };
-      menus.dashboard = {
-        powermenu.avatar.image = "${config.home.homeDirectory}/.local/share/icons/logo.ico";
+      notifications = {
+        active_monitor = false;
+        monitor = 1;
+        position = "top";
       };
+      theme = {
+        bar.transparent = true;
+      };
+      wallpaper.enable = false;
     };
   };
 
