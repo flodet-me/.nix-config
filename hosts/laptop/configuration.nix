@@ -8,6 +8,9 @@
 {
   imports = [
     inputs.hardware.nixosModules.lenovo-thinkpad-t480
+    inputs.hardware.nixosModules.common-laptop-ssd
+    inputs.hardware.nixosModules.common-cpu-intel-kaby-lake
+
     ./hardware-configuration.nix
     ./users.nix
     ../../modules/gnome.nix
