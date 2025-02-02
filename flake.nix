@@ -26,7 +26,10 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
-    hyprpanel.url = "github:Jas-SinghFSU/HyprPanel";
+    hyprpanel = {
+      url = "github:Jas-SinghFSU/HyprPanel";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs =
@@ -51,10 +54,6 @@
         import nixpkgs {
           inherit system;
           config.allowUnfree = true;
-
-          overlays = [
-            inputs.hyprpanel.overlay
-          ];
         }
       );
     in

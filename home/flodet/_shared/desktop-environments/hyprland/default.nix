@@ -1,5 +1,6 @@
 {
   pkgs,
+  config,
   ...
 }:
 {
@@ -12,6 +13,9 @@
     BROWSER = "firefox";
     TERMINAL = "foot";
   };
+
+  sops.secrets.home-location.path = "${config.sops.defaultSymlinkPath}/home-location";
+  sops.secrets.weather-api-key.path = "${config.sops.defaultSymlinkPath}/weather-api-key";
 
   home.file.".config/hypr/hyprland.conf".source = ./hyprland.conf;
   home.file.".config/hypr/tab.sh".source = ./tab.sh;
@@ -42,6 +46,64 @@
 
   # Terminal
   programs.foot.enable = true;
+
+  programs.hyprpanel = {
+    enable = true;
+    hyprland.enable = true;
+    override.enable = true;
+
+    theme = "dracula_split";
+
+    layout = {
+      "bar.layouts" = {
+        "1" = {
+          left = [
+            "windowtitle"
+            "media"
+          ];
+          middle = [
+            "updates"
+            "workspaces"
+            "notifications"
+          ];
+          right = [
+            "systray"
+            "hyprsunset"
+            "volume"
+            "bluetooth"
+            "network"
+            "clock"
+            "dashboard"
+          ];
+        };
+        "*" = {
+          left = [
+            "windowtitle"
+          ];
+          middle = [
+            "workspaces"
+          ];
+          right = [
+          ];
+        };
+      };
+    };
+
+    settings = {
+      menus.clock = {
+        time = {
+          military = true;
+          hideSeconds = true;
+        };
+        weather.location = "${builtins.readFile config.sops.secrets.home-location.path}";
+        weather.unit = "metric";
+        weather.key = "${builtins.readFile config.sops.secrets.weather-api-key.path}";
+      };
+      menus.dashboard = {
+        powermenu.avatar.image = "${config.home.homeDirectory}/.local/share/icons/logo.ico";
+      };
+    };
+  };
 
   home.packages = with pkgs; [
     playerctl
@@ -77,9 +139,6 @@
     bitwarden-cli
 
     material-symbols
-
-    hyprpanel
-
   ];
 
 }
