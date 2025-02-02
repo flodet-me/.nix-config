@@ -24,7 +24,6 @@
     cameractrls-gtk3
     stremio
     drawio
-    neovim
   ];
 
   fonts.fontconfig.enable = true;

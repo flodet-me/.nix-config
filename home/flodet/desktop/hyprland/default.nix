@@ -1,3 +1,3 @@
 {
-    home.file.".config/hypr/monitors.conf".source = ./monitors.conf;
+  home.file.".config/hypr/monitors.conf".source = ./monitors.conf;
 }

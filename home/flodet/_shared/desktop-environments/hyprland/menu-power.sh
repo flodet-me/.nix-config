@@ -1,3 +1,6 @@
+#!/usr/bin/env bash
+# shellcheck shell=bash
+
 # Define options with icons (using Font Awesome icons)
 OPTIONS="  Shutdown\n  Reboot\n  Suspend\n  Hibernate\n  Lock\n  Logout\n  Restart Hyprland"
 

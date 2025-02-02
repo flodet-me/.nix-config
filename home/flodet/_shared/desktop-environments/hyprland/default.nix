@@ -26,6 +26,7 @@
   home.file.".config/hypr/tab.sh".source = ./tab.sh;
   home.file.".config/hypr/menu-power.sh".source = ./menu-power.sh;
   home.file.".config/hypr/hypridle.conf".source = ./hypridle.conf;
+  home.file.".config/networkmanager-dmenu/config.ini".source = ./networkmanager_dmenu.ini;
 
   # Application launcher
   programs.fuzzel = {
@@ -99,6 +100,7 @@
         autoHide = "never";
         battery.label = false;
         bluetooth.label = false;
+        bluetooth.rightClick = "blueman-manager";
         clock.format = "%a %b %d  %H:%M";
         clock.showIcon = true;
         clock.showTime = true;
@@ -109,9 +111,11 @@
         launcher.icon = "";
         network.label = true;
         network.showWifiInfo = true;
+        network.rightClick = "nm-connection-editor";
         notifications.hideCountWhenZero = true;
         notifications.show_total = true;
         volume.label = false;
+        volume.rightClick = "pavucontrol";
         windowtitle.class_name = true;
         windowtitle.custom_title = true;
         windowtitle.icon = true;
@@ -180,6 +184,8 @@
 
     # UI for network adjustments
     networkmanagerapplet
+
+    networkmanager_dmenu
 
     # UI for audio devices
     pavucontrol
