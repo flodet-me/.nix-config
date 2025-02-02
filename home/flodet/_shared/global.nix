@@ -14,6 +14,7 @@
     ./components/fzf.nix
     ./components/tmux.nix
     ./components/git/default.nix
+    ./nixpkgs.nix
   ];
 
   nix.package = pkgs.nix;

@@ -10,13 +10,8 @@
       url = "github:mic92/sops-nix";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    # home-manager, used for managing user configuration
     home-manager = {
       url = "github:nix-community/home-manager";
-      # The `follows` keyword in inputs is used for inheritance.
-      # Here, `inputs.nixpkgs` of home-manager is kept consistent with
-      # the `inputs.nixpkgs` of the current flake,
-      # to avoid problems caused by different versions of nixpkgs.
       inputs.nixpkgs.follows = "nixpkgs";
     };
     nix-vscode-extensions.url = "github:nix-community/nix-vscode-extensions";
@@ -58,8 +53,8 @@
           config.allowUnfree = true;
 
           overlays = [
-        inputs.hyprpanel.overlay
-   ];
+            inputs.hyprpanel.overlay
+          ];
         }
       );
     in
@@ -122,7 +117,6 @@
           modules = [
             stylix.homeManagerModules.stylix
             ./home/flodet/desktop/default.nix
-            ./home/flodet/nixpkgs.nix
           ];
           pkgs = pkgsFor.x86_64-linux;
           extraSpecialArgs = {
@@ -133,7 +127,6 @@
           modules = [
             stylix.homeManagerModules.stylix
             ./home/flodet/laptop/default.nix
-            ./home/flodet/nixpkgs.nix
           ];
           pkgs = pkgsFor.x86_64-linux;
           extraSpecialArgs = {
@@ -143,7 +136,6 @@
         "flodet@wsl" = lib.homeManagerConfiguration {
           modules = [
             ./home/flodet/wsl/default.nix
-            ./home/flodet/nixpkgs.nix
           ];
           pkgs = pkgsFor.x86_64-linux;
           extraSpecialArgs = {

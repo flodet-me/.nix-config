@@ -42,7 +42,7 @@
       "editor.renderWhitespace" = "all";
       "editor.inlineSuggest.syntaxHighlightingEnabled" = true;
       "editor.fontFamily" = "MonaspiceAr NFM";
-      "files.autoSave" = "afterDelay";
+      "files.autoSave" = "onFocusChange";
       "files.autoSaveWhenNoErrors" = true;
       "accessibility.dimUnfocused.enabled" = false;
       "explorer.fileNesting.enabled" = true;
