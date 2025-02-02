@@ -21,7 +21,7 @@
   ];
 
   home.packages = with pkgs; [
-    nvim
+    neovim
   ];
 
   nix.package = pkgs.nix;
