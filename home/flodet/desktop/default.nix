@@ -8,6 +8,7 @@
 
 {
   imports = [
+    ./hyprland
     ../_shared/global.nix
     ../_shared/desktop.nix
     ../_shared/desktop-environments/hyprland
