@@ -55,8 +55,8 @@
           inherit system;
           config.allowUnfree = true;
           overlays = [
-          inputs.hyprpanel.overlay
-        ];
+            inputs.hyprpanel.overlay
+          ];
         }
       );
     in

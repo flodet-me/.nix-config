@@ -36,6 +36,7 @@
   hardware.bluetooth.powerOnBoot = true; # powers up the default Bluetooth controller on boot
   services.blueman.enable = true;
 
+  programs.xwayland.enable = true;
   programs.hyprland = {
     enable = true;
     # set the flake package
