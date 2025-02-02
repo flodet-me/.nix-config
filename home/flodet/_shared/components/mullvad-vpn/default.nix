@@ -2,6 +2,10 @@
 
 {
 
+  home.sessionVariables = {
+    MULLVAD_ACCOUNT_KEY = "$(cat ${config.sops.secrets.mullvad-account-key.path})";
+  };
+
   sops.secrets.mullvad-account-key.path = "${config.sops.defaultSymlinkPath}/mullvad-account-key";
 
   # Install Mullvad VPN
@@ -23,9 +27,6 @@
 
     Service = {
       Type = "oneshot";
-      Environment = [
-        "MULLVAD_ACCOUNT_KEY=${builtins.readFile config.sops.secrets.mullvad-account-key.path}"
-      ];
       ExecStart = ''
         ${pkgs.mullvad-vpn}/bin/mullvad account login $MULLVAD_ACCOUNT_KEY
       '';

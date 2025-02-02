@@ -5,10 +5,43 @@ It is based on the experimental [flake feature](https://nixos.wiki/wiki/Flakes).
 
 **Current state**: Under development
 
+## Structure
+
+```
+.
+├── home            | Home-Manager configuration
+├── hosts           | NixOS configuration
+├── modules         | Actual modules.
+├── overlays        | Patches and version overrides for some packages.
+├── pkgs            | Custom packages.
+└── flake.nix       | Entry point and central point of configuration.
+```
+## NixOS
+
+This repository contains configuration for [NixOS](https://nixos.org/).
+They are stored under [./hosts](./hosts/).
+
+Applying the configuration execute the following command:
+
+```sh
+nixos-rebuild switch --flake .#<<HOST>>
+```
+
+## Home Manager
+
+This repository contains configuration for [home-manager](https://github.com/nix-community/home-manager).
+They are stored under [./home](./home/).
+
+Applying the configuration execute the following command:
+
+```sh
+home-manager switch --flake .#<<USER>>.<<HOST>>
+```
 
 ## Development
 
-To have the necessary tooling to adjust and build the configuration.
+This repository has a configuration with the necessary tooling to adjust and build the configuration.
+It is configured under [./shell.nix](./shell.nix).
 
 To start on a blank NixOS installation just run:
 
@@ -27,10 +60,6 @@ For example `sops`, `git`, `nix`, `home-manager`, or `nixfmt`.
 
 ## Secrets
 
-TODO: Separate config from secrets in depth.
-TODO: Change to hardware token.
-TODO: Add docs for system secrets
-
 This repository supports storing and providing secrets based on [SOPS](https://getsops.io/).
 Integrated into nix by using [sops-nix](https://github.com/Mic92/sops-nix).
 
@@ -44,6 +73,16 @@ Further information about how to access and add secrets can be found in subdirec
 Following a picture of the current hyprland setup with `flodet@desktop` (as of (01/2025))
 
 ![Hyprland preview](./.assets/2025-02-02_hyprland.png)
+
+## TODO
+
+- [ ] Separate config from secrets in depth
+- [ ] Start using hardware token for authentication
+- [ ] Add dual requirement for secrets of system and user
+- [ ] Using [disko](https://github.com/nix-community/disko)
+- [ ] Using [impermanence](https://github.com/nix-community/impermanence)
+- [ ] Enhance ricing for more consitency and adjust for theme
+- [ ] Add individual nvim config (TBD Tooling)
 
 
 ## Acknowledgment & References

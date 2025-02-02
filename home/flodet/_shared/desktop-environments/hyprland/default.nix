@@ -15,6 +15,7 @@
     BROWSER = "firefox";
     TERMINAL = "foot";
     HOME_LOCATION = "$(cat ${config.sops.secrets.home-location.path})";
+    WEATHER_API_KEY = "$(cat ${config.sops.secrets.weather-api-key.path})";
   };
 
   sops.secrets.home-location.path = "${config.sops.defaultSymlinkPath}/home-location";
@@ -131,9 +132,9 @@
             hideSeconds = true;
           };
           weather = {
-            # location = "${builtins.readFile config.sops.secrets.home-location.path}";
+            location = "$HOME_LOCATION";
             unit = "metric";
-            # key = "${builtins.readFile config.sops.secrets.weather-api-key.path}";
+            key = "$WEATHER_API_KEY";
           };
         };
         dashboard = {
