@@ -4,7 +4,6 @@
 }:
 {
   imports = [
-    ./waybar
   ];
 
   # Environment
@@ -17,6 +16,7 @@
   home.file.".config/hypr/hyprland.conf".source = ./hyprland.conf;
   home.file.".config/hypr/tab.sh".source = ./tab.sh;
   home.file.".config/hypr/menu-power.sh".source = ./menu-power.sh;
+  home.file.".config/hypr/hypridle.conf".source = ./hypridle.conf;
 
   # Application launcher
   programs.fuzzel = {
@@ -31,8 +31,8 @@
   # Wallpaper utility
   services.hyprpaper.enable = true;
 
-  # Notification daemon
-  services.swaync.enable = true;
+  # Idling utility
+  services.hypridle.enable = true;
 
   # Clipboard manager
   services.cliphist.enable = true;
@@ -77,6 +77,8 @@
     bitwarden-cli
 
     material-symbols
+
+    hyprpanel
 
   ];
 

@@ -30,6 +30,8 @@
       url = "gitlab:rycee/nur-expressions?dir=pkgs/firefox-addons";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+
+    hyprpanel.url = "github:Jas-SinghFSU/HyprPanel";
   };
 
   outputs =
@@ -54,6 +56,10 @@
         import nixpkgs {
           inherit system;
           config.allowUnfree = true;
+
+          overlays = [
+        inputs.hyprpanel.overlay
+   ];
         }
       );
     in
