@@ -14,6 +14,7 @@
     EDITOR = "nvim";
     BROWSER = "firefox";
     TERMINAL = "foot";
+    NIXOS_OZONE_WL = "1";
     HOME_LOCATION = "$(cat ${config.sops.secrets.home-location.path})";
     WEATHER_API_KEY = "$(cat ${config.sops.secrets.weather-api-key.path})";
   };

@@ -6,6 +6,9 @@
   ...
 }:
 {
+  home.username = "flodet";
+  home.homeDirectory = "/home/flodet";
+
   imports = [
     ./components/zsh.nix
     ./components/bash.nix
@@ -15,6 +18,10 @@
     ./components/tmux.nix
     ./components/git/default.nix
     ./nixpkgs.nix
+  ];
+
+  home.packages = with pkgs; [
+    nvim
   ];
 
   nix.package = pkgs.nix;

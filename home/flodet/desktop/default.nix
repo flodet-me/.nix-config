@@ -18,19 +18,12 @@
     ../_shared/secrets
   ];
 
-  home.username = "flodet";
-  home.homeDirectory = "/home/flodet";
-
   # Packages that should be installed to the user profile.
   home.packages = with pkgs; [
     cameractrls
     cameractrls-gtk3
     stremio
     drawio
-
-    lunarvim
-    neovim
-    nerd-fonts.fira-code
   ];
 
   fonts.fontconfig.enable = true;
