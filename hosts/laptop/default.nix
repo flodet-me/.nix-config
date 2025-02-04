@@ -27,6 +27,7 @@
     pkgs.vial
   ];
 
+  # Bootloader
   boot.loader.systemd-boot.enable = true;
   boot.loader.efi.canTouchEfiVariables = true;
 
@@ -57,29 +58,8 @@
   # List packages installed in system profile. To search, run:
   # $ nix search wget
   environment.systemPackages = with pkgs; [
-    spotify
-    vlc
-    gimp
-    obs-studio
-    blender
-    krita
-    kdenlive
-    imagemagick
-    headsetcontrol
-    vial
-    pandoc
-
     jdk23
     nodejs
-
-    # voip
-    discord
-
-    # browser
-    chromium
-
-    # encryption
-    veracrypt
   ];
 
   # This value determines the NixOS release from which the default

@@ -7,6 +7,12 @@
 {
   imports = [
     ../_shared/global.nix
+    ../_shared/desktop.nix
+    ../_shared/desktop-environments/hyprland
+    ../_shared/components/qmk
+    ../_shared/components/easyeffects
+    ../_shared/desktop-environments/gnome
+    ../_shared/secrets
   ];
 
   # This value determines the home Manager release that your

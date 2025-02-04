@@ -12,7 +12,7 @@
     ./components/locale.nix
     ./components/nix.nix
     ./components/nix-ld.nix
-    ./users/flodet/default.nix
+    ./users/flodet
   ];
 
   home-manager.useGlobalPkgs = true;
