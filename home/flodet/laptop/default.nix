@@ -10,7 +10,6 @@
   imports = [
     ../_shared/global.nix
     ../_shared/desktop.nix
-    ../_shared/desktop-environments/hyprland
     ../_shared/components/qmk
     ../_shared/components/stream-controller
     ../_shared/components/easyeffects
@@ -22,7 +21,6 @@
   home.packages = with pkgs; [
     cameractrls
     cameractrls-gtk3
-    stremio
     drawio
   ];
 
