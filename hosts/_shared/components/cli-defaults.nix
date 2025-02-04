@@ -11,7 +11,7 @@
     lazygit
     git-extras
 
-    ranger
+    yazi
     direnv
     curl
     wget
@@ -54,7 +54,6 @@
     # productivity
     iotop # io monitoring
     iftop # network monitoring
-    ctop # docker top
 
     bat # fancy cat
     fd # alternative to find

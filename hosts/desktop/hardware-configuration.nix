@@ -26,12 +26,6 @@
   boot.kernelModules = [ "kvm-amd" ];
   boot.extraModulePackages = [ ];
 
-  # Bootloader.
-  boot.loader.systemd-boot.enable = true;
-  boot.loader.efi.canTouchEfiVariables = true;
-
-  boot.initrd.luks.devices."luks-685d8ba3-23e2-4cad-af5a-33f9ce9bae50".device =
-    "/dev/disk/by-uuid/684d8ba3-23e2-4cad-af5a-33f9ce9bae50";
 
   fileSystems."/" = {
     device = "/dev/disk/by-uuid/075a4033-c0a7-412b-836f-f78147b55ee0";

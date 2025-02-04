@@ -16,7 +16,7 @@
     ./components/direnv.nix
     ./components/fzf.nix
     ./components/tmux.nix
-    ./components/git/default.nix
+    ./components/git
     ./nixpkgs.nix
   ];
 

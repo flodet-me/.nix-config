@@ -7,10 +7,7 @@
 
 {
   imports = [
-    inputs.hardware.nixosModules.common-cpu-amd
-    inputs.hardware.nixosModules.common-gpu-amd
-    inputs.hardware.nixosModules.common-pc-ssd
-
+    inputs.hardware.nixosModules.lenovo-thinkpad-t480
     ./hardware-configuration.nix
     ../_shared/global.nix
     ../_shared/components/silentboot.nix
@@ -30,33 +27,14 @@
     pkgs.vial
   ];
 
-  programs.dconf.enable = true;
+  boot.loader.systemd-boot.enable = true;
+  boot.loader.efi.canTouchEfiVariables = true;
 
-  hardware.bluetooth.enable = true; # enables support for Bluetooth
-  hardware.bluetooth.powerOnBoot = true; # powers up the default Bluetooth controller on boot
-  services.blueman.enable = true;
+  boot.initrd.luks.devices."luks-d097a819-f605-4012-9aa0-88c17e095ed0".device =
+    "/dev/disk/by-uuid/d097a819-f605-4012-9aa0-88c17e095ed0";
 
-  programs.xwayland.enable = true;
-  programs.hyprland = {
-    enable = true;
-    # set the flake package
-    package = inputs.hyprland.packages.${pkgs.stdenv.hostPlatform.system}.hyprland;
-    # make sure to also set the portal package, so that they are in sync
-    portalPackage =
-      inputs.hyprland.packages.${pkgs.stdenv.hostPlatform.system}.xdg-desktop-portal-hyprland;
-  };
 
-  nix.settings.experimental-features = [
-    "nix-command"
-    "flakes"
-  ];
-
-  programs.streamcontroller.enable = true;
-  programs.zsh.enable = true;
-
-  networking.hostName = "desktop"; # Define your hostname.
-
-  fonts.fontDir.enable = true;
+  networking.hostName = "laptop"; # Define your hostname.
 
   # Enable networking
   networking.networkmanager.enable = true;
@@ -73,14 +51,36 @@
     enable = true;
   };
 
+  virtualisation.libvirtd.enable = true;
+  programs.virt-manager.enable = true;
+
   # List packages installed in system profile. To search, run:
   # $ nix search wget
   environment.systemPackages = with pkgs; [
+    spotify
+    vlc
+    gimp
+    obs-studio
+    blender
+    krita
+    kdenlive
+    imagemagick
+    headsetcontrol
+    vial
+    pandoc
+
     jdk23
     nodejs
-  ];
 
-  # environment.pathsToLink = [ "/share/zsh-vi-mode" ];
+    # voip
+    discord
+
+    # browser
+    chromium
+
+    # encryption
+    veracrypt
+  ];
 
   # This value determines the NixOS release from which the default
   # settings for stateful data, like file locations and database versions

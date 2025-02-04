@@ -78,7 +78,7 @@
             inherit inputs outputs;
           };
           modules = [
-            ./hosts/desktop/configuration.nix
+            ./hosts/desktop
           ];
         };
         laptop = nixpkgs.lib.nixosSystem {
@@ -86,8 +86,7 @@
             inherit inputs outputs;
           };
           modules = [
-            ./hosts/laptop/configuration.nix
-            inputs.stylix.nixosModules.stylix
+            ./hosts/laptop
           ];
         };
         lunar = nixpkgs.lib.nixosSystem {
@@ -95,7 +94,7 @@
             inherit inputs outputs;
           };
           modules = [
-            ./hosts/lunar/configuration.nix
+            ./hosts/lunar
           ];
         };
         wsl = nixpkgs.lib.nixosSystem {
@@ -103,7 +102,7 @@
             inherit inputs outputs;
           };
           modules = [
-            ./hosts/wsl/configuration.nix
+            ./hosts/wsl
             nixos-wsl.nixosModules.default
             {
               system.stateVersion = "24.05";
@@ -118,7 +117,7 @@
         "flodet@desktop" = lib.homeManagerConfiguration {
           modules = [
             stylix.homeManagerModules.stylix
-            ./home/flodet/desktop/default.nix
+            ./home/flodet/desktop
           ];
           pkgs = pkgsFor.x86_64-linux;
           extraSpecialArgs = {
@@ -128,7 +127,7 @@
         "flodet@laptop" = lib.homeManagerConfiguration {
           modules = [
             stylix.homeManagerModules.stylix
-            ./home/flodet/laptop/default.nix
+            ./home/flodet/laptop
           ];
           pkgs = pkgsFor.x86_64-linux;
           extraSpecialArgs = {
@@ -137,7 +136,7 @@
         };
         "flodet@wsl" = lib.homeManagerConfiguration {
           modules = [
-            ./home/flodet/wsl/default.nix
+            ./home/flodet/wsl
           ];
           pkgs = pkgsFor.x86_64-linux;
           extraSpecialArgs = {

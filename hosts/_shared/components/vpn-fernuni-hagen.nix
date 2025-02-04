@@ -15,7 +15,7 @@
         autoconnect = "false";
       };
       vpn = {
-        authtype= "password";
+        authtype = "password";
         gateway = "vpn.fernuni-hagen.de";
         protocol = "anyconnect";
         service-type = "org.freedesktop.NetworkManager.openconnect";
@@ -24,7 +24,7 @@
         method = "auto";
       };
       ipv6 = {
-        addr-gen-mode= "default";
+        addr-gen-mode = "default";
         method = "auto";
       };
     };
