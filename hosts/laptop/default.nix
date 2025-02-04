@@ -11,13 +11,10 @@
     ./hardware-configuration.nix
     ../_shared/global.nix
     ../_shared/components/silentboot.nix
-    ../_shared/components/nvidia-graphics-driver.nix
-    ../_shared/components/nvidia-cuda.nix
     ../_shared/components/pipewire.nix
     ../_shared/components/wireshark.nix
     ../_shared/components/gnome.nix
     ../_shared/components/cli-defaults.nix
-    ../_shared/components/gaming.nix
     ../_shared/components/vpn-fernuni-hagen.nix
   ];
 
