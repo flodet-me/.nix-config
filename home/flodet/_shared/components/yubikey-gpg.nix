@@ -39,6 +39,7 @@
     enable = true;
 
     # https://github.com/drduh/config/blob/master/gpg-agent.conf
+    enableSshSupport = true;
     defaultCacheTtl = 60;
     maxCacheTtl = 120;
     pinentryPackage = pkgs.pinentry-curses;
