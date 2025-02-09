@@ -3,7 +3,7 @@
 This is the [home manager](https://github.com/nix-community/home-manager) configuration for [`flodet`](https://github.com/flodet-me).
 
 Public SSH Key: [Reference](./ssh.pub)
-Public GPG Key: [Reference](./pgp.pub)
+Public GPG Key: [Reference](./3AA38E98CA2AE31F.asc)
 
 ## Structure
 
