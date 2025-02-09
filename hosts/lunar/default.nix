@@ -19,7 +19,6 @@
     ''ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIN9l0ZWdNgRv7wS68DquWySb+Zc5x9tJf3viat54Az0b''
   ];
 
-
   services.traefik = {
     enable = true;
 

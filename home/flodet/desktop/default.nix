@@ -13,6 +13,7 @@
     ../_shared/desktop.nix
     ../_shared/desktop-environments/hyprland
     ../_shared/components/qmk
+    ../_shared/components/yubikey-gpg.nix
     ../_shared/components/stream-controller
     ../_shared/components/easyeffects
     ../_shared/desktop-environments/gnome

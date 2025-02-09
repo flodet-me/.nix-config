@@ -20,6 +20,7 @@
     ../_shared/components/wireshark.nix
     ../_shared/components/gnome.nix
     ../_shared/components/cli-defaults.nix
+    ../_shared/components/yubikey-gpg.nix
     ../_shared/components/gaming.nix
     ../_shared/components/vpn-fernuni-hagen.nix
   ];
@@ -30,7 +31,6 @@
 
   boot.initrd.luks.devices."luks-685d8ba3-23e2-4cad-af5a-33f9ce9bae50".device =
     "/dev/disk/by-uuid/684d8ba3-23e2-4cad-af5a-33f9ce9bae50";
-
 
   hardware.keyboard.qmk.enable = true;
   services.udev.packages = [

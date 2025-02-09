@@ -31,7 +31,6 @@
   boot.initrd.luks.devices."luks-d097a819-f605-4012-9aa0-88c17e095ed0".device =
     "/dev/disk/by-uuid/d097a819-f605-4012-9aa0-88c17e095ed0";
 
-
   networking.hostName = "laptop"; # Define your hostname.
 
   # Enable networking
