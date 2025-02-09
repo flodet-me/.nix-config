@@ -91,5 +91,6 @@ The following resources were immensely helpful in setting up this repository:
 
 - https://github.com/Misterio77/nix-config
 - https://www.youtube.com/@vimjoyer
+- https://github.com/drduh/YubiKey-Guide
 
 Also thank you to all the package maintainers, tool developer, and other resources I did not mention.
