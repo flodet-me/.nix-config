@@ -1,7 +1,7 @@
 [user]
 email = inbox@flodet.me
 name = flodet
-signingkey = 3AA38E98CA2AE31F
+signingkey = B39042889DD7D4BA
 
 [commit]
 gpgsign = true
