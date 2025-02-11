@@ -26,6 +26,7 @@
     cameractrls-gtk3
     stremio
     drawio
+    libreoffice-qt
   ];
 
   fonts.fontconfig.enable = true;
