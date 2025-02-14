@@ -97,6 +97,14 @@
             ./hosts/lunar
           ];
         };
+        portal = nixpkgs.lib.nixosSystem {
+          specialArgs = {
+            inherit inputs outputs;
+          };
+          modules = [
+            ./hosts/portal
+          ];
+        };
         wsl = nixpkgs.lib.nixosSystem {
           specialArgs = {
             inherit inputs outputs;
