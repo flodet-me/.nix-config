@@ -1,10 +1,13 @@
 keys:
   - &users:
-    - &flodet age1vr2x2m3xg7hqkzzegz9w4p2gakta6xp3k5wdr0p3u9mztvvrlacswrmu78
+    - &flodet EA6BC2582018ACD653426615532B59762527E7DF
   - &hosts:
+    - &desktop age1kpsvx5463u959skkzu4apzlpwr9pjafmczwh3xx8uc90nqpj6cgslv7d34
 
 creation_rules:
   - path_regex:  secrets.(yaml|json|env|ini)$
     key_groups:
-    - age:
+    - pgp:
       - *flodet
+    - age:
+      - *desktop
