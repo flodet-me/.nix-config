@@ -14,8 +14,9 @@
         tmux
       fi
 
+      # https://gist.github.com/mcattarinussi/834fc4b641ff4572018d0c665e5a94d3#setup-the-gpg-agent-for-ssh-authentication
       unset SSH_AGENT_PID
-      if [ "$(gnupg_SSH_AUTH_SOCK_by: -0)" -ne $$ ]; then
+      if [ "''${gnupg_SSH_AUTH_SOCK_by:-0}" -ne $$ ]; then
         export SSH_AUTH_SOCK="$(gpgconf --list-dirs agent-ssh-socket)"
       fi
       export GPG_TTY=$(tty)
