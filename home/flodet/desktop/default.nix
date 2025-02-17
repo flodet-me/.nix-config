@@ -8,10 +8,10 @@
 
 {
   imports = [
-    ./hyprland
+    # ./hyprland
     ../_shared/global.nix
     ../_shared/desktop.nix
-    ../_shared/desktop-environments/hyprland
+    # ../_shared/desktop-environments/hyprland
     ../_shared/components/qmk
     ../_shared/components/yubikey-gpg.nix
     ../_shared/components/stream-controller

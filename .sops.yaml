@@ -5,9 +5,14 @@ keys:
     - &desktop age1kpsvx5463u959skkzu4apzlpwr9pjafmczwh3xx8uc90nqpj6cgslv7d34
 
 creation_rules:
-  - path_regex:  secrets.(yaml|json|env|ini)$
+  - path_regex:  home/.*/secrets.(yaml|json|env|ini)$
     key_groups:
     - pgp:
       - *flodet
+    - age:
+      - *desktop
+
+  - path_regex:  hosts/_shared/.*/secrets.(yaml|json|env|ini)$
+    key_groups:
     - age:
       - *desktop
