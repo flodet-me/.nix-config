@@ -11,6 +11,8 @@
     ./assets
   ];
 
+  programs.joplin-desktop.enable = true;
+
   home.packages = with pkgs; [
     spotify
     vlc
