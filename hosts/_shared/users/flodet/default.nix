@@ -25,7 +25,8 @@ in
       "docker"
       "vboxusers"
     ];
-    hashedPasswordFile = config.sops.secrets.flodet-password.path;
+    # hashedPasswordFile = config.sops.secrets.flodet-password.path;
+    password = "123456789";
   };
 
   sops = {
