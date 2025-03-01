@@ -13,9 +13,9 @@
         with pkgs.inputs.firefox-addons;
         let
           bpc-update = bypass-paywalls-clean.override {
-            version = "4.0.1.0";
-            url = "https://gitflic.ru/project/magnolia1234/bpc_uploads/blob/raw?file=bypass_paywalls_clean-4.0.1.0.xpi";
-            sha256 = "sha256-J8ABW3mODdXpJ8lm5KpZr6Fhrmjf3CTTKT/uK6nkbSA=";
+            version = "4.0.5.3";
+            url = "https://gitflic.ru/project/magnolia1234/bpc_uploads/blob/raw?file=bypass_paywalls_clean-4.0.5.3.xpi";
+            sha256 = "sha256-H6wqLTtMVm8Jkc0qVJpPCFf+nSa9HxddBuIKKXJ9+wk=";
           };
         in
         [

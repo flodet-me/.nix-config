@@ -20,7 +20,7 @@
     obs-studio
     blender
     krita
-    kdenlive
+    kdePackages.kdenlive
     imagemagick
     headsetcontrol
     vial

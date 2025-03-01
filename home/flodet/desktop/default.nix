@@ -25,7 +25,6 @@
     cameractrls
     cameractrls-gtk3
     stremio
-    drawio
     libreoffice-qt
   ];
 
