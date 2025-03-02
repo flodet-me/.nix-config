@@ -16,6 +16,7 @@ It is based on the experimental [flake feature](https://nixos.wiki/wiki/Flakes).
 ├── pkgs            | Custom packages.
 └── flake.nix       | Entry point and central point of configuration.
 ```
+
 ## NixOS
 
 This repository contains configuration for [NixOS](https://nixos.org/).
