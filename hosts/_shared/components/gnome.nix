@@ -3,9 +3,10 @@
 {
   services.xserver = {
     enable = true;
-    displayManager.gdm.enable = true;
-    desktopManager.gnome.enable = true;
   };
+
+  services.displayManager.gdm.enable = true;
+  services.desktopManager.gnome.enable = true;
 
   # Enable automatic login for the user.
   services.displayManager.autoLogin.enable = true;
