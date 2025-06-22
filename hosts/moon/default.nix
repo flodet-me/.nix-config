@@ -21,8 +21,10 @@
   # Enable networking
   networking.networkmanager.enable = true;
 
+  services.openssh.enable = true;
 
-  # environment.pathsToLink = [ "/share/zsh-vi-mode" ];
+
+  environment.pathsToLink = [ "/share/zsh-vi-mode" ];
 
   # This value determines the NixOS release from which the default
   # settings for stateful data, like file locations and database versions

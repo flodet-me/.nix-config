@@ -97,6 +97,14 @@
             ./hosts/lunar
           ];
         };
+        moon = nixpkgs.lib.nixosSystem {
+          specialArgs = {
+            inherit inputs outputs;
+          };
+          modules = [
+            ./hosts/moon
+          ];
+        };
         portal = nixpkgs.lib.nixosSystem {
           specialArgs = {
             inherit inputs outputs;
