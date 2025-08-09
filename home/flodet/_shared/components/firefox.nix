@@ -9,15 +9,15 @@
     enable = true;
     profiles.flodet = {
 
-      extensions =
+      extensions.packages =
         with pkgs.inputs.firefox-addons;
-        let
-          bpc-update = bypass-paywalls-clean.override {
-            version = "4.0.5.3";
-            url = "https://gitflic.ru/project/magnolia1234/bpc_uploads/blob/raw?file=bypass_paywalls_clean-4.0.5.3.xpi";
-            sha256 = "sha256-H6wqLTtMVm8Jkc0qVJpPCFf+nSa9HxddBuIKKXJ9+wk=";
-          };
-        in
+        # let
+        #   bpc-update = bypass-paywalls-clean.override {
+        #     version = "4.0.5.3";
+        #     url = "https://gitflic.ru/project/magnolia1234/bpc_uploads/blob/raw?file=bypass_paywalls_clean-4.0.5.3.xpi";
+        #     sha256 = "sha256-H6wqLTtMVm8Jkc0qVJpPCFf+nSa9HxddBuIKKXJ9+wk=";
+        #   };
+        # in
         [
           # Essentials
           ublock-origin
@@ -31,7 +31,7 @@
           sponsorblock
           unpaywall
           videospeed
-          bpc-update
+          # bpc-update
 
           # Integration
           zotero-connector
