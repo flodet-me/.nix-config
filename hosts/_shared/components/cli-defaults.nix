@@ -30,7 +30,7 @@
     yq-go # yaml processor https://github.com/mikefarah/yq
     eza # A modern replacement for ‘ls’
     fzf # A command-line fuzzy finder
-    grc # Frontend colouriserr
+    grc # Frontend colouriser
 
     # networking tools
     mtr # A network diagnostic tool
@@ -73,5 +73,8 @@
 
     # media tools
     ffmpeg
+
+    # database
+    sqlite
   ];
 }
