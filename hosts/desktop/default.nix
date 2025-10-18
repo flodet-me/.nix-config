@@ -84,6 +84,7 @@
   environment.systemPackages = with pkgs; [
     jdk23
     nodejs
+    android-studio
   ];
 
   # environment.pathsToLink = [ "/share/zsh-vi-mode" ];

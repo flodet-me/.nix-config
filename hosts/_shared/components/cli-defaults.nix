@@ -15,7 +15,6 @@
     direnv
     curl
     wget
-    python3Full
     pipx
 
     # archives
