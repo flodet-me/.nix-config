@@ -23,6 +23,7 @@ in
       "video"
       "wheel"
       "docker"
+      "podman"
       "vboxusers"
     ];
     # hashedPasswordFile = config.sops.secrets.flodet-password.path;
