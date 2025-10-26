@@ -12,6 +12,7 @@
 
     ./hardware-configuration.nix
     ../_shared/global.nix
+    ../_shared/components/cli-defaults.nix
   ];
 
   # Bootloader
