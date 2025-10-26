@@ -27,6 +27,9 @@
 
   services.openssh.enable = true;
 
+  virtualisation.oci-containers = {
+    backend = "podman";
+  };
 
   environment.pathsToLink = [ "/share/zsh-vi-mode" ];
 
