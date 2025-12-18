@@ -18,7 +18,6 @@
 
     stylix.url = "github:danth/stylix";
     nixos-wsl.url = "github:nix-community/NixOS-WSL/main";
-    hyprland.url = "github:hyprwm/Hyprland";
 
     # Third party programs, packaged with nix
     firefox-addons = {
@@ -40,7 +39,6 @@
       nixos-wsl,
       nix-vscode-extensions,
       home-manager,
-      hyprland,
       stylix,
       systems,
       ...
@@ -62,8 +60,6 @@
     in
     {
       inherit lib;
-      nixosModules = import ./modules/nixos;
-      homeManagerModules = import ./modules/home-manager;
 
       overlays = import ./overlays { inherit inputs outputs; };
       # hydraJobs = import ./hydra.nix { inherit inputs outputs; };
