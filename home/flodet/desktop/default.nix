@@ -28,6 +28,11 @@
     libreoffice-qt
   ];
 
+  # FIX: Only necessary for stremio. After update change and remove exception.
+  nixpkgs.config.permittedInsecurePackages = [
+    "qtwebengine-5.15.19"
+  ];
+
   fonts.fontconfig.enable = true;
 
   # This value determines the home Manager release that your
