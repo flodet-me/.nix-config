@@ -53,7 +53,6 @@
           inherit system;
           config.allowUnfree = true;
           overlays = [
-            inputs.hyprpanel.overlay
           ];
         }
       );
@@ -83,14 +82,6 @@
           };
           modules = [
             ./hosts/laptop
-          ];
-        };
-        lunar = nixpkgs.lib.nixosSystem {
-          specialArgs = {
-            inherit inputs outputs;
-          };
-          modules = [
-            ./hosts/lunar
           ];
         };
         moon = nixpkgs.lib.nixosSystem {
@@ -128,7 +119,7 @@
       homeConfigurations = {
         "flodet@desktop" = lib.homeManagerConfiguration {
           modules = [
-            stylix.homeManagerModules.stylix
+            stylix.homeModules.stylix
             ./home/flodet/desktop
           ];
           pkgs = pkgsFor.x86_64-linux;
@@ -138,7 +129,7 @@
         };
         "flodet@laptop" = lib.homeManagerConfiguration {
           modules = [
-            stylix.homeManagerModules.stylix
+            stylix.homeModules.stylix
             ./home/flodet/laptop
           ];
           pkgs = pkgsFor.x86_64-linux;

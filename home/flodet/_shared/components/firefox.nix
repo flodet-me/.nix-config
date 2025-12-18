@@ -4,6 +4,10 @@
   ...
 }:
 {
+  stylix.targets.firefox.profileNames = [
+    "flodet"
+  ];
+
   # Install firefox.
   programs.firefox = {
     enable = true;

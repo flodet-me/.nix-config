@@ -6,7 +6,7 @@
 }:
 {
   imports = [
-    inputs.hyprpanel.homeManagerModules.hyprpanel
+    inputs.hyprpanel.homeModules.hyprpanel
   ];
 
   # Environment
