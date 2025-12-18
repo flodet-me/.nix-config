@@ -46,7 +46,7 @@
     let
       inherit (self) outputs;
       lib = nixpkgs.lib // home-manager.lib;
-      forEachSystem = f: lib.genAttrs (import systems) (system: f pkgsFor.${system});
+      forEachSystem = f: lib.genAttrs (import systems) (system: f pkgsFor.${stdenv.hostPlatform.system});
       pkgsFor = lib.genAttrs (import systems) (
         system:
         import nixpkgs {

@@ -11,8 +11,8 @@ let
 in
 {
   # For every flake input, aliases 'pkgs.inputs.${flake}' to
-  # 'inputs.${flake}.packages.${pkgs.system}' or
-  # 'inputs.${flake}.legacyPackages.${pkgs.system}'
+  # 'inputs.${flake}.packages.{pkgs.stdenv.hostPlatform.system}' or
+  # 'inputs.${flake}.legacyPackages.{pkgs.stdenv.hostPlatform.system}'
   flake-inputs = final: _: {
     inputs = builtins.mapAttrs (
       _: flake:
@@ -24,7 +24,7 @@ in
     ) inputs;
   };
 
-  # Adds pkgs.stable == inputs.nixpkgs-stable.legacyPackages.${pkgs.system}
+  # Adds pkgs.stable == inputs.nixpkgs-stable.legacyPackages.{pkgs.stdenv.hostPlatform.system}
   stable = final: _: {
     stable = inputs.nixpkgs.legacyPackages.${final.system};
   };
