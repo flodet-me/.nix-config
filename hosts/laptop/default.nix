@@ -14,6 +14,7 @@
     ../_shared/components/pipewire.nix
     ../_shared/components/wireshark.nix
     ../_shared/components/gnome.nix
+    ../_shared/components/yubikey-gpg.nix
     ../_shared/components/cli-defaults.nix
     ../_shared/components/vpn-fernuni-hagen.nix
   ];
