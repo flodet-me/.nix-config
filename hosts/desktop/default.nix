@@ -77,6 +77,26 @@
     android-studio
   ];
 
+  systemd.services.nvidia-power-limit = {
+    description = "Set NVIDIA GPU Power Limit";
+    after = [ "nvidia-persistenced.service" ];
+    wants = [ "nvidia-persistenced.service" ];
+    wantedBy = [ "multi-user.target" ];
+
+    # We use the driver package already defined in your config
+    path = [ config.hardware.nvidia.package ];
+
+    script = ''
+      nvidia-smi -pm 1
+      nvidia-smi -pl 150
+    '';
+
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+    };
+  };
+
   # environment.pathsToLink = [ "/share/zsh-vi-mode" ];
 
   # This value determines the NixOS release from which the default

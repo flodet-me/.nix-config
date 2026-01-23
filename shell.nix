@@ -13,7 +13,7 @@
       ssh-to-age
       gnupg
       age
-      nixfmt-rfc-style
+      nixfmt
       nix-output-monitor
     ];
   };
