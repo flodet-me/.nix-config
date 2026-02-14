@@ -5,7 +5,7 @@
     #gaming
     lutris
     winetricks
-    wineWowPackages.stable
+    wineWow64Packages.stable
   ];
 
   # Install steam.
