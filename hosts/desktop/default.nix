@@ -64,6 +64,14 @@
     package = pkgs.mullvad-vpn;
   };
 
+  services.sunshine = {
+    enable = true;
+    autoStart = true;
+    capSysAdmin = true;
+    openFirewall = true;
+
+  };
+
   virtualisation.docker = {
     enable = true;
   };
