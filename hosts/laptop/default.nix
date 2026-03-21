@@ -27,6 +27,8 @@
 
   # Bootloader
   boot.loader.systemd-boot.enable = true;
+  boot.loader.systemd-boot.configurationLimit = 10;
+
   boot.loader.efi.canTouchEfiVariables = true;
 
   boot.initrd.luks.devices."luks-d097a819-f605-4012-9aa0-88c17e095ed0".device =
