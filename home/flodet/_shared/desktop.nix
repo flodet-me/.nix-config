@@ -28,7 +28,6 @@
     nextcloud-client
     tenacity
     alsa-utils
-    calibre
 
     ledger-live-desktop
     obsidian

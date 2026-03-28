@@ -10,8 +10,10 @@
     inputs.hardware.nixosModules.common-cpu-amd
     inputs.hardware.nixosModules.common-gpu-amd
     inputs.hardware.nixosModules.common-pc-ssd
+    inputs.impermanence.nixosModules.impermanence
 
     ./hardware-configuration.nix
+    ./persistence.nix
     ../_shared/global.nix
     ../_shared/components/silentboot.nix
     ../_shared/components/nvidia-graphics-driver.nix
@@ -48,7 +50,6 @@
 
   programs.xwayland.enable = true;
 
-  programs.streamcontroller.enable = true;
   programs.zsh.enable = true;
 
   networking.hostName = "desktop"; # Define your hostname.
