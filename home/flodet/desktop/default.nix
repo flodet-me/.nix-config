@@ -24,7 +24,6 @@
   home.packages = with pkgs; [
     cameractrls
     cameractrls-gtk3
-    stremio-linux-shell
     libreoffice-qt
   ];
 

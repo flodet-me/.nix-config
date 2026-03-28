@@ -28,8 +28,7 @@
       enabled-extensions = [
         "AlphabeticalAppGrid@stuarthayhurst"
         "clipboard-history@alexsaveau.dev"
-        "dock-from-dash@fthx"
-        "mullvadindicator@pobega.github.com"
+        "bottom-dash-panel@fthx"
         "HeadsetControl@lauinger-clan.de"
         "emoji-copy@felipeftn"
         "system-monitor@gnome-shell-extensions.gcampax.github.com"
