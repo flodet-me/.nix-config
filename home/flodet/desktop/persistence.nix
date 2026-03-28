@@ -37,12 +37,12 @@
 
       # --- High-Volume / Binary Tools (Consider Symlinks for performance) ---
       # Using symlinks for these prevents double-writes and potential FUSE overhead
-      { directory = ".local/share/Steam"; method = "symlink"; }
-      { directory = ".local/share/lutris"; method = "symlink"; }
-      { directory = ".local/share/bottles"; method = "symlink"; }
-      { directory = ".wine"; method = "symlink"; }
-      { directory = "Android"; method = "symlink"; }
-      { directory = ".gradle"; method = "symlink"; }
+      { directory = ".local/share/Steam"; }
+      { directory = ".local/share/lutris"; }
+      { directory = ".local/share/bottles";  }
+      { directory = ".wine"; }
+      { directory = "Android"; }
+      { directory = ".gradle"; }
 
       # --- Browsers & Communication ---
       ".mozilla/firefox"
@@ -96,4 +96,5 @@
       ".config/autostart/Nextcloud.desktop"
     ];
   };
+
 }
