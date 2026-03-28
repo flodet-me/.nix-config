@@ -17,7 +17,6 @@
     ../_shared/components/easyeffects
     ../_shared/desktop-environments/gnome
     ../_shared/secrets
-    ./persistence.nix
 
   ];
 

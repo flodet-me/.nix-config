@@ -33,7 +33,6 @@
       "/var/lib/systemd/luksrecoverykey"
     ];
     files = [
-      "/etc/machine-id"
     ];
   };
 }
