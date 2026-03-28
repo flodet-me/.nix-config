@@ -31,7 +31,7 @@
 
       # GNOME state & extensions
       ".local/share/gnome-shell"
-      ".config/dconf"              # all GNOME settings live here
+      ".config/dconf" # all GNOME settings live here
       ".local/share/gvfs-metadata"
 
       # Fonts

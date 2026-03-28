@@ -6,7 +6,12 @@
       # System state
       "/var/log"
       "/var/lib/nixos"
-      { directory = "/var/lib/systemd"; user = "root"; group = "root"; mode = "0755"; }
+      {
+        directory = "/var/lib/systemd";
+        user = "root";
+        group = "root";
+        mode = "0755";
+      }
 
       # Networking
       "/etc/NetworkManager/system-connections"

@@ -3,14 +3,19 @@
   inputs,
   pkgs,
   ...
-}: {
+}:
+{
   imports = [ inputs.impermanence.nixosModules.impermanence ];
 
   # 1. The Impermanence Core: Root is RAM
   fileSystems."/" = {
     device = "none";
     fsType = "tmpfs";
-    options = [ "defaults" "size=2G" "mode=755" ];
+    options = [
+      "defaults"
+      "size=2G"
+      "mode=755"
+    ];
   };
 
   # 2. Persistence: This will live on the VM's virtual drive
@@ -25,14 +30,12 @@
     files = [ "/etc/machine-id" ];
   };
 
-
   fileSystems."/persistent" = {
     device = "/dev/vda"; # The emptyDiskImage above
     fsType = "ext4";
     autoFormat = true;
     neededForBoot = true;
   };
-
 
   # User setup
   users.users.testuser = {

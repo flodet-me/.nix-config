@@ -45,7 +45,7 @@
         import nixpkgs {
           inherit system;
           config.allowUnfree = true;
-          overlays = [];
+          overlays = [ ];
         }
       );
     in
@@ -64,7 +64,6 @@
               home-manager.useGlobalPkgs = true;
               home-manager.useUserPackages = true;
               home-manager.extraSpecialArgs = { inherit inputs outputs; };
-              home-manager.sharedModules = [ stylix.homeModules.stylix ];
               home-manager.users.flodet = import ./home/flodet/desktop;
             }
             ./hosts/desktop
@@ -78,7 +77,6 @@
               home-manager.useGlobalPkgs = true;
               home-manager.useUserPackages = true;
               home-manager.extraSpecialArgs = { inherit inputs outputs; };
-              home-manager.sharedModules = [ stylix.homeModules.stylix ];
               home-manager.users.flodet = import ./home/flodet/laptop;
             }
             ./hosts/laptop

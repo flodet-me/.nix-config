@@ -1,4 +1,5 @@
 {
+  inputs,
   pkgs,
   ...
 }:
@@ -9,6 +10,7 @@
     ./components/stylix
     ./components/mullvad-vpn
     ./assets
+    inputs.stylix.homeModules.stylix
   ];
 
   home.packages = with pkgs; [
