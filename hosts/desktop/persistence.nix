@@ -1,5 +1,20 @@
 { ... }:
 {
+  boot.initrd.postDeviceCommands = lib.mkAfter ''
+    mkdir /btrfs_tmp
+    mount /dev/mapper/enc /btrfs_tmp
+    if [[ -e /btrfs_tmp/@root ]]; then
+      mkdir -p /btrfs_tmp/@root-old
+      timestamp=$(date --date="@$(stat -c %Y /btrfs_tmp/@root)" "+%Y-%m-%d_%H:%M:%S")
+      mv /btrfs_tmp/@root "/btrfs_tmp/@root-old/$timestamp"
+    fi
+    btrfs subvolume create /btrfs_tmp/@root
+    umount /btrfs_tmp
+    rmdir /btrfs_tmp
+  '';
+
+  fileSystems."/persistent".neededForBoot = true;
+
   environment.persistence."/persistent" = {
     hideMounts = true;
     directories = [

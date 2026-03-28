@@ -33,11 +33,7 @@ nixos-rebuild switch --flake .#<<HOST>>
 This repository contains configuration for [home-manager](https://github.com/nix-community/home-manager).
 They are stored under [./home](./home/).
 
-Applying the configuration execute the following command:
-
-```sh
-home-manager switch --flake .#<<USER>>.<<HOST>>
-```
+The configurations are applied as a module with [NixOS](#nixos).
 
 ## Development
 
@@ -68,6 +64,72 @@ Currently the age key generated of my SSH-Key is used.
 
 Further information about how to access and add secrets can be found in subdirectories.
 
+## Deployment
+
+### USB-Stick creation
+
+```bash
+# Grab the latest minimal ISO
+wget https://channels.nixos.org/nixos-unstable/latest-nixos-minimal-x86_64-linux.iso
+
+# Make sgdisk available
+nix shell nixpkgs#gptfdisk
+
+# Wipe and partition
+sudo wipefs -af /dev/sdb
+sudo sgdisk -n1:0:+2G -t1:0700 -c1:"ISO" -n2:0:0 -t2:8300 -c2:"CONFIG" /dev/sdb
+sudo udevadm settle
+
+# Format
+sudo mkfs.fat -F32 /dev/sdb1
+sudo mkfs.ext4 -F -L CONFIG /dev/sdb2
+
+# Write ISO
+sudo dd if=/path/to/nixos-minimal.iso of=/dev/sdb1 bs=4M status=progress oflag=sync
+
+# Copy flake
+MNT=$(mktemp -d)
+sudo mount /dev/sdb2 "$MNT"
+sudo cp -r /etc/nixos "$MNT/nixos-config"
+sudo umount "$MNT"
+```
+
+### Installation
+
+Based on config:
+
+```bash
+# On the live ISO
+mkdir /mnt/usb
+mount /dev/sdb1 /mnt/usb
+
+# Run disko
+sudo nix --experimental-features "nix-command flakes" run github:nix-community/disko -- \
+  --mode disko \
+  --flake /mnt/usb/.nix-config#yourhostname
+
+# Install
+sudo nixos-install --flake /mnt/usb/nixos-config#yourhostname
+```
+Based on github:
+
+```bash
+# On the live ISO, just reference it directly
+sudo nix --experimental-features "nix-command flakes" run github:nix-community/disko -- \
+  --mode disko \
+  --flake github:flodet/.nix-config#{yourhostname}
+
+sudo nixos-install --flake github:flodet/.nix-config#{yourhostname}
+```
+
+### Anywhere deployment
+
+```bash
+# On your current NixOS machine
+nix run github:nix-community/nixos-anywhere -- \
+  --flake .#{yourhostname} \
+  {root}@{targetip}
+```
 
 ## Preview
 

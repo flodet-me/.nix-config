@@ -15,9 +15,18 @@
       ".nix-config"
 
       # --- Critical Auth & Secrets ---
-      { directory = ".gnupg"; mode = "0700"; }
-      { directory = ".ssh"; mode = "0700"; }
-      { directory = ".local/share/keyrings"; mode = "0700"; }
+      {
+        directory = ".gnupg";
+        mode = "0700";
+      }
+      {
+        directory = ".ssh";
+        mode = "0700";
+      }
+      {
+        directory = ".local/share/keyrings";
+        mode = "0700";
+      }
       ".config/sops"
 
       # --- Desktop Environment (GNOME) ---
@@ -40,7 +49,7 @@
       # Using symlinks for these prevents double-writes and potential FUSE overhead
       { directory = ".local/share/Steam"; }
       { directory = ".local/share/lutris"; }
-      { directory = ".local/share/bottles";  }
+      { directory = ".local/share/bottles"; }
       { directory = ".wine"; }
       { directory = "Android"; }
       { directory = ".gradle"; }
