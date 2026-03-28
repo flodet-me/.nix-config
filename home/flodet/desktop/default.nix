@@ -24,13 +24,8 @@
   home.packages = with pkgs; [
     cameractrls
     cameractrls-gtk3
-    stremio
+    stremio-linux-shell
     libreoffice-qt
-  ];
-
-  # FIX: Only necessary for stremio. After update change and remove exception.
-  nixpkgs.config.permittedInsecurePackages = [
-    "qtwebengine-5.15.19"
   ];
 
   fonts.fontconfig.enable = true;
