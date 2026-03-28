@@ -15,9 +15,9 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
     nix-vscode-extensions.url = "github:nix-community/nix-vscode-extensions";
+    impermanence.url = "github:nix-community/impermanence";
 
     stylix.url = "github:danth/stylix";
-    nixos-wsl.url = "github:nix-community/NixOS-WSL/main";
 
     # Third party programs, packaged with nix
     firefox-addons = {
@@ -36,7 +36,6 @@
       self,
       nixpkgs,
       nixpkgs-stable,
-      nixos-wsl,
       nix-vscode-extensions,
       home-manager,
       stylix,
@@ -100,18 +99,12 @@
             ./hosts/portal
           ];
         };
-        wsl = nixpkgs.lib.nixosSystem {
+        vm = nixpkgs.lib.nixosSystem {
           specialArgs = {
             inherit inputs outputs;
           };
           modules = [
-            ./hosts/wsl
-            nixos-wsl.nixosModules.default
-            {
-              system.stateVersion = "24.05";
-              wsl.enable = true;
-              wsl.defaultUser = "flodet";
-            }
+            ./hosts/vm
           ];
         };
       };
@@ -131,15 +124,6 @@
           modules = [
             stylix.homeModules.stylix
             ./home/flodet/laptop
-          ];
-          pkgs = pkgsFor.x86_64-linux;
-          extraSpecialArgs = {
-            inherit inputs outputs;
-          };
-        };
-        "flodet@wsl" = lib.homeManagerConfiguration {
-          modules = [
-            ./home/flodet/wsl
           ];
           pkgs = pkgsFor.x86_64-linux;
           extraSpecialArgs = {
