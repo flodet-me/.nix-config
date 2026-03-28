@@ -11,6 +11,7 @@
       "Documents"
       "Pictures"
       "Videos"
+      "Scripts"
       ".nix-config"
 
       # --- Critical Auth & Secrets ---

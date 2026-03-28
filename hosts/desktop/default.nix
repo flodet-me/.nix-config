@@ -42,6 +42,14 @@
     pkgs.vial
   ];
 
+  services.udev.extraRules = ''
+    # Hide impermanence bind mounts from Nautilus
+    SUBSYSTEM=="block", ENV{ID_FS_USAGE}=="filesystem", ENV{UDISKS_IGNORE}="1"
+
+    # If they are bind mounts (not block devices), use the path-based approach:
+    SUBSYSTEM=="mount", ENV{MOUNTPOINT}=="/home/yourusername/Downloads", ENV{UDISKS_IGNORE}="1"
+  '';
+
   programs.dconf.enable = true;
 
   hardware.bluetooth.enable = true; # enables support for Bluetooth
