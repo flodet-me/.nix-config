@@ -1,5 +1,10 @@
-{ config, pkgs, impermanence, ... }: {
-  imports = [ impermanence.nixosModules.impermanence ];
+{
+  config,
+  inputs,
+  pkgs,
+  ...
+}: {
+  imports = [ inputs.impermanence.nixosModules.impermanence ];
 
   # 1. The Impermanence Core: Root is RAM
   fileSystems."/" = {
