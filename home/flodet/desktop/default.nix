@@ -17,6 +17,7 @@
     ../_shared/components/easyeffects
     ../_shared/desktop-environments/gnome
     ../_shared/secrets
+    ./persistence.nix
   ];
 
   # Packages that should be installed to the user profile.

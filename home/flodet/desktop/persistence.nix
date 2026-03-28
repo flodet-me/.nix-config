@@ -1,133 +1,99 @@
 { inputs, ... }:
 {
-  imports = [
-  ];
 
   home.persistence."/persistent" = {
-
     directories = [
-      # Default folders
+      # --- Personal Data ---
       "Projects"
       "Cloud"
       "Downloads"
       "Desktop"
-
-      # Config
+      "Documents"
+      "Pictures"
+      "Videos"
       ".nix-config"
 
-      # Shell history & config
-      ".local/share/zsh"
-      ".zsh"
-
-      # GPG & SSH
-      ".gnupg"
-      ".ssh"
-
-      # SOPS
+      # --- Critical Auth & Secrets ---
+      { directory = ".gnupg"; mode = "0700"; }
+      { directory = ".ssh"; mode = "0700"; }
+      { directory = ".local/share/keyrings"; mode = "0700"; }
       ".config/sops"
 
-      # Password / secrets
-      ".local/share/keyrings"
-
-      # GNOME state & extensions
+      # --- Desktop Environment (GNOME) ---
+      # dconf is a binary database; it's often better to manage settings via Nix,
+      # but if you want manual persistence, this is correct.
+      ".config/dconf"
       ".local/share/gnome-shell"
-      ".config/dconf" # all GNOME settings live here
       ".local/share/gvfs-metadata"
-
-      # Fonts
       ".local/share/fonts"
-
-      # Misc
-      ".config/blender"
-      ".config/chromium"
-      ".config/discord"
-      ".config/draw.io"
-      ".config/gimp"
-      ".config/JetBrains"
-      ".config/Ledger Live"
-      ".config/Ledger Wallet"
-      ".config/libvirt"
-      ".config/Nextcloud"
-      ".config/obsidian"
-      ".config/obs-studio"
-      ".config/spotify"
-      ".config/VSCodium"
-
       ".local/share/icons"
-      ".local/share/JetBrains"
-      ".local/share/krita"
-      ".local/share/bemoji"
-      ".local/share/applications"
       ".local/share/backgrounds"
+      ".local/share/applications"
+
+      # --- Shell & Core Tools ---
+      ".local/share/zsh"
+      ".zsh"
       ".local/share/direnv"
 
-      # Gaming
-      ".steam"
-      ".local/share/Steam"
-      { directory = ".local/share/lutris"; }
-      { directory = ".local/share/bottles"; }
-      ".wine"
+      # --- High-Volume / Binary Tools (Consider Symlinks for performance) ---
+      # Using symlinks for these prevents double-writes and potential FUSE overhead
+      { directory = ".local/share/Steam"; method = "symlink"; }
+      { directory = ".local/share/lutris"; method = "symlink"; }
+      { directory = ".local/share/bottles"; method = "symlink"; }
+      { directory = ".wine"; method = "symlink"; }
+      { directory = "Android"; method = "symlink"; }
+      { directory = ".gradle"; method = "symlink"; }
 
-      # Zotero
-      ".zotero"
+      # --- Browsers & Communication ---
+      ".mozilla/firefox"
+      ".config/chromium"
+      ".config/discord"
+      ".config/spotify"
+      ".config/Nextcloud"
+      ".local/share/mullvad-vpn"
 
-      # VS Code
+      # --- Development & Editors ---
+      ".config/JetBrains"
+      ".local/share/JetBrains"
+      ".config/VSCodium"
       ".config/Code"
       ".vscode"
       ".vscode-oss"
-
-      # LibreOffice
-      ".config/libreoffice"
-
-      # Cameras / cameractrls
-      ".config/cameractrls"
-
-      # EasyEffects
-      ".config/easyeffects"
-      ".local/share/easyeffects"
-
-      # Mullvad
-      ".local/share/mullvad-vpn"
-
-      # Firefox
-      ".mozilla/firefox"
-
-      # Docker
+      ".config/obsidian"
       ".docker"
+      ".android"
 
-      # .NET
-      ".dotnet"
-      ".nuget"
-
-      # Rust
+      # Language Runtimes (Note: These grow HUGE. Only persist if you hate re-downloading)
       ".cargo"
       ".rustup"
-
-      # Sonarlint
+      ".dotnet"
+      ".nuget"
+      ".java"
       ".sonarlint"
 
-      # NPM
-      ".npm"
-
-      # Thumbnails & cache worth keeping
-      ".cache/thumbnails"
-
-      # Android Studio
-      "Android"
-      ".config/Google"
-      ".local/share/Google/AndroidStudio"
-      ".android"
-      ".gradle"
-      ".java"
+      # --- Creative & Misc ---
+      ".config/blender"
+      ".config/gimp"
+      ".config/draw.io"
+      ".config/obs-studio"
+      ".local/share/krita"
+      ".zotero"
+      ".config/libreoffice"
+      ".config/easyeffects"
+      ".local/share/easyeffects"
+      ".config/cameractrls"
+      ".local/share/bemoji"
     ];
 
     files = [
-      ".config/autostart/Nextcloud.desktop"
       ".bash_history"
       ".zsh_history"
       ".config/monitors.xml"
-      "mimeapps.list"
       ".config/gnome-initial-setup-done"
+      # Note: mimeapps.list usually lives in .config/
+      ".config/mimeapps.list"
+      # Better to handle autostart via home-manager options, but if not:
+      ".config/autostart/Nextcloud.desktop"
     ];
   };
 }
