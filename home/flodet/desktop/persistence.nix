@@ -1,9 +1,9 @@
 { inputs, ... }:
 {
-  imports = [ inputs.impermanence.homeManagerModules.impermanence ];
+  imports = [
+  ];
 
-  home.persistence."/persistence/home/flodet" = {
-    allowOther = true;
+  home.persistence."/persistent" = {
 
     directories = [
       # Default folders
@@ -55,7 +55,6 @@
 
       ".local/share/icons"
       ".local/share/JetBrains"
-      ".local/share/keyrings"
       ".local/share/krita"
       ".local/share/bemoji"
       ".local/share/applications"
@@ -115,7 +114,7 @@
 
       # Android Studio
       "Android"
-      ".config/Google/"
+      ".config/Google"
       ".local/share/Google/AndroidStudio"
       ".android"
       ".gradle"
@@ -128,7 +127,7 @@
       ".zsh_history"
       ".config/monitors.xml"
       "mimeapps.list"
-      "gnome-initial-setup-done"
+      ".config/gnome-initial-setup-done"
     ];
   };
 }
