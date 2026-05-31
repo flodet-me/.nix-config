@@ -15,7 +15,6 @@
     direnv
     curl
     wget
-    pipx
 
     # archives
     zip

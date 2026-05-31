@@ -11,6 +11,16 @@
   # Install firefox.
   programs.firefox = {
     enable = true;
+    package = pkgs.firefox.override {
+      cfg = {
+        # This forces Firefox to ignore Wayland
+        wrapperConfig = {
+          env = {
+            MOZ_ENABLE_WAYLAND = "0";
+          };
+        };
+      };
+    };
     profiles.flodet = {
 
       extensions.packages =
