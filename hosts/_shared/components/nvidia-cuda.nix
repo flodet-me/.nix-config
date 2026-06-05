@@ -7,5 +7,4 @@
   ];
 
   hardware.nvidia-container-toolkit.enable = true;
-  hardware.nvidia.datacenter.enable = true;
 }
