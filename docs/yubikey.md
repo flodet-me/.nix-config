@@ -2,6 +2,36 @@
 
 For authentication, encryption and signing of information [YubiKey](https://www.yubico.com/) are used.
 
+## Initial setup
+
+If a new device should be connected you need to import the GPG-Public key.
+
+```bash
+gpg --import ../home/flodet/3AA38E98CA2AE31F.asc
+```
+
+Then get the key by executing the following command and extract the id under `General key info` after `0x`.
+
+```bash
+gpg --card status
+```
+
+Next edit the key
+
+```bash
+gpg --edit-key {YOUR_KEY_ID}
+```
+
+And the following commands:
+
+```gpg
+trust
+5
+y
+save
+```
+
+
 ## Resources
 
 - https://github.com/drduh/YubiKey-Guide
