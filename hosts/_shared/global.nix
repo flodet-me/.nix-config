@@ -6,7 +6,6 @@
 }:
 {
   imports = [
-    inputs.home-manager.nixosModules.home-manager
     inputs.sops-nix.nixosModules.sops
     ./components/zsh.nix
     ./components/locale.nix
@@ -15,15 +14,12 @@
     ./users/flodet
   ];
 
-  home-manager.useGlobalPkgs = true;
-  home-manager.extraSpecialArgs = {
-    inherit inputs outputs;
-  };
 
   nixpkgs = {
     overlays = builtins.attrValues outputs.overlays;
     config = {
       allowUnfree = true;
+      allowUnfreePredicate = _: true;
     };
   };
 
