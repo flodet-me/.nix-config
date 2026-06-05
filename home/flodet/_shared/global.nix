@@ -17,14 +17,11 @@
     ./components/fzf.nix
     ./components/tmux.nix
     ./components/git
-    ./nixpkgs.nix
   ];
 
   home.packages = with pkgs; [
     neovim
   ];
-
-  nix.package = pkgs.nix;
 
   programs.home-manager.enable = true;
 }
