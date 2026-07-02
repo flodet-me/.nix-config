@@ -31,6 +31,29 @@ y
 save
 ```
 
+## SSH setup
+
+To use the GPG key for SSH you need to add the authentication key to the `sshcontrol`.
+
+Find the Authentication [A] subkey's Keygrip:
+
+```bash
+gpg --list-keys --with-keygrip
+```
+
+Add the keygrip to SSH control file:
+
+```bash
+echo "{KEYGRIP}" >> ~/.gnupg/sshcontrol
+```
+
+Run the following command to verify the addition:
+
+```bash
+ssh-add -L
+```
+
+Now you can use the key for git or any other ssh based authentication.
 
 ## Resources
 
