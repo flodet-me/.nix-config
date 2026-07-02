@@ -3,9 +3,9 @@
   ...
 }:
 {
-  stylix.targets.vscodium.enable = false;
+  stylix.targets.vscode.enable = false;
 
-  programs.vscodium = {
+  programs.vscode = {
     enable = true;
     profiles = {
       default = {
