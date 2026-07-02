@@ -33,6 +33,8 @@
           dracula-theme.theme-dracula
           timonwong.shellcheck
           mads-hartmann.bash-ide-vscode
+
+	  anthropic.claude-code
         ];
         userSettings = {
           "workbench.sideBar.location" = "right";
