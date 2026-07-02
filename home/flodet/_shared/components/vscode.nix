@@ -3,11 +3,10 @@
   ...
 }:
 {
-  stylix.targets.vscode.enable = false;
+  stylix.targets.vscodium.enable = false;
 
-  programs.vscode = {
+  programs.vscodium = {
     enable = true;
-    package = pkgs.vscodium;
     profiles = {
       default = {
         extensions = with pkgs.vscode-extensions; [
