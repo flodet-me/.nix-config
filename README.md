@@ -11,7 +11,6 @@ It is based on the experimental [flake feature](https://nixos.wiki/wiki/Flakes).
 .
 ├── home            | Home-Manager configuration
 ├── hosts           | NixOS configuration
-├── modules         | Actual modules.
 ├── overlays        | Patches and version overrides for some packages.
 ├── pkgs            | Custom packages.
 └── flake.nix       | Entry point and central point of configuration.
