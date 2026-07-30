@@ -15,6 +15,7 @@
       nixfmt
       nix-output-monitor
       claude-code
+      act # run the GitHub Actions workflow locally (needs Docker)
     ];
   };
 }

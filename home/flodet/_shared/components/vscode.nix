@@ -34,7 +34,7 @@
           timonwong.shellcheck
           mads-hartmann.bash-ide-vscode
 
-	  anthropic.claude-code
+          anthropic.claude-code
         ];
         userSettings = {
           "workbench.sideBar.location" = "right";

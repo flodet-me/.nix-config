@@ -14,7 +14,6 @@
     ./users/flodet
   ];
 
-
   nixpkgs = {
     overlays = builtins.attrValues outputs.overlays;
     config = {
