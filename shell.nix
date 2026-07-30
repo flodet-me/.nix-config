@@ -14,6 +14,7 @@
       age
       nixfmt
       nix-output-monitor
+      claude-code
     ];
   };
 }
