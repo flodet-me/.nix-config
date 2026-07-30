@@ -29,7 +29,10 @@ jobs:
 
       - name: Check formatting
         run: |
-          fmt="$(nix build .#formatter --no-link --print-out-paths)"
+          # `formatter` is a per-system attrset, so it must be qualified with
+          # the runner's system (e.g. formatter.x86_64-linux).
+          sys="$(nix eval --impure --raw --expr builtins.currentSystem)"
+          fmt="$(nix build ".#formatter.$sys" --no-link --print-out-paths)"
           git ls-files '*.nix' | xargs "$fmt/bin/nixfmt" --check
 
   build:
