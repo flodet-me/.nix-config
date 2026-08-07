@@ -78,6 +78,8 @@
   # $ nix search wget
   environment.systemPackages = with pkgs; [
     android-studio
+    stremio-linux-shell
+    claude-code
   ];
 
   systemd.services.nvidia-power-limit = {
