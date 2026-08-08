@@ -7,10 +7,8 @@
   imports = [
     ./components/firefox.nix
     ./components/vscode.nix
-    ./components/stylix
     ./components/mullvad-vpn
     ./assets
-    inputs.stylix.homeModules.stylix
   ];
 
   home.packages = with pkgs; [

@@ -11,6 +11,7 @@
   # Install firefox.
   programs.firefox = {
     enable = true;
+    configPath = ".mozilla/firefox";
     profiles.flodet = {
 
       extensions.packages =

@@ -23,6 +23,7 @@
     ../_shared/components/yubikey-gpg.nix
     ../_shared/components/gaming.nix
     ../_shared/components/vpn-fernuni-hagen.nix
+    ../_shared/components/stylix.nix
   ];
 
   # Bootloader.
