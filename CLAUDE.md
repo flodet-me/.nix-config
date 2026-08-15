@@ -50,7 +50,7 @@ still mostly commented-out boilerplate and doesn't even import the shared global
   hosts and sets up sops-nix, overlays, nixpkgs config, binary caches, and the
   `flodet` user.
 - `home/flodet/` — home-manager (user) config, same shape:
-  `<host>/default.nix` imports `_shared/global.nix` (CLI tools: zsh, git, tmux,
+  `<host>/default.nix` imports `_shared/global.nix` (CLI tools: zsh, git,
   fzf, bat, direnv, neovim), optionally `_shared/desktop.nix` (GUI apps +
   stylix theming), and cherry-picks `_shared/components/*` and
   `_shared/desktop-environments/*` (gnome, hyprland).
