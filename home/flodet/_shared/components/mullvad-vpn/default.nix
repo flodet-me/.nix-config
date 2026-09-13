@@ -28,10 +28,10 @@
     Service = {
       Type = "oneshot";
       ExecStart = ''
-        ${pkgs.mullvad-vpn}/bin/mullvad account login $MULLVAD_ACCOUNT_KEY
+        ${pkgs.mullvad}/bin/mullvad account login $MULLVAD_ACCOUNT_KEY
       '';
       ExecStop = ''
-        ${pkgs.mullvad-vpn}/bin/mullvad account logout
+        ${pkgs.mullvad}/bin/mullvad account logout
       '';
       RemainAfterExit = true;
     };

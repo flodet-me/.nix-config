@@ -8,6 +8,8 @@
     wineWow64Packages.stable
   ];
 
+  programs.gamemode.enable = true;
+
   # Install steam.
   programs.steam = {
     enable = true;
