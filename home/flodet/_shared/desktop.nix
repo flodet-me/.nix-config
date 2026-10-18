@@ -24,7 +24,6 @@
     vial
     pandoc
 
-    zotero
     nextcloud-client
     tenacity
     alsa-utils
