@@ -1,0 +1,412 @@
+#!/usr/bin/env bash
+# winvm - reproducible Windows 10 VM on QEMU/KVM.
+# Run `winvm help` for usage.
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+# shellcheck source=config.env
+source "$ROOT/config.env"
+# shellcheck disable=SC1091
+[[ -f "$ROOT/config.local.env" ]] && source "$ROOT/config.local.env"
+
+QEMU="${QEMU:-qemu-system-x86_64}"
+STATE="$ROOT/state"
+BASE="$STATE/base.qcow2"          # clean, provisioned image (read-only)
+DISK="$STATE/disk.qcow2"          # working overlay on top of BASE
+PIDFILE="$STATE/qemu.pid"
+QMP_SOCK="$STATE/qmp.sock"
+QGA_SOCK="$STATE/qga.sock"
+SSH_KEY="$STATE/id_ed25519"
+KNOWN_HOSTS="$STATE/known_hosts"
+
+die()  { echo "winvm: $*" >&2; exit 1; }
+info() { echo "==> $*" >&2; }
+
+need() {
+    local missing=()
+    for c in "$@"; do command -v "$c" >/dev/null || missing+=("$c"); done
+    ((${#missing[@]} == 0)) || die "missing tools: ${missing[*]} (try: nix develop)"
+}
+
+qmp() { python3 -I "$ROOT/lib/qmp.py" "$QMP_SOCK" "$@"; }
+
+is_running() { [[ -f "$PIDFILE" ]] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; }
+
+check_sha256() {  # file expected
+    [[ -z "$2" ]] && return 0
+    info "verifying sha256 of $(basename "$1")"
+    echo "$2  $1" | sha256sum -c --quiet - || die "checksum mismatch: $1"
+}
+
+# --- QEMU command line ------------------------------------------------------
+
+qemu_args() {  # disk_image display_mode
+    local display=$2
+    QEMU_ARGS=(
+        -name "$VM_NAME"
+        -machine q35,accel=kvm
+        -cpu host,hv_relaxed,hv_spinlocks=0x1fff,hv_vapic,hv_time,hv_vpindex,hv_synic,hv_stimer,hv_frequencies,hv_reset,hv_runtime
+        -smp "$VM_CPUS"
+        -m "$VM_RAM"
+        -rtc base=utc,clock=host
+        -drive "file=$1,if=virtio,format=qcow2,cache=writeback,discard=unmap,detect-zeroes=unmap"
+        -netdev "user,id=net0,hostfwd=tcp:127.0.0.1:$SSH_PORT-:22,hostfwd=tcp:127.0.0.1:$RDP_PORT-:3389"
+        -device virtio-net-pci,netdev=net0
+        -device virtio-balloon-pci
+        -device qemu-xhci -device usb-tablet
+        -vga std
+        -device virtio-serial-pci
+        -chardev "socket,id=qga0,path=$QGA_SOCK,server=on,wait=off"
+        -device virtserialport,chardev=qga0,name=org.qemu.guest_agent.0
+        -qmp "unix:$QMP_SOCK,server=on,wait=off"
+        -display "$display"
+    )
+}
+
+# --- commands ---------------------------------------------------------------
+
+cmd_fetch() {
+    need curl sha256sum
+    mkdir -p "$ROOT/iso"
+    if [[ ! -f "$VIRTIO_ISO" ]]; then
+        info "downloading $VIRTIO_URL"
+        curl -fL --progress-bar -o "$VIRTIO_ISO.part" "$VIRTIO_URL"
+        mv "$VIRTIO_ISO.part" "$VIRTIO_ISO"
+    fi
+    if [[ -z "$VIRTIO_SHA256" ]]; then
+        echo "virtio-win sha256 (pin as VIRTIO_SHA256): $(sha256sum "$VIRTIO_ISO" | cut -d' ' -f1)"
+    fi
+    check_sha256 "$VIRTIO_ISO" "$VIRTIO_SHA256"
+    if [[ ! -f "$WIN_ISO" ]]; then
+        cat >&2 <<EOF
+winvm: Windows ISO not found at $WIN_ISO
+  Download the Windows 10 ISO from
+    https://www.microsoft.com/software-download/windows10ISO
+  and save it there (or set WIN_ISO in config.local.env).
+EOF
+        return 1
+    fi
+    check_sha256 "$WIN_ISO" "$WIN_ISO_SHA256"
+    info "media ready"
+}
+
+render_unattend() {  # out_dir
+    local out=$1 tpl paths="" n=0 key=""
+    for letter in D E F G H I; do
+        for drv in viostor NetKVM; do
+            n=$((n + 1))
+            paths+="        <PathAndCredentials wcm:action=\"add\" wcm:keyValue=\"$n\"><Path>$letter:\\$drv\\w10\\amd64</Path></PathAndCredentials>"$'\n'
+        done
+    done
+    [[ -n "$WIN_PRODUCT_KEY" ]] &&
+        key="        <ProductKey><Key>$WIN_PRODUCT_KEY</Key><WillShowUI>OnError</WillShowUI></ProductKey>"
+
+    tpl=$(<"$ROOT/unattend/autounattend.xml.in")
+    # Quoted replacements so & and \ in values are taken literally.
+    tpl=${tpl//@DRIVER_PATHS@/"${paths%$'\n'}"}
+    tpl=${tpl//@PRODUCT_KEY@/"$key"}
+    tpl=${tpl//@EDITION@/"$WIN_EDITION"}
+    tpl=${tpl//@USER@/"$WIN_USER"}
+    tpl=${tpl//@PASSWORD@/"$WIN_PASSWORD"}
+    tpl=${tpl//@ADMIN_GROUP@/"$WIN_ADMIN_GROUP"}
+    tpl=${tpl//@COMPUTER_NAME@/"$WIN_COMPUTER_NAME"}
+    tpl=${tpl//@UI_LANGUAGE@/"$WIN_UI_LANGUAGE"}
+    tpl=${tpl//@INPUT_LOCALE@/"$WIN_INPUT_LOCALE"}
+    tpl=${tpl//@SYSTEM_LOCALE@/"$WIN_SYSTEM_LOCALE"}
+    tpl=${tpl//@USER_LOCALE@/"$WIN_USER_LOCALE"}
+    tpl=${tpl//@TIMEZONE@/"$WIN_TIMEZONE"}
+    printf '%s\n' "$tpl" >"$out/autounattend.xml"
+
+    mkdir -p "$out/winvm"
+    cp "$ROOT"/provision/* "$out/winvm/"
+    cp "$SSH_KEY.pub" "$out/winvm/authorized_keys"
+    {
+        echo "\$DisableWindowsUpdate = \$$( ((DISABLE_WINDOWS_UPDATE)) && echo true || echo false)"
+    } >"$out/winvm/settings.ps1"
+}
+
+cmd_build() {
+    local force=0 display=$DISPLAY_MODE
+    while (($#)); do
+        case $1 in
+            --force) force=1 ;;
+            --headless) display=none ;;
+            *) die "build: unknown option $1" ;;
+        esac
+        shift
+    done
+    need "$QEMU" qemu-img xorriso python3 ssh-keygen
+    [[ -w /dev/kvm ]] || die "/dev/kvm not accessible"
+    is_running && die "VM is running; stop it first"
+    if [[ -f "$BASE" ]]; then
+        ((force)) || die "base image exists; use 'build --force' to rebuild (discards the VM)"
+        rm -f "$BASE" "$DISK"
+    fi
+    cmd_fetch
+
+    mkdir -p "$STATE"
+    rm -f "$KNOWN_HOSTS"
+    [[ -f "$SSH_KEY" ]] || ssh-keygen -q -t ed25519 -N "" -C "winvm@$VM_NAME" -f "$SSH_KEY"
+
+    info "building unattend ISO"
+    local staging="$STATE/unattend"
+    rm -rf "$staging" && mkdir -p "$staging"
+    render_unattend "$staging"
+    xorriso -as mkisofs -quiet -J -joliet-long -r -V WINVM -o "$STATE/unattend.iso" "$staging"
+
+    info "creating $VM_DISK_SIZE disk"
+    qemu-img create -q -f qcow2 "$BASE.part" "$VM_DISK_SIZE"
+
+    local serial_log="$STATE/install-serial.log"
+    : >"$serial_log"
+    qemu_args "$BASE.part" "$display"
+    QEMU_ARGS+=(
+        -drive "file=$WIN_ISO,media=cdrom,if=ide,index=0,readonly=on"
+        -drive "file=$VIRTIO_ISO,media=cdrom,if=ide,index=1,readonly=on"
+        -drive "file=$STATE/unattend.iso,media=cdrom,if=ide,index=2,readonly=on"
+        -boot once=d
+        -serial "file:$serial_log"
+    )
+    info "installing Windows (unattended, typically 20-60 min; VM powers off when done)"
+    tail -n +1 -F "$serial_log" 2>/dev/null | tr -d '\r' &
+    local tail_pid=$!
+    local rc=0
+    "$QEMU" "${QEMU_ARGS[@]}" || rc=$?
+    kill "$tail_pid" 2>/dev/null || true
+    ((rc == 0)) || die "qemu exited with $rc; partial image left at $BASE.part"
+    # An installed Windows is several GB; anything tiny means Setup never ran.
+    (($(stat -c %s "$BASE.part") > 1024 * 1024 * 1024)) ||
+        die "VM stopped before Windows was installed (disk is nearly empty). Check WIN_UI_LANGUAGE / WIN_EDITION match the ISO; run with the GUI to see Setup errors"
+
+    if grep -q 'PROVISION-OK' "$serial_log"; then
+        info "provisioning succeeded"
+    elif grep -q 'PROVISION-FAILED' "$serial_log"; then
+        die "provisioning reported failures (see above); image left at $BASE.part — boot it to inspect C:\\winvm\\provision.log"
+    else
+        echo "winvm: warning: no provisioning status received over serial; check C:\\winvm\\provision.log in the VM" >&2
+    fi
+
+    mv "$BASE.part" "$BASE"
+    chmod a-w "$BASE"
+    new_overlay
+    info "done. 'winvm start' to boot, 'winvm reset' to return to this state"
+}
+
+new_overlay() {
+    rm -f "$DISK"
+    qemu-img create -q -f qcow2 -b "$BASE" -F qcow2 "$DISK"
+}
+
+cmd_start() {
+    local display=$DISPLAY_MODE temp=0 wait=0 loadvm=""
+    while (($#)); do
+        case $1 in
+            --headless) display=none ;;
+            --gui) display=gtk ;;
+            --temp) temp=1 ;;
+            --wait) wait=1 ;;
+            --loadvm) loadvm=$2; shift ;;
+            *) die "start: unknown option $1" ;;
+        esac
+        shift
+    done
+    need "$QEMU" python3
+    [[ -f "$DISK" ]] || die "no VM disk; run 'winvm build' first"
+    is_running && die "VM already running (pid $(cat "$PIDFILE"))"
+
+    qemu_args "$DISK" "$display"
+    QEMU_ARGS+=(-serial null -pidfile "$PIDFILE")
+    ((temp)) && QEMU_ARGS+=(-snapshot)
+    [[ -n "$loadvm" ]] && QEMU_ARGS+=(-loadvm "$loadvm")
+
+    rm -f "$PIDFILE"
+    setsid "$QEMU" "${QEMU_ARGS[@]}" >"$STATE/qemu.log" 2>&1 </dev/null &
+    local pid=$!
+    for _ in $(seq 50); do
+        [[ -s "$PIDFILE" ]] && break
+        kill -0 "$pid" 2>/dev/null || { cat "$STATE/qemu.log" >&2; die "qemu failed to start"; }
+        sleep 0.1
+    done
+    info "started (pid $(cat "$PIDFILE"))$( ((temp)) && echo ', temporary: changes are discarded on stop')"
+    echo "    ssh: winvm ssh    rdp: winvm rdp    (127.0.0.1:$SSH_PORT / :$RDP_PORT)" >&2
+    ((wait)) && cmd_wait
+    return 0
+}
+
+cmd_stop() {
+    local force=0 timeout=180
+    [[ "${1:-}" == "--force" ]] && force=1
+    is_running || { info "not running"; return 0; }
+    local pid
+    pid=$(cat "$PIDFILE")
+    if ((!force)); then
+        info "requesting ACPI shutdown"
+        qmp system_powerdown
+        for ((i = 0; i < timeout; i++)); do
+            kill -0 "$pid" 2>/dev/null || { info "stopped"; return 0; }
+            sleep 1
+        done
+        echo "winvm: guest did not shut down within ${timeout}s, forcing" >&2
+    fi
+    qmp quit || kill "$pid"
+    while kill -0 "$pid" 2>/dev/null; do sleep 0.2; done
+    info "stopped"
+}
+
+cmd_reset() {
+    [[ -f "$BASE" ]] || die "no base image; run 'winvm build' first"
+    if is_running; then cmd_stop --force; fi
+    new_overlay
+    info "VM reset to the clean base image (snapshots discarded)"
+}
+
+cmd_commit() {
+    [[ -f "$BASE" ]] || die "no base image"
+    [[ "${1:-}" == "--yes" ]] || {
+        read -r -p "Merge current VM state into the base image? Reset will then return here. [y/N] " a
+        [[ $a == [yY]* ]] || exit 1
+    }
+    if is_running; then cmd_stop; fi
+    chmod u+w "$BASE"
+    qemu-img commit -q "$DISK"
+    chmod a-w "$BASE"
+    new_overlay
+    info "base image updated"
+}
+
+cmd_snapshot() {
+    local action=${1:-list} name=${2:-}
+    [[ -f "$DISK" ]] || die "no VM disk"
+    case $action in
+        save)
+            [[ -n $name ]] || die "usage: winvm snapshot save NAME"
+            if is_running; then qmp hmp "savevm $name"; else qemu-img snapshot -c "$name" "$DISK"; fi
+            info "saved snapshot '$name'$(is_running || echo ' (disk only)')" ;;
+        load)
+            [[ -n $name ]] || die "usage: winvm snapshot load NAME"
+            if is_running; then
+                qmp hmp "loadvm $name"
+            elif snapshot_has_ram "$name"; then
+                cmd_start --loadvm "$name"
+            else
+                qemu-img snapshot -a "$name" "$DISK"
+            fi
+            info "restored snapshot '$name'" ;;
+        delete)
+            [[ -n $name ]] || die "usage: winvm snapshot delete NAME"
+            if is_running; then qmp hmp "delvm $name"; else qemu-img snapshot -d "$name" "$DISK"; fi ;;
+        list)
+            if is_running; then qmp hmp "info snapshots"; else qemu-img snapshot -l "$DISK"; fi ;;
+        *) die "usage: winvm snapshot save|load|delete|list [NAME]" ;;
+    esac
+}
+
+snapshot_has_ram() {
+    qemu-img info --output=json "$DISK" | python3 -I -c '
+import json, sys
+snaps = json.load(sys.stdin).get("snapshots", [])
+sys.exit(0 if any(s["name"] == sys.argv[1] and s["vm-state-size"] > 0 for s in snaps) else 1)' "$1"
+}
+
+ssh_opts() {
+    SSH_OPTS=(-i "$SSH_KEY" -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new
+              -o UserKnownHostsFile="$KNOWN_HOSTS" -o ConnectTimeout=5)
+}
+
+cmd_ssh() {
+    ssh_opts
+    exec ssh "${SSH_OPTS[@]}" -p "$SSH_PORT" "$WIN_USER@127.0.0.1" "$@"
+}
+
+cmd_scp() {  # paths prefixed with vm: refer to the guest
+    ssh_opts
+    local args=()
+    for a in "$@"; do
+        [[ $a == vm:* ]] && a="$WIN_USER@127.0.0.1:${a#vm:}"
+        args+=("$a")
+    done
+    exec scp "${SSH_OPTS[@]}" -P "$SSH_PORT" "${args[@]}"
+}
+
+cmd_wait() {
+    local timeout=${1:-300}
+    ssh_opts
+    info "waiting for SSH"
+    for ((i = 0; i < timeout; i += 5)); do
+        ssh "${SSH_OPTS[@]}" -o BatchMode=yes -p "$SSH_PORT" "$WIN_USER@127.0.0.1" exit 2>/dev/null && { info "VM is up"; return 0; }
+        is_running || die "VM is not running"
+        sleep 5
+    done
+    die "SSH not reachable after ${timeout}s"
+}
+
+cmd_rdp() {
+    local bin
+    for c in xfreerdp3 sdl-freerdp3 xfreerdp sdl-freerdp wlfreerdp3 wlfreerdp; do
+        command -v "$c" >/dev/null && { bin=$c; break; }
+    done
+    [[ -n ${bin:-} ]] || die "no FreeRDP client found (try: nix develop)"
+    mkdir -p "$SHARE_DIR"
+    exec "$bin" "/v:127.0.0.1:$RDP_PORT" "/u:$WIN_USER" "/p:$WIN_PASSWORD" /cert:ignore \
+        /dynamic-resolution +clipboard "/drive:share,$SHARE_DIR" "$@"
+}
+
+cmd_status() {
+    echo "base image : $([[ -f $BASE ]] && du -h "$BASE" | cut -f1 || echo 'not built')"
+    echo "overlay    : $([[ -f $DISK ]] && du -h "$DISK" | cut -f1 || echo '-')"
+    if is_running; then
+        echo "state      : running (pid $(cat "$PIDFILE"))"
+        echo "ssh        : 127.0.0.1:$SSH_PORT   rdp: 127.0.0.1:$RDP_PORT"
+    else
+        echo "state      : stopped"
+    fi
+}
+
+cmd_destroy() {
+    [[ "${1:-}" == "--yes" ]] || {
+        read -r -p "Delete the VM (base image, overlay, snapshots, SSH key)? [y/N] " a
+        [[ $a == [yY]* ]] || exit 1
+    }
+    if is_running; then cmd_stop --force; fi
+    chmod -R u+w "$STATE" 2>/dev/null || true
+    rm -rf "$STATE"
+    info "VM deleted (ISOs in iso/ kept)"
+}
+
+usage() {
+    cat <<EOF
+Usage: winvm <command> [options]
+
+Setup
+  fetch                    download virtio-win ISO, check Windows ISO
+  build [--force] [--headless]
+                           unattended install + provisioning -> clean base image
+Lifecycle
+  start [--headless|--gui] [--temp] [--wait]
+                           boot the VM (--temp: discard all changes on stop)
+  stop [--force]           ACPI shutdown (or hard stop)
+  reset                    throw away all changes, back to the clean base image
+  commit [--yes]           make the current state the new clean base
+  destroy [--yes]          delete everything except the ISOs
+  status
+Snapshots (on top of the base; lost on reset/commit)
+  snapshot save NAME       live snapshot incl. RAM when running, disk-only when stopped
+  snapshot load NAME
+  snapshot delete NAME
+  snapshot list
+Access
+  ssh [CMD...]             PowerShell over SSH
+  scp SRC... DST           use vm:PATH for guest paths
+  rdp [FREERDP_ARGS...]    RDP with clipboard + \\\\tsclient\\share -> $SHARE_DIR
+  wait [SECONDS]           block until SSH is reachable
+EOF
+}
+
+cmd=${1:-help}
+shift || true
+case $cmd in
+    fetch|build|start|stop|reset|commit|ssh|scp|rdp|wait|status|destroy) "cmd_$cmd" "$@" ;;
+    snapshot|snap) cmd_snapshot "$@" ;;
+    help|-h|--help) usage ;;
+    *) usage >&2; exit 1 ;;
+esac

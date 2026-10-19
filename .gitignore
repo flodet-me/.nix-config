@@ -1,0 +1,6 @@
+state/
+iso/*.iso
+iso/*.part
+share/
+config.local.env
+result
