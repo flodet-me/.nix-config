@@ -1,0 +1,66 @@
+# Test and debugging tools. The HOST downloads them into cache/ (`winvm fetch`)
+# and they are installed from there, so they also work for offline builds.
+#
+#   NAME  URL  [INSTALL ARGS...]
+#
+# How a file is installed depends on its type:
+#   .zip         extracted to C:\Tools\NAME, added to PATH, Start menu "Test Tools";
+#                "bin:SUBDIR" if the programs are in a subfolder (wildcards allowed),
+#                "menu:a,b" to give only a.exe and b.exe a Start menu entry
+#   .msix/.appx  installed for all users; "extract:DIR" also unpacks DIR from
+#                the package to C:\Tools\NAME (for command-line tools)
+#   .msi         msiexec /qn + ARGS
+#   .exe         run with ARGS (must make it silent)
+# URL "https://x/archive.zip!member" downloads only that member of the archive.
+# Changing this requires `winvm build --force` (or install by hand + `winvm commit`).
+
+# Required for offline builds (SSH access); online builds use the built-in
+# Windows OpenSSH capability and fall back to this.
+openssh          https://github.com/PowerShell/Win32-OpenSSH/releases/download/10.0.0.0p2-Preview/OpenSSH-Win64-v10.0.0.0.msi
+
+# Processes, handles, DLLs, registry/file activity, autostarts, services
+# (Process Monitor, Process Explorer, Autoruns, Handle, ListDLLs, Sigcheck,
+# AccessChk, WinObj, TCPView, DebugView, VMMap, PsExec, ...)
+sysinternals     https://download.sysinternals.com/files/SysinternalsSuite.zip
+systeminformer   https://github.com/winsiderss/systeminformer/releases/download/v4.0.26241.138/systeminformer-4.0.26241.138-bin.zip
+
+# Windows and their handles (HWND, class, styles, owning process), UI Automation tree
+guipropview      https://www.nirsoft.net/utils/guipropview-x64.zip
+winlister        https://www.nirsoft.net/utils/winlister-x64.zip
+accessibility-insights https://github.com/microsoft/accessibility-insights-windows/releases/download/v1.1.2924.01/AccessibilityInsights.msi
+
+# DLL dependency / loader problems (modern Dependency Walker), PE files, API calls
+dependencies     https://github.com/lucasg/Dependencies/releases/download/v1.11.1/Dependencies_x64_Release.zip
+pe-bear          https://github.com/hasherezade/pe-bear/releases/download/v0.7.2/PE-bear_0.7.2_qt6_x64_win_vs22.zip
+detect-it-easy   https://github.com/horsicq/DIE-engine/releases/download/3.21/die_win64_portable_3.21_x64.zip  bin:die  menu:die
+api-monitor      http://www.rohitab.com/download/api-monitor-v2r13-x86-x64.zip  bin:API*
+
+# What an installer / app changed: files, file access per process, installed programs
+folderchangesview https://www.nirsoft.net/utils/folderchangesview.zip
+processactivityview https://www.nirsoft.net/utils/processactivityview-x64.zip
+installedappview https://www.nirsoft.net/utils/installedappview-x64.zip
+
+# Handlers: file associations, URL protocols, "Open with", shell extensions,
+# context menus, registry search (NirSoft)
+filetypesman     https://www.nirsoft.net/utils/filetypesman-x64.zip
+urlprotocolview  https://www.nirsoft.net/utils/urlprotocolview.zip
+openwithview     https://www.nirsoft.net/utils/openwithview.zip
+shexview         https://www.nirsoft.net/utils/shexview-x64.zip
+shellmenuview    https://www.nirsoft.net/utils/shmnview-x64.zip
+regscanner       https://www.nirsoft.net/utils/regscanner-x64.zip
+
+# Debuggers: x64dbg; WinDbg (GUI) + cdb/kd/dbgsrv on PATH (only the x64 package of the bundle)
+x64dbg           https://github.com/x64dbg/x64dbg/releases/download/2026.05.27/snapshot_2026-05-27_12-11.zip  bin:release/x64  menu:x64dbg
+windbg           https://windbg.download.prss.microsoft.com/dbazure/prod/1-2610-1001-0/windbg.msixbundle!windbg_win-x64.msix  extract:amd64
+# Visual Studio 2026 remote debugger (msvsmon), see `winvm debug`
+vs-remote-tools  https://aka.ms/vs/18/release/RemoteTools.amd64ret.enu.exe  /install /quiet /norestart
+
+# UI test automation: WebDriver server for desktop apps, see `winvm uitest`
+winappdriver     https://github.com/microsoft/WinAppDriver/releases/download/v1.2.1/WindowsApplicationDriver_1.2.1.msi
+
+# Everyday helpers: instant file search, crash/BSOD dumps, timeline of recent
+# activity, all event logs in one view
+everything       https://www.voidtools.com/Everything-1.4.1.1032.x64.zip
+bluescreenview   https://www.nirsoft.net/utils/bluescreenview-x64.zip
+lastactivityview https://www.nirsoft.net/utils/lastactivityview.zip
+fulleventlogview https://www.nirsoft.net/utils/fulleventlogview-x64.zip

@@ -1,0 +1,47 @@
+# Preinstalled apps removed during Setup when DEBLOAT=1 (wildcards allowed).
+# Matched against Get-AppxProvisionedPackage DisplayName. Comment a line out
+# to keep that app. Kept on purpose: Store, winget (DesktopAppInstaller),
+# Photos, Calculator, Camera, Alarms, Snip & Sketch, Sticky Notes, Terminal,
+# media codecs (HEIF, VP9, WebP, ...).
+Microsoft.549981C3F5F10              # Cortana app
+Microsoft.BingNews
+Microsoft.BingWeather
+Microsoft.GetHelp
+Microsoft.Getstarted                 # Tips
+Microsoft.Messaging
+Microsoft.Microsoft3DViewer
+Microsoft.MicrosoftOfficeHub
+Microsoft.MicrosoftSolitaireCollection
+Microsoft.MixedReality.Portal
+Microsoft.MSPaint                    # Paint 3D (classic mspaint.exe stays)
+Microsoft.Office.OneNote
+Microsoft.OneConnect
+Microsoft.People
+Microsoft.Print3D
+Microsoft.SkypeApp
+Microsoft.Wallet
+Microsoft.WindowsCommunicationsApps  # Mail and Calendar
+Microsoft.WindowsFeedbackHub
+Microsoft.WindowsMaps
+Microsoft.Xbox.TCUI
+Microsoft.XboxApp
+Microsoft.XboxGameOverlay
+Microsoft.XboxGamingOverlay
+Microsoft.XboxIdentityProvider
+Microsoft.XboxSpeechToTextOverlay
+Microsoft.YourPhone
+Microsoft.ZuneMusic                  # Groove Music
+Microsoft.ZuneVideo                  # Films & TV
+Microsoft.Todos
+Microsoft.PowerAutomateDesktop
+Clipchamp.Clipchamp
+MicrosoftTeams
+# Windows 11
+Microsoft.GamingApp                  # Xbox app
+Microsoft.OutlookForWindows          # new Outlook
+Microsoft.Windows.DevHome
+Microsoft.BingSearch
+Microsoft.Copilot
+MSTeams
+Microsoft.MicrosoftJournal
+Microsoft.Windows.Ai.Copilot.Provider
