@@ -1329,27 +1329,175 @@ cmd_rdp() {
         /dynamic-resolution +clipboard "/drive:share,$SHARE_DIR" "$@"
 }
 
+# JSON helpers for status --json: a string, or null for an empty value.
+json_str() {
+    local v=$1
+    v=${v//\\/\\\\} v=${v//\"/\\\"} v=${v//$'\n'/\\n} v=${v//$'\t'/\\t}
+    printf '"%s"' "$v"
+}
+json_or_null() { if [[ -n $1 ]]; then json_str "$1"; else printf null; fi; }
+json_num() { if [[ -n $1 ]]; then printf '%s' "$1"; else printf null; fi; }
+json_bool() { if [[ $1 == 1 ]]; then printf true; else printf false; fi; }
+json_list() {  # strings
+    local first=1 x
+    printf '['
+    for x in "$@"; do ((first)) || printf ', '; first=0; json_str "$x"; done
+    printf ']'
+}
+
+# What exists (image ISO, base image, VM) and the configuration that applies,
+# including when nothing has been built yet, plus the next command to run.
+# --json: the same as one JSON object, for scripts.
 cmd_status() {
-    local fw sb
+    local json=0
+    case ${1:-} in
+        --json) json=1 ;;
+        "") ;;
+        *) die "usage: winvm status [--json]" ;;
+    esac
+    local fw sb opt="" bopt="" building="" pid="" iso_text base_text vm_text state state_text next
+    local guest="" guest_ready="" etime="" etimes="" rss_kb="" snaps=() days=""
+    [[ $VM == default ]] || opt=" -n $VM"
+    [[ $IMG == "$IMAGE" ]] || bopt=" --image $IMG"
     fw=$(vm_firmware) sb=$(secure_boot)
-    echo "image      : $IMG - $IMAGE_DESC ($([[ -f $BASE ]] && du -h "$BASE" | cut -f1 || echo 'not built'))"
-    echo "firmware   : $fw$([[ $fw == uefi ]] && echo ", TPM 2.0, Secure Boot $( ((sb)) && echo on || echo off)")"
-    [[ -n $(expiry_text) ]] && echo "license    : $(expiry_text)"
-    echo "vm         : $VM$([[ -f $DISK ]] || echo ' (not created yet)')"
+    [[ -d $IMGDIR ]] && building=$(procs_using "$IMGDIR" --build | head -1)
+    days=$(eval_days_left) || days=""
+
+    if [[ -f $WIN_ISO ]]; then iso_text="${WIN_ISO#"$ROOT/"} ($(du -hL "$WIN_ISO" | cut -f1))"
+    elif [[ -f $BASE ]]; then iso_text="${WIN_ISO#"$ROOT/"} missing (only needed to rebuild)"
+    elif ((WIN_ISO_DOWNLOAD)) && [[ -n $WIN_ISO_PAGE$WIN_ISO_URL ]]; then
+        iso_text="${WIN_ISO#"$ROOT/"} missing (build tries to download it; else: winvm fetch shows where)"
+    else iso_text="${WIN_ISO#"$ROOT/"} missing (download it manually: winvm fetch$bopt shows where)"; fi
+
+    if [[ -f $BASE ]]; then base_text="built $(date -r "$BASE" +%F), $(du -h "$BASE" | cut -f1)"
+    elif [[ -n $building ]]; then base_text="building now (qemu pid $building)"
+    elif [[ -f $BASE.part ]]; then base_text="not built (an earlier build stopped; winvm build$bopt starts over)"
+    else base_text="not built yet"; fi
+
+    if [[ -f $DISK ]]; then
+        vm_text="$VM, overlay $(du -h "$DISK" | cut -f1)"
+        # -U: readable while QEMU holds the lock.
+        mapfile -t snaps < <(qemu-img snapshot -U -l "$DISK" 2>/dev/null | awk 'NR > 2 && NF >= 2 { print $2 }')
+    else vm_text="$VM (not created yet)"; fi
+
+    if is_running; then
+        pid=$(<"$PIDFILE") state=running
+        etime=$(ps -o etime= -p "$pid" | tr -d ' ') etimes=$(ps -o etimes= -p "$pid" | tr -d ' ')
+        rss_kb=$(ps -o rss= -p "$pid" | tr -d ' ')
+        state_text="running for $etime (pid $pid"
+        [[ -f $TEMP_MARKER ]] && state_text+=", temporary: changes are discarded"
+        [[ -f $VMDIR/offline ]] && state_text+=", OFFLINE"
+        state_text+=", qemu uses $((rss_kb / 1024))M)"
+        ssh_opts
+        if ssh "${SSH_OPTS[@]}" -o BatchMode=yes -o ConnectTimeout=2 -p "$P_SSH" "$WIN_USER@127.0.0.1" exit 2>/dev/null; then
+            guest_ready=1 guest="ready (SSH answers)"; next="winvm$opt ssh | rdp | stop"
+        else
+            guest_ready=0 guest="not answering SSH yet (booting, updating or hung: winvm$opt screenshot)"; next="winvm$opt wait"
+        fi
+    elif [[ -n $building ]]; then
+        state=building state_text="not available: base image is being built"; next="wait for the build to finish"
+    elif [[ ! -f $BASE ]]; then
+        state=not-built state_text="not available: nothing built for $IMG yet"
+        next="winvm build$bopt   then: winvm$opt start"
+        [[ -f $WIN_ISO ]] || ((WIN_ISO_DOWNLOAD)) || next="put the ISO at ${WIN_ISO#"$ROOT/"}, then $next"
+    elif [[ ! -f $DISK ]]; then state=not-created state_text="not created: the first start creates it"; next="winvm$opt start"
+    else state=stopped state_text="stopped"; next="winvm$opt start"; fi
+
+    local v others=() others_json=() built=() f i
+    for v in $(all_vms); do
+        [[ $v == "$VM" ]] && continue
+        if vm_running "$v"; then others+=("$v (running)"); others_json+=("{\"name\": $(json_str "$v"), \"running\": true}")
+        else others+=("$v"); others_json+=("{\"name\": $(json_str "$v"), \"running\": false}"); fi
+    done
+    for f in "$ROOT"/images/*.env; do
+        [[ $f == *.local.env ]] && continue
+        i=$(basename "$f" .env)
+        [[ $i != "$IMG" && -f $IMAGES/$i/base.qcow2 ]] && built+=("$i")
+    done
+
+    local problems=() free_kb
+    [[ -w /dev/kvm ]] || problems+=("/dev/kvm not accessible")
+    command -v "$QEMU" >/dev/null || problems+=("$QEMU not found (nix develop)")
+    [[ $fw == uefi && ! -f $OVMF_CODE ]] && problems+=("OVMF firmware not found ($OVMF_DIR; nix develop)")
+    ((REQUIRES_UEFI)) && [[ $fw != uefi ]] && problems+=("$IMAGE_DESC needs FIRMWARE=uefi")
+    free_kb=$(df -Pk "$STATE" 2>/dev/null | awk 'NR == 2 { print $4 }')
+    # A build needs room for the base image (~20G); overlays grow with use.
+    [[ -n $free_kb ]] && ((free_kb < 25 * 1024 * 1024)) &&
+        problems+=("only $((free_kb / 1024 / 1024))G free on the disk holding state/")
+
+    if ((json)); then
+        local recipes=() bytes
+        [[ -s $RECIPE_FILE ]] && mapfile -t recipes <"$RECIPE_FILE"
+        bytes() { [[ -f $1 ]] && echo $(($(du -k "$1" | cut -f1) * 1024)); }
+        cat <<EOF
+{
+  "vm": $(json_str "$VM"),
+  "image": {
+    "name": $(json_str "$IMG"),
+    "description": $(json_str "$IMAGE_DESC"),
+    "default": $(json_bool "$([[ $IMG == "$IMAGE" ]] && echo 1)"),
+    "iso": $(json_str "$WIN_ISO"),
+    "iso_present": $(json_bool "$([[ -f $WIN_ISO ]] && echo 1)"),
+    "built": $(json_bool "$([[ -f $BASE ]] && echo 1)"),
+    "built_date": $(json_or_null "$([[ -f $BASE ]] && date -r "$BASE" +%F)"),
+    "base_bytes": $(json_num "$(bytes "$BASE")"),
+    "building": $(json_bool "$([[ -n $building ]] && echo 1)"),
+    "expires": $(json_or_null "$([[ -f $EXPIRES_FILE ]] && cat "$EXPIRES_FILE")"),
+    "days_left": $(json_num "$days")
+  },
+  "firmware": $(json_str "$fw"),
+  "secure_boot": $(json_bool "$([[ $fw == uefi ]] && ((sb)) && echo 1)"),
+  "created": $(json_bool "$([[ -f $DISK ]] && echo 1)"),
+  "overlay_bytes": $(json_num "$(bytes "$DISK")"),
+  "sealed": $(json_bool "$(is_sealed && echo 1)"),
+  "recipes": $(json_list "${recipes[@]}"),
+  "hardware": {
+    "cpus": $(json_num "$VM_CPUS"),
+    "ram": $(json_str "$VM_RAM"),
+    "disk": $(json_str "$VM_DISK_SIZE"),
+    "internet": $(json_bool "$VM_INTERNET"),
+    "display": $(json_str "$DISPLAY_MODE")
+  },
+  "state": $(json_str "$state"),
+  "pid": $(json_num "$pid"),
+  "uptime_seconds": $(json_num "$etimes"),
+  "temporary": $(json_bool "$([[ -n $pid && -f $TEMP_MARKER ]] && echo 1)"),
+  "offline": $(json_bool "$([[ -n $pid && -f $VMDIR/offline ]] && echo 1)"),
+  "qemu_rss_bytes": $(json_num "${rss_kb:+$((rss_kb * 1024))}"),
+  "guest_ready": $(if [[ -n $guest_ready ]]; then json_bool "$guest_ready"; else printf null; fi),
+  "snapshots": $(json_list "${snaps[@]}"),
+  "ports": {"ssh": $P_SSH, "rdp": $P_RDP, "vs_debug": $P_VSDEBUG, "dbgsrv": $P_DBGSRV, "uitest": $P_UIDRIVER, "kd": $P_KD, "gdb": $P_GDB},
+  "other_vms": [$(IFS=,; echo "${others_json[*]}" | sed 's/},{/}, {/g')],
+  "built_images": $(json_list "${built[@]}"),
+  "problems": $(json_list "${problems[@]}"),
+  "next": $(json_str "$next")
+}
+EOF
+        return 0
+    fi
+
+    echo "image      : $IMG - $IMAGE_DESC$([[ $IMG == "$IMAGE" ]] && echo ' (default)')"
+    echo "  iso      : $iso_text"
+    echo "  base     : $base_text"
+    [[ -n $(expiry_text) ]] && echo "  license  : $(expiry_text)"
+    echo "firmware   : $fw$([[ $fw == uefi ]] && echo ", TPM 2.0, Secure Boot $( ((sb)) && echo on || echo off)")$([[ -f $BASE ]] || echo ' (config; fixed at build)')"
+    echo "vm         : $vm_text"
+    echo "hardware   : $VM_CPUS CPUs, $VM_RAM RAM, $VM_DISK_SIZE disk, internet $( ((VM_INTERNET)) && echo on || echo off), display $DISPLAY_MODE"
+    [[ -s $VM_ENV ]] && echo "settings   : $(paste -sd ' ' "$VM_ENV") (state/vms/$VM/vm.env)"
     if is_sealed; then
         echo "resets to  : its sealed state$([[ -s $RECIPE_FILE ]] && echo " (recipe $(recipes_text))"), not the plain image"
     fi
-    [[ -s $VM_ENV ]] && echo "settings   : $(paste -sd ' ' "$VM_ENV") (state/vms/$VM/vm.env)"
-    [[ -f $DISK ]] && echo "overlay    : $(du -h "$DISK" | cut -f1)"
-    if is_running; then
-        echo "state      : running (pid $(cat "$PIDFILE"))$([[ -f $TEMP_MARKER ]] && echo ', temporary')"
-    else
-        echo "state      : stopped"
+    echo "state      : $state_text"
+    [[ -n $guest ]] && echo "  guest    : $guest"
+    ((${#snaps[@]})) && echo "snapshots  : ${snaps[*]}  (winvm$opt snapshot load NAME)"
+    echo "ports      : ssh $P_SSH  rdp $P_RDP  vs-debug $P_VSDEBUG  dbgsrv $P_DBGSRV  uitest $P_UIDRIVER  kd $P_KD  gdb $P_GDB  (127.0.0.1$(is_running || echo ', once running'))"
+    ((${#others[@]})) && echo "other VMs  : ${others[*]}  (winvm list)"
+    ((${#built[@]})) && echo "built      : also ${built[*]}  (winvm images)"
+    if [[ ! -f $BASE ]] && ((${#built[@]} == 0 && ${#others[@]} == 0)); then
+        echo "available  : no base images and no VMs yet (winvm images lists what can be built)"
     fi
-    echo "ports      : ssh $P_SSH  rdp $P_RDP  vs-debug $P_VSDEBUG  dbgsrv $P_DBGSRV  uitest $P_UIDRIVER  kd $P_KD  gdb $P_GDB  (127.0.0.1)"
-    local n
-    n=$(all_vms | wc -l)
-    ((n > 1)) && echo "other VMs  : $(all_vms | grep -vx "$VM" | tr '\n' ' ')(winvm list)"
+    ((${#problems[@]})) && echo "problems   : $(printf '%s; ' "${problems[@]}" | sed 's/; $//')"
+    echo "next       : $next"
     return 0
 }
 
@@ -1861,7 +2009,7 @@ Setup
 Run a VM
   start          boot (creates the VM on first start)
   stop           shut down
-  status         base image, VM state and ports
+  status         what exists, the config it uses, VM state, ports, next step
   list           all VMs
   images         Windows versions (win10, win11, ...) and whether they're built
 
@@ -1883,6 +2031,7 @@ Use it
   rdp            desktop with clipboard and shared folder
   wait           block until the VM accepts SSH
   ssh-config     ~/.ssh/config entry (VS Code Remote-SSH, plain ssh, ...)
+  completion     tab completion for bash: source <(winvm completion)
 
 Manage what runs in the VM
   info           Windows version, license, uptime, memory, disk, desktop user, pending restart
@@ -1990,7 +2139,17 @@ Shuts the VM down cleanly (ACPI power button; forced after 3 minutes).
   --force   pull the plug immediately
 EOF
         ;;
-        status) echo "winvm [-n NAME] status    base image, firmware, VM state and its host ports" ;;
+        status) cat <<EOF
+winvm [-n NAME] status [--json]
+
+What exists (ISO, base image, VM), the config it uses, state, whether Windows
+answers SSH, snapshots, host ports, problems and the next command to run.
+
+  --json   the same as one JSON object, for scripts: e.g.
+           winvm status --json | jq -r .state    (running, stopped, not-created,
+                                                  not-built, building)
+EOF
+        ;;
         list) echo "winvm list    all VMs with state, SSH/RDP ports and how much they changed" ;;
         reset) cat <<EOF
 winvm [-n NAME] reset [--image]
@@ -2313,6 +2472,15 @@ SSH is back. E.g. after installing something that needs a restart.
 EOF
         ;;
         help) echo "winvm help [COMMAND]" ;;
+        completion) cat <<EOF
+winvm completion [bash]
+
+Prints the bash completion script (commands, options, VM / image / recipe /
+snapshot names). 'nix develop' loads it already; elsewhere add to ~/.bashrc:
+  source <(winvm completion)
+zsh: autoload -U +X bashcompinit && bashcompinit, then the same line.
+EOF
+        ;;
         *) usage ;;
     esac
 }
@@ -2344,6 +2512,7 @@ select_vm "$vm_name"
 case $cmd in
     fetch|build|start|stop|reset|commit|seal|new|apply|recipes|ssh|scp|rdp|wait|status|list|images|destroy|debug|uitest|run|crashes|screenshot|netcap|proxy|trace|usb|info|ps|kill|service|apps|events|ports|windows|key|reboot) "cmd_$cmd" "$@" ;;
     ssh-config) cmd_ssh_config "$@" ;;
+    completion) cmd_completion "$@" ;;
     snapshot|snap) cmd_snapshot "$@" ;;
     help) help_cmd "${1:-}" ;;
     -h|--help) usage ;;

@@ -26,6 +26,10 @@ function Retry([int]$tries, [scriptblock]$body) {
     }
 }
 
+Step 'PowerShell scripts allowed (RemoteSigned)' {
+    # Set-ExecutionPolicy errors when this process runs with -ExecutionPolicy Bypass.
+    Set-ItemProperty 'HKLM:\SOFTWARE\Microsoft\PowerShell\1\ShellIds\Microsoft.PowerShell' -Name ExecutionPolicy -Value RemoteSigned
+}
 Step 'Power settings' {
     & powercfg.exe /change standby-timeout-ac 0
     & powercfg.exe /change monitor-timeout-ac 0

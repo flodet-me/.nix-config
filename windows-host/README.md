@@ -120,10 +120,20 @@ Default credentials `dev` / `dev`; SSH and RDP are only forwarded to
 
 ## Status
 
-Tested on Linux with PowerShell 7 against VirtualBox 7.2's `VBoxManage`:
-parsing, `images`, the build up to the prepared unattended installation (VM,
-UEFI/TPM/Secure Boot, disk, the generated answer file and post-install script),
-linked clones, `new`, `list`, `status`, snapshots, `seal`, `reset`, `destroy`.
-Not yet run end to end on a Windows host (the guest side — SSH bootstrap,
-provisioning, updates, recipes, management commands — is the same mechanism
-the Linux version uses, but hasn't run inside VirtualBox).
+Tested end to end on 2026-10-31 on Windows 10 22H2 with VirtualBox 7.2.22
+(itself running in a winvm VM with nested AMD-V):
+
+- `build`: unattended install, guest additions, SSH, provisioning,
+  Chocolatey packages, 4 Windows Update rounds with restarts, clean snapshot,
+  linked clone. About 1 h 15 min (nested).
+- `list`, `status`, `start -Wait`, `stop`, `reboot`, `ssh`, `scp`, `info`,
+  `ps`, `service`, `ports`, `snapshot save/list/load` (live), `reset`,
+  `new -Recipe german-formats` (with its restart), sealed `reset`, `destroy`.
+
+Notes:
+
+- Run `winvm.ps1` from a desktop session. Started from an SSH session into
+  the Windows host, VirtualBox VMs can hang.
+- `ssh` reports exit codes only as 0 or 1 (a limit of Windows' SSH server).
+- Not tested yet: `apply`, `seal` by hand, `rdp`, `apps`, `events`, `kill`,
+  images other than win10, `-Gui`.

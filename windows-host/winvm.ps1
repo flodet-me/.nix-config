@@ -149,15 +149,24 @@ function Ssh-Opts([string]$vm) {
       '-o', "UserKnownHostsFile=$known", '-o', 'ConnectTimeout=5', '-o', 'LogLevel=ERROR')
 }
 
-# Runs PowerShell in the guest (base64 avoids the quoting of Windows' sshd).
-# Shows its output and returns the exit code; -Capture returns the output
-# lines instead (stderr dropped); -Quiet shows nothing.
+# The guest command line that runs PowerShell code. Base64 survives every
+# quoting layer (Windows PowerShell 5.1 drops inner double quotes when it calls
+# ssh.exe; Windows' sshd and the guest's login shell parse it again).
+# Write-Host and warnings go to stdout as text: otherwise powershell.exe sends
+# them as CLIXML on stderr, and the guest's PowerShell login shell prints them
+# a second time.
+function Guest-PsCommand([string]$code) {
+    $full = "& { $code } 3>&1 6>&1 | ForEach-Object { if (`$_ -is [System.Management.Automation.WarningRecord]) { `"WARNING: `$(`$_.Message)`" } elseif (`$_ -is [System.Management.Automation.InformationRecord]) { `"`$_`" } else { `$_ } }"
+    $enc = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($full))
+    "powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand $enc"
+}
+
+# Runs PowerShell in the guest. Shows its output and returns the exit code;
+# -Capture returns the output lines instead (stderr dropped); -Quiet shows nothing.
 function Guest-Ps([string]$vm, [int]$port, [string]$script, [switch]$Quiet, [switch]$Capture) {
     Need-Ssh
-    $full = "`$ProgressPreference='SilentlyContinue'; `$ErrorActionPreference='Stop'; try { $script } catch { [Console]::Error.WriteLine(`$_.ToString()); exit 1 }"
-    $enc = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($full))
-    $sshArgs = @(Ssh-Opts $vm) + @('-o', 'BatchMode=yes', '-p', $port, "$($Config.User)@127.0.0.1",
-                                   "powershell -NoProfile -NonInteractive -EncodedCommand $enc")
+    $cmd = Guest-PsCommand "`$ProgressPreference='SilentlyContinue'; `$ErrorActionPreference='Stop'; try { $script } catch { [Console]::Error.WriteLine(`$_.ToString()); exit 1 }"
+    $sshArgs = @(Ssh-Opts $vm) + @('-o', 'BatchMode=yes', '-p', $port, "$($Config.User)@127.0.0.1", $cmd)
     $eap = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
     try {
         if ($Capture) { return @(& $SshExe @sshArgs 2>$null | ForEach-Object { "$_" }) }
@@ -167,7 +176,8 @@ function Guest-Ps([string]$vm, [int]$port, [string]$script, [switch]$Quiet, [swi
     } finally { $ErrorActionPreference = $eap }
 }
 function Guest-Read([string]$vm, [int]$port, [string]$file) {
-    $l = Guest-Ps $vm $port "Get-Content $file -ErrorAction SilentlyContinue" -Capture
+    # @(): a single line would come back as a string, and [-1] would be its last character.
+    $l = @(Guest-Ps $vm $port "Get-Content $file -ErrorAction SilentlyContinue" -Capture)
     if ($l) { ([string]$l[-1]).Trim() } else { '' }
 }
 function Ssh-Up([string]$vm, [int]$port) {
@@ -588,7 +598,9 @@ function Cmd-Ssh([string]$name, [object[]]$argv) {
     Need-Ssh
     $vm = Need-Vm $name; $p = Vm-Ports $vm
     $opts = Ssh-Opts $vm
-    & $SshExe @opts -p $p.Ssh "$($Config.User)@127.0.0.1" @argv
+    # A command is sent encoded, so its quotes arrive as typed.
+    $cmd = @(); if ($argv.Count) { $cmd = @(Guest-PsCommand (($argv | ForEach-Object { "$_" }) -join ' ')) }
+    & $SshExe @opts -p $p.Ssh "$($Config.User)@127.0.0.1" @cmd
     exit $LASTEXITCODE
 }
 

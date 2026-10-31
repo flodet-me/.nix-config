@@ -1,10 +1,16 @@
 # Custom VMs for special tests
 
 Most tests run on a plain VM: `winvm start`, test, `winvm reset`. Some need a
-VM that is prepared differently: German number formats, a non-admin user,
-150 % scaling, a slow PC without network, a specific runtime or a
-pre-installed version of your app to test an upgrade. This guide shows how to
-make such a VM once and get back to exactly that state after every test.
+VM prepared differently: German number formats, a non-admin user, 150 %
+scaling, a slow offline PC, or an old version of your app for upgrade tests.
+Set it up once; `reset` then returns to exactly that state.
+
+| | by hand + `seal` | recipe |
+|---|---|---|
+| effort | minutes, click through RDP | write a `setup.ps1` |
+| repeatable / shareable | no | yes, it's in git |
+| survives an image rebuild | **no**, the VM is deleted | yes, `winvm new` recreates it |
+| good for | one-off investigations | anything you'll need again |
 
 ## How it fits together
 
@@ -52,10 +58,22 @@ winvm new de --recipe german-formats   # VM "de": created, set up, sealed
 winvm -n de start
 ```
 
-`winvm new NAME --recipe R` creates the VM, boots it (with internet), copies
-the recipe folder to `C:\winvm\recipe`, installs `packages.txt`, runs
-`setup.ps1`, restarts and runs it again if it asks to, shuts down and seals.
-Output of the recipe shows up in your terminal.
+What `winvm new NAME --recipe R` does (the recipe's output appears in your terminal):
+
+```
+  create VM from the image
+        │
+  boot (with internet)
+        │
+  copy recipes/R to C:\winvm\recipe, install packages.txt
+        │
+  run setup.ps1  ◀──────────────┐
+        │                       │
+        ├─ exit 3010 ─▶ restart ┘   ($env:WINVM_RECIPE_RUN = 2, 3, ...)
+        ├─ error ─────▶ stop; the VM stays running so you can look
+        │
+  exit 0: shut down, seal  ─▶  `reset` returns here from now on
+```
 
 ### Included examples
 
