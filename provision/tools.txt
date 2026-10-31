@@ -28,6 +28,13 @@ systeminformer   https://github.com/winsiderss/systeminformer/releases/download/
 guipropview      https://www.nirsoft.net/utils/guipropview-x64.zip
 winlister        https://www.nirsoft.net/utils/winlister-x64.zip
 accessibility-insights https://github.com/microsoft/accessibility-insights-windows/releases/download/v1.1.2924.01/AccessibilityInsights.msi
+# UI Automation element inspector (UIA2 and UIA3: what UI tests and screen readers see)
+flauinspect      https://github.com/FlaUI/FlaUInspect/releases/download/v.3.1.0/FlaUInspect.3.1.0.zip
+# Quick UI scripts: click through dialogs, send keys, wait for windows (AutoHotkey v2, portable)
+autohotkey       https://github.com/AutoHotkey/AutoHotkey/releases/download/v2.0.31/AutoHotkey_2.0.31.zip  menu:AutoHotkey64
+
+# Services and drivers: state, start mode, account, binary path; start/stop/change (NirSoft)
+serviwin         https://www.nirsoft.net/utils/serviwin-x64.zip
 
 # DLL dependency / loader problems (modern Dependency Walker), PE files, API calls
 dependencies     https://github.com/lucasg/Dependencies/releases/download/v1.11.1/Dependencies_x64_Release.zip
@@ -39,6 +46,13 @@ api-monitor      http://www.rohitab.com/download/api-monitor-v2r13-x86-x64.zip  
 folderchangesview https://www.nirsoft.net/utils/folderchangesview.zip
 processactivityview https://www.nirsoft.net/utils/processactivityview-x64.zip
 installedappview https://www.nirsoft.net/utils/installedappview-x64.zip
+# Registry changes between two snapshots (before/after an install or a test run)
+registrychangesview https://www.nirsoft.net/utils/registrychangesview-x64.zip
+
+# Robustness: exhaust memory, handles, threads (TestLimit); bad networks with
+# packet loss, latency, throttling, reordering for one app or all (clumsy)
+testlimit        https://download.sysinternals.com/files/Testlimit.zip
+clumsy           https://github.com/jagt/clumsy/releases/download/0.3/clumsy-0.3-win64-a.zip
 
 # Handlers: file associations, URL protocols, "Open with", shell extensions,
 # context menus, registry search (NirSoft)
@@ -54,6 +68,8 @@ x64dbg           https://github.com/x64dbg/x64dbg/releases/download/2026.05.27/s
 windbg           https://windbg.download.prss.microsoft.com/dbazure/prod/1-2610-1001-0/windbg.msixbundle!windbg_win-x64.msix  extract:amd64
 # Visual Studio 2026 remote debugger (msvsmon), see `winvm debug`
 vs-remote-tools  https://aka.ms/vs/18/release/RemoteTools.amd64ret.enu.exe  /install /quiet /norestart
+# .NET apps: decompile, debug without source, edit (dnSpyEx)
+dnspy            https://github.com/dnSpyEx/dnSpy/releases/download/v6.6.0/dnSpy-net-win64.zip  menu:dnSpy
 
 # UI test automation: WebDriver server for desktop apps, see `winvm uitest`
 winappdriver     https://github.com/microsoft/WinAppDriver/releases/download/v1.2.1/WindowsApplicationDriver_1.2.1.msi

@@ -12,3 +12,8 @@ cache/*
 runs/
 captures/
 images/*.local.env
+
+# windows-host (VirtualBox): keys, known_hosts, VMs, personal config
+windows-host/state/
+windows-host/vms/
+windows-host/config.local.ps1

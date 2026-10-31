@@ -1,6 +1,7 @@
 # Runs once at first logon (from autounattend.xml FirstLogonCommands), elevated.
 # Progress goes to C:\winvm\provision.log and to COM1, which the host tails
-# during `winvm build`. Shuts the VM down when finished.
+# during `winvm build`. Shuts the VM down when finished; with $InstallUpdates
+# update.ps1 takes over and does that once all updates are installed.
 # $Online (settings.ps1) is false for `winvm build --offline`: then nothing
 # here may touch the network, everything comes from the ISO and cache\.
 
@@ -12,23 +13,7 @@ $dst = 'C:\winvm'
 New-Item -ItemType Directory -Force $dst | Out-Null
 Get-ChildItem $src -Exclude cache | Copy-Item -Destination $dst -Recurse -Force
 . "$dst\settings.ps1"
-
-$serial = $null
-try { $serial = New-Object System.IO.Ports.SerialPort 'COM1', 115200; $serial.Open() } catch { $serial = $null }
-
-function Log([string]$msg) {
-    $line = "[winvm] $(Get-Date -Format HH:mm:ss) $msg"
-    Write-Host $line
-    Add-Content -Path "$dst\provision.log" -Value $line
-    if ($serial) { try { $serial.WriteLine($line) } catch {} }
-}
-
-$failed = @()
-function Step([string]$name, [scriptblock]$body) {
-    Log "==> $name"
-    try { & $body; Log "ok: $name" }
-    catch { $script:failed += $name; Log "FAILED: ${name}: $_" }
-}
+. "$dst\common.ps1"
 
 function Read-List([string]$file) {
     Get-Content $file | ForEach-Object { ($_ -replace '#.*', '').Trim() } | Where-Object { $_ }
@@ -297,15 +282,24 @@ $packages = @(Read-List "$dst\packages.txt")
 if (-not $Online) {
     Log "skipped (offline build): Chocolatey and packages.txt ($($packages -join ', '))"
 } else {
+    Step 'Internet reachable' {
+        Retry 20 { [void][Net.Dns]::GetHostEntry('community.chocolatey.org') }   # up to 5 min
+    }
     Step 'Chocolatey' {
         [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor 3072
-        Invoke-Expression ((New-Object Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+        # The installer downloads more (packages.chocolatey.org): retry all of it.
+        Retry 5 {
+            Invoke-Expression ((New-Object Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+            if (-not (Test-Path "$env:ProgramData\chocolatey\bin\choco.exe")) { throw 'choco.exe missing after install' }
+        }
         $env:Path += ";$env:ProgramData\chocolatey\bin"
     }
     foreach ($pkg in $packages) {
         Step "choco install $pkg" {
-            choco install $pkg -y --no-progress
-            if ($LASTEXITCODE -notin 0, 3010) { throw "choco exit code $LASTEXITCODE" }
+            Retry 3 {
+                choco install $pkg -y --no-progress
+                if ($LASTEXITCODE -notin 0, 3010) { throw "choco exit code $LASTEXITCODE" }
+            }
         }
     }
 }
@@ -336,11 +330,16 @@ Step 'No Autopilot profile applied' {
     Log "computer name: $env:COMPUTERNAME"
 }
 
-# Programs that crashed while installing (seen: pwsh, svchost) left dumps; a
-# clean image starts with an empty C:\dumps so every dump in it is yours.
-Remove-Item C:\dumps\* -Force -ErrorAction SilentlyContinue
-
-if ($failed.Count -eq 0) { Log 'PROVISION-OK' }
-else { Log "PROVISION-FAILED: $($failed -join ', ')" }
-if ($serial) { $serial.Close() }
-shutdown.exe /s /t 5 /f
+if ($InstallUpdates -and $failed.Count -eq 0) {
+    # Updates need reboots, so they continue in a task that runs at every boot
+    # (update.ps1), which also finishes the build.
+    Step 'Windows Update after reboot' {
+        $action = New-ScheduledTaskAction -Execute powershell.exe -Argument "-NoProfile -ExecutionPolicy Bypass -File $dst\update.ps1"
+        $principal = New-ScheduledTaskPrincipal -UserId SYSTEM -LogonType ServiceAccount -RunLevel Highest
+        $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Hours 12)
+        Register-ScheduledTask winvm-updates -Action $action -Trigger (New-ScheduledTaskTrigger -AtStartup) `
+            -Principal $principal -Settings $settings -Force | Out-Null
+    }
+    if ($failed.Count -eq 0) { Log 'restarting to install Windows updates'; Restart-Guest }
+}
+Complete-Provisioning

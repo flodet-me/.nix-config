@@ -80,7 +80,7 @@ Three levels of "undo", from coarse to fine:
 
 ```sh
 winvm images                      # what's available and built
-winvm build --image win11         # downloads the ISO, ~30 min
+winvm build --image win11         # downloads the ISO, installs all updates, 1-2 h
 winvm -n win11 start              # the image's VM is named like it
 winvm -n w11b start --image win11 # more VMs of the same version
 ```
@@ -88,12 +88,22 @@ winvm -n w11b start --image win11 # more VMs of the same version
 | image | what | notes |
 |---|---|---|
 | `win10` (default) | Windows 10 22H2 Pro | consumer ISO (see below), generic key, not activated |
-| `win11` | Windows 11 Enterprise | 90-day evaluation |
-| `win11-ltsc` | Windows 11 Enterprise LTSC 2024 | evaluation; no Store, few inbox apps |
+| `win11` | Windows 11 Pro | consumer ISO, generic key, not activated, doesn't expire |
+| `win11-ltsc` | Windows 11 Enterprise LTSC 2024 | 90-day evaluation; no Store, few inbox apps |
 | `server2025` | Windows Server 2025 Standard, Desktop Experience | 180-day evaluation, English only |
 
-Each version is a file in `images/`; add your own the same way. When an
-evaluation expires, `winvm build --force --image NAME` gives you a fresh one.
+Each version is a file in `images/`; add your own the same way.
+
+Builds install all Windows updates (restarting as needed), so a freshly built
+image is fully patched; `--no-updates` or `BUILD_UPDATES=0` skips that.
+
+Evaluation editions stop working after 90/180 days (Windows then shuts down
+every hour). The build records the date Windows reports: `winvm images` and
+`winvm status` show the days left, `winvm start` warns two weeks ahead. A
+rebuild (`winvm build --force --image NAME`) gives a new evaluation period with
+all current updates; VMs made with recipes are recreated with the commands the
+build prints. Activated or non-evaluation editions (your own key in
+`images/NAME.local.env`, your own ISO) don't expire.
 `IMAGE` in `config.local.env` changes the default version.
 
 ## Several VMs
@@ -114,6 +124,42 @@ for isolated testing, not for joining them to one domain. VMs can reach each
 other's forwarded ports through the host at `10.0.2.2` (e.g. a debugger VM
 against a target VM). `commit` is only allowed while no other VM uses the same
 image.
+
+## Custom VMs for special tests
+
+A VM prepared for one kind of test (German formats, non-admin user, 150 %
+scaling, slow PC, your app's old version for upgrade tests, ...) that `reset`
+returns to instead of the plain image. Either by hand, then `seal`, or
+repeatable with a recipe from `recipes/`:
+
+```sh
+winvm recipes                          # german-formats, standard-user, hidpi, low-spec-offline
+winvm new de --recipe german-formats   # created, set up, sealed
+winvm -n de start                      # ... test ...
+winvm -n de reset                      # back to the German setup, not the plain image
+winvm recipes new my-test              # write your own (recipes/my-test/)
+```
+
+Tutorial: [docs/custom-vms.md](docs/custom-vms.md).
+
+## Managing what runs in the VM
+
+Quick looks and changes without opening the desktop:
+
+```sh
+winvm info                       # version + build, license, uptime, memory, disk, desktop user, pending restart
+winvm ps myapp; winvm kill myapp # processes (memory, CPU, user, window title); end one (--tree)
+winvm service list ssh           # services: state, start mode, account, PID
+winvm service show MyAppSvc      # binary, account, dependencies, recovery actions, its recent crashes/timeouts
+winvm service restart MyAppSvc   # also start, stop, enable, manual, disable
+winvm apps myapp                 # installed programs (--store: MSIX too)
+winvm apps uninstall "MyApp"     # silently (MSI or the app's quiet uninstaller)
+winvm events --since 2h myapp    # warnings/errors from System + Application (--errors, --all, --log NAME)
+winvm ports                      # listening ports with process and service
+winvm windows                    # visible windows: title, class, process, position (--children: controls)
+winvm key ctrl-alt-delete        # keys through QEMU: lock screen, secure desktop, hung UI
+winvm reboot                     # restart Windows, wait until it's back
+```
 
 ## Online, offline, isolated
 
@@ -190,20 +236,25 @@ VM otherwise: `winvm scp`, or `\\tsclient\share` during an RDP session.
 ## Test tools
 
 Downloaded on the host into `cache/` (`provision/tools.txt`), installed in
-`C:\Tools`, on PATH, and in the Start menu folder / desktop link "Test Tools":
+`C:\Tools`, on PATH, and in the Start menu folder / desktop link "Test Tools".
+Tools added to the list reach an image with its next `build --force`:
 
 | area | tools |
 |---|---|
 | file types, URL protocols, default apps | FileTypesMan, URLProtocolView, OpenWithView |
 | shell extensions, context menus | ShellExView, ShellMenuView |
-| windows (HWND, class, styles, owner), UI Automation tree | GUIPropView, WinLister, Accessibility Insights |
-| processes, handles, DLLs, services | Process Explorer, System Informer, Handle, ListDLLs, Dependencies |
+| windows (HWND, class, styles, owner), UI Automation tree | GUIPropView, WinLister, Accessibility Insights, FlaUInspect (UIA2/UIA3) |
+| scripted UI actions (click through dialogs, send keys) | AutoHotkey v2 |
+| processes, handles, DLLs | Process Explorer, System Informer, Handle, ListDLLs, Dependencies |
+| services and drivers | ServiWin, PsService, Autoruns (+ `winvm service`, below) |
 | file/registry/network activity | Process Monitor, ProcessActivityView, TCPView, RegScanner |
-| what an installer changed | FolderChangesView, InstalledAppView, Autoruns |
+| what an installer changed | FolderChangesView, RegistryChangesView (registry snapshot diff), InstalledAppView, Autoruns |
+| robustness | TestLimit (exhaust memory/handles/threads), clumsy (packet loss, latency, throttling) |
 | binaries, API calls | PE-bear, Detect It Easy, API Monitor, Sigcheck |
 | permissions, kernel objects | AccessChk, WinObj |
 | crashes, logs, timeline | BlueScreenView, FullEventLogView, LastActivityView, `C:\dumps` |
 | debugging | x64dbg, WinDbg (+ cdb, kd, dbgsrv), VS 2026 remote debugger, DebugView, VMMap, RAMMap |
+| .NET apps | dnSpyEx (decompile, debug without source) |
 | UI automation | WinAppDriver (see below) |
 | finding files | Everything |
 

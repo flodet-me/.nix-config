@@ -44,6 +44,7 @@ image_paths() {
     SECUREBOOT_FILE="$IMGDIR/secureboot"
     EFIVARS_BASE="$IMGDIR/efivars.base.fd"
     TPM_BASE="$IMGDIR/tpm.base"
+    EXPIRES_FILE="$IMGDIR/expires"       # evaluation editions: date the license runs out
 }
 
 # Per-VM files. Every VM is a copy-on-write overlay of the base image with its
@@ -76,8 +77,20 @@ select_vm() {
     elif [[ -n ${NEW_IMAGE:-} ]]; then select_image "$NEW_IMAGE"
     elif [[ -f "$ROOT/images/$VM.env" ]]; then select_image "$VM"
     else select_image "$IMAGE"; fi
+    # The VM's own reset point once sealed (winvm seal / new --recipe): a layer
+    # on top of the base image. Otherwise reset goes back to the base image.
+    VM_BASE="$VMDIR/base.qcow2"
+    VM_EFIVARS_BASE="$VMDIR/efivars.base.fd"
+    VM_TPM_BASE="$VMDIR/tpm.base"
+    RECIPE_FILE="$VMDIR/recipe"       # recipes sealed into the VM, one per line
+    VM_ENV="$VMDIR/vm.env"            # this VM's settings (RAM, CPUs, internet, ...)
+    # shellcheck disable=SC1090
+    [[ -f $VM_ENV ]] && source "$VM_ENV"
     load_ports
 }
+
+is_sealed() { [[ -f $VM_BASE ]]; }
+recipes_text() { [[ -s $RECIPE_FILE ]] && paste -sd '+' "$RECIPE_FILE" | sed 's/+/ + /g'; }
 
 # Host ports (on 127.0.0.1) = configured port + the VM's slot number.
 load_ports() {
@@ -216,6 +229,27 @@ vm_firmware() {
 secure_boot() {
     [[ $(vm_firmware) == uefi ]] || { echo 0; return; }
     if [[ -f "$SECUREBOOT_FILE" ]]; then cat "$SECUREBOOT_FILE"; else echo 1; fi
+}
+
+# Evaluation editions (90-180 days) shut down every hour once expired. The
+# build records the date Windows reports; nothing else changes it.
+eval_days_left() {
+    [[ -f $EXPIRES_FILE ]] || return 1
+    # calendar days; +12 h absorbs daylight saving shifts
+    echo $((($(date -d "$(<"$EXPIRES_FILE")" +%s) - $(date -d "$(date +%F)" +%s) + 43200) / 86400))
+}
+expiry_text() {  # empty for editions that don't expire
+    local d
+    d=$(eval_days_left) || return 0
+    if ((d < 0)); then echo "evaluation EXPIRED on $(<"$EXPIRES_FILE"); rebuild: winvm build --force --image $IMG"
+    else echo "evaluation, expires $(<"$EXPIRES_FILE") ($d days left; then: winvm build --force --image $IMG)"; fi
+}
+warn_expiry() {
+    local d
+    d=$(eval_days_left) || return 0
+    ((d < 0)) && echo "winvm: warning: the $IMG evaluation EXPIRED on $(<"$EXPIRES_FILE"): Windows shuts down every hour. Rebuild: winvm build --force --image $IMG (deletes its VMs)" >&2
+    ((d >= 0 && d <= 14)) && echo "winvm: warning: the $IMG evaluation expires in $d days ($(<"$EXPIRES_FILE")); rebuild soon: winvm build --force --image $IMG" >&2
+    return 0
 }
 
 bool() { (($1)) && echo '$true' || echo '$false'; }
@@ -432,7 +466,7 @@ EOF
     fi
 }
 
-render_unattend() {  # out_dir firmware online
+render_unattend() {  # out_dir firmware online updates
     local out=$1 tpl paths="" n=0 key="" disk
     for letter in D E F G H I; do
         for drv in viostor NetKVM; do
@@ -471,6 +505,7 @@ render_unattend() {  # out_dir firmware online
         find "$CACHE" -maxdepth 1 -type f ! -name '.*' ! -name '*.part' -exec cp {} "$out/winvm/cache/" \;
     {
         echo "\$Online = $(bool "$3")"
+        echo "\$InstallUpdates = $(bool "$4")"
         echo "\$DisableWindowsUpdate = $(bool "$DISABLE_WINDOWS_UPDATE")"
         echo "\$Debloat = $(bool "$DEBLOAT")"
         echo "\$VsDebugPort = $GUEST_VSDEBUG_PORT"
@@ -502,13 +537,15 @@ offline_start_notice() {
 }
 
 cmd_build() {
-    local force=0 display=$DISPLAY_MODE online=$BUILD_INTERNET img=$IMAGE
+    local force=0 display=$DISPLAY_MODE online=$BUILD_INTERNET updates=$BUILD_UPDATES img=$IMAGE
     while (($#)); do
         case $1 in
             --force) force=1 ;;
             --headless) display=none ;;
             --offline) online=0 ;;
             --online) online=1 ;;
+            --updates) updates=1 ;;
+            --no-updates) updates=0 ;;
             --image) img=${2:-}; shift ;;
             *) die "build: unknown option $1 (see winvm build --help)" ;;
         esac
@@ -539,9 +576,19 @@ cmd_build() {
         ((force)) || die "the $IMG image exists; 'build --force' rebuilds it and deletes its VMs (${vms:-none})"
         info "deleting the $IMG base image and its VMs: ${vms:-none}"
         chmod u+w "$BASE"
-        rm -rf "$BASE" "$TPM_BASE" "$EFIVARS_BASE"
+        rm -rf "$BASE" "$TPM_BASE" "$EFIVARS_BASE" "$EXPIRES_FILE"
     fi
-    for v in $vms; do (select_vm "$v"; destroy_vm); done
+    local recreate=""
+    for v in $vms; do
+        if [[ -s "$VMS/$v/recipe" ]]; then
+            local first=1 r
+            while read -r r; do
+                if ((first)); then recreate+="    winvm new $v --recipe $r"$'\n'; first=0
+                else recreate+="    winvm -n $v apply $r --seal"$'\n'; fi
+            done <"$VMS/$v/recipe"
+        fi
+        (select_vm "$v"; destroy_vm)
+    done
     [[ ! -d "$VMS/$vm" ]] || die "VM '$vm' exists and isn't a $IMG VM; delete it first: winvm destroy $vm"
     ((online)) || offline_build_notice
     cmd_fetch
@@ -558,7 +605,8 @@ cmd_build() {
     info "building unattend ISO ($IMAGE_DESC)"
     local staging="$IMGDIR/unattend"
     rm -rf "$staging" && mkdir -p "$staging"
-    render_unattend "$staging" "$FIRMWARE" "$online"
+    ((online)) || updates=0
+    render_unattend "$staging" "$FIRMWARE" "$online" "$updates"
     xorriso -as mkisofs -quiet -J -joliet-long -r -V WINVM -o "$IMGDIR/unattend.iso" "$staging"
     rm -rf "$staging/winvm/cache"
 
@@ -579,7 +627,7 @@ cmd_build() {
     cdrom_args 1 "$VIRTIO_ISO"
     cdrom_args 2 "$IMGDIR/unattend.iso"
     QEMU_ARGS+=(-serial "file:$serial_log")
-    info "installing Windows ($( ((online)) && echo online || echo OFFLINE), unattended, typically 20-60 min; VM powers off when done)"
+    info "installing Windows ($( ((online)) && echo online || echo OFFLINE)$( ((updates)) && echo ' + all updates'), unattended, typically $( ((updates)) && echo '1-2 h' || echo '20-60 min'); VM powers off when done)"
     tail -n +1 -F "$serial_log" 2>/dev/null | tr -d '\r' | grep --line-buffered -a '^\[winvm\]' &
     local tail_pid=$! key_pid=""
     if [[ $FIRMWARE == uefi ]]; then
@@ -610,10 +658,15 @@ cmd_build() {
     [[ $FIRMWARE == uefi ]] && echo "$SECURE_BOOT" >"$SECUREBOOT_FILE"
     save_firmware_state
     new_overlay
+    local minutes
+    minutes=$(grep -ao 'EVALUATION-MINUTES-LEFT: [0-9]*' "$serial_log" | tail -1 | grep -o '[0-9]*$' || true)
+    if [[ -n $minutes ]]; then date -d "+$minutes minutes" +%F >"$EXPIRES_FILE"; else rm -f "$EXPIRES_FILE"; fi
     grep -a 'skipped' "$serial_log" | tr -d '\r' | sed 's/^\[winvm\] [0-9:]* /    note: /' >&2 || true
     local opt=""
     [[ $vm == default ]] || opt=" -n $vm"
     info "done. 'winvm$opt start' boots it, 'winvm$opt reset' returns to this state"
+    [[ -z $recreate ]] || { note "custom VMs of the old image were deleted; recreate them on the new one:"; printf '%s' "$recreate" >&2; }
+    [[ -z $minutes ]] || note "$(expiry_text)"
 }
 
 # UEFI NVRAM and TPM belong to the base image just like the disk: reset and
@@ -629,10 +682,12 @@ new_overlay() {
     [[ -f "$SLOT_FILE" ]] || echo "$SLOT" >"$SLOT_FILE"
     echo "$IMG" >"$IMAGE_FILE"
     rm -f "$DISK"
-    qemu-img create -q -f qcow2 -b "$BASE" -F qcow2 "$DISK"
+    local base=$BASE efivars=$EFIVARS_BASE tpm=$TPM_BASE
+    is_sealed && base=$VM_BASE efivars=$VM_EFIVARS_BASE tpm=$VM_TPM_BASE
+    qemu-img create -q -f qcow2 -b "$base" -F qcow2 "$DISK"
     if [[ $(vm_firmware) == uefi ]]; then
-        cp -f "$EFIVARS_BASE" "$EFIVARS"
-        rm -rf "$TPM_DIR" && cp -a "$TPM_BASE" "$TPM_DIR"
+        cp -f "$efivars" "$EFIVARS"
+        rm -rf "$TPM_DIR" && cp -a "$tpm" "$TPM_DIR"
     fi
 }
 
@@ -673,6 +728,7 @@ cmd_start() {
     need_image_defined
     [[ -f "$BASE" ]] || die "the $IMG image isn't built yet; run 'winvm build$([[ $IMG == "$IMAGE" ]] || echo " --image $IMG")'"
     is_running && die "VM '$VM' already running (pid $(cat "$PIDFILE"))"
+    warn_expiry
     if [[ ! -f "$DISK" ]]; then
         info "creating VM '$VM' from the $IMG image (copy-on-write, ports +$SLOT)"
         new_overlay
@@ -757,16 +813,64 @@ cmd_stop() {
 }
 
 cmd_reset() {
+    local to_image=0
+    case ${1:-} in
+        "") ;;
+        --image) to_image=1 ;;
+        *) die "reset: unknown option $1 (see winvm reset --help)" ;;
+    esac
     [[ -f "$BASE" ]] || die "no base image; run 'winvm build' first"
     if is_running; then cmd_stop --force; fi
+    if ((to_image)) && is_sealed; then
+        chmod -R u+w "$VM_BASE" "$VM_TPM_BASE" 2>/dev/null || true
+        rm -rf "$VM_BASE" "$VM_EFIVARS_BASE" "$VM_TPM_BASE" "$RECIPE_FILE"
+    fi
     new_overlay
-    info "'$VM' reset to the clean base image (snapshots discarded)"
+    if is_sealed; then
+        info "'$VM' reset to its sealed state$([[ -s $RECIPE_FILE ]] && echo " (recipe $(recipes_text))") (snapshots discarded)"
+        note "back to the plain $IMG image: winvm${VM_OPT} reset --image"
+    else
+        info "'$VM' reset to the clean $IMG base image (snapshots discarded)"
+    fi
+}
+
+# Make the VM's current state its reset point. The shared base image and the
+# other VMs stay as they are.
+cmd_seal() {
+    local yes=0 snaps
+    [[ ${1:-} == --yes || ${1:-} == -y ]] && yes=1
+    need_vm
+    [[ -f $TEMP_MARKER ]] && is_running && die "'$VM' runs with --temp: its changes are thrown away, there's nothing to seal"
+    snaps=$(qemu-img info --force-share --output=json "$DISK" | python3 -I -c '
+import json, sys
+print(" ".join(s["name"] for s in json.load(sys.stdin).get("snapshots", [])))')
+    if [[ -n $snaps ]] && ((!yes)); then
+        read -r -p "Sealing drops the snapshots of '$VM' ($snaps). Continue? [y/N] " a
+        [[ $a == [yY]* ]] || exit 1
+    fi
+    if is_running; then cmd_stop; fi
+    local s
+    for s in $snaps; do qemu-img snapshot -d "$s" "$DISK"; done
+    if is_sealed; then
+        chmod u+w "$VM_BASE"
+        qemu-img commit -q "$DISK"   # into the VM's own layer, not the base image
+    else
+        mv "$DISK" "$VM_BASE"
+    fi
+    chmod a-w "$VM_BASE"
+    if [[ $(vm_firmware) == uefi ]]; then
+        cp -f "$EFIVARS" "$VM_EFIVARS_BASE"
+        rm -rf "$VM_TPM_BASE" && cp -a "$TPM_DIR" "$VM_TPM_BASE"
+    fi
+    new_overlay
+    info "sealed '$VM': 'winvm${VM_OPT} reset' returns to this state from now on"
 }
 
 cmd_commit() {
     local yes=0
     [[ "${1:-}" == "--yes" ]] && yes=1
     need_vm
+    is_sealed && die "'$VM' has its own reset point; 'winvm${VM_OPT} seal' updates that (commit would change the $IMG base image under it)"
     local others
     others=$(image_vms "$IMG" | grep -vx "$VM" | paste -sd " " || true)
     [[ -z $others ]] || die "other VMs are built on the $IMG image ($others); destroy them first: winvm destroy $others"
@@ -843,6 +947,271 @@ cmd_destroy() {
         (select_vm "$v"; destroy_vm)
         info "VM '$v' deleted$([[ $v == default ]] && echo " ('winvm start' recreates it)" || echo " ('winvm -n $v start' recreates it)")"
     done
+}
+
+# --- custom VMs: recipes -----------------------------------------------------
+
+# A recipe (recipes/NAME/, see docs/custom-vms.md) turns a fresh VM into a
+# special-purpose one: settings in recipe.env, packages.txt, setup.ps1 run in
+# the guest. RECIPE_VM_KEYS from recipe.env become the VM's own settings.
+RECIPE_VM_KEYS="VM_RAM VM_CPUS VM_INTERNET USB_DEVICES AUDIO DISPLAY_MODE"
+
+recipe_dir() {  # name or path -> directory
+    local d=$1
+    [[ $d == */* || -d $d && ! -d "$ROOT/recipes/$d" ]] || d="$ROOT/recipes/$1"
+    [[ -d $d && -f $d/recipe.env ]] || die "no recipe '$1' (recipes/NAME/recipe.env; winvm recipes lists them)"
+    (cd "$d" && pwd)
+}
+
+recipe_get() {  # dir key -> value from recipe.env (in a subshell: doesn't touch our config)
+    (
+        unset "$2"
+        # shellcheck disable=SC1091
+        source "$1/recipe.env"
+        echo "${!2:-}"
+    )
+}
+
+cmd_recipes() {
+    case ${1:-list} in
+        list)
+            printf '%-20s %-12s %s\n' RECIPE IMAGE DESCRIPTION
+            local d
+            for d in "$ROOT"/recipes/*/; do
+                [[ -f $d/recipe.env && $(basename "$d") != _* ]] || continue
+                printf '%-20s %-12s %s\n' "$(basename "$d")" "$(recipe_get "$d" IMAGE || true)" "$(recipe_get "$d" DESCRIPTION || true)"
+            done
+            note "make a VM from one: winvm new NAME --recipe RECIPE   start your own: winvm recipes new NAME" ;;
+        new)
+            local name=${2:-}
+            valid_vm_name "$name" || die "usage: winvm recipes new NAME (lowercase letters, digits, -)"
+            [[ ! -e "$ROOT/recipes/$name" ]] || die "recipes/$name exists already"
+            cp -r "$ROOT/recipes/_template" "$ROOT/recipes/$name"
+            info "created recipes/$name/ - edit recipe.env, packages.txt and setup.ps1, then:"
+            note "winvm new $name --recipe $name" ;;
+        *) die "usage: winvm recipes [list | new NAME]" ;;
+    esac
+}
+
+# Run a recipe in the selected VM (started with internet unless --offline).
+apply_recipe() {  # dir online
+    local dir=$1 run rc
+    VM_INTERNET=$2
+    ensure_running
+    ssh_opts
+    info "applying recipe $(basename "$dir") to '$VM'"
+    guest_ps "Remove-Item -Recurse -Force C:\\winvm\\recipe -ErrorAction SilentlyContinue; New-Item -ItemType Directory C:\\winvm\\recipe | Out-Null"
+    scp -q -r "${SSH_OPTS[@]}" -o BatchMode=yes -P "$P_SSH" "$dir"/* "$WIN_USER@127.0.0.1:C:/winvm/recipe/" ||
+        die "could not copy the recipe into the VM"
+    scp -q "${SSH_OPTS[@]}" -o BatchMode=yes -P "$P_SSH" "$ROOT/lib/guest/recipe.ps1" "$WIN_USER@127.0.0.1:C:/winvm/recipe-runner.ps1" ||
+        die "could not copy the recipe runner into the VM"
+    for ((run = 1; run <= 5; run++)); do
+        ssh "${SSH_OPTS[@]}" -o BatchMode=yes -o LogLevel=ERROR -p "$P_SSH" "$WIN_USER@127.0.0.1" \
+            "powershell -NoProfile -ExecutionPolicy Bypass -File C:\\winvm\\recipe-runner.ps1 -Run $run" || true
+        # Windows' SSH server reports every failure as 1; the runner writes the real code.
+        rc=$(guest_ps "Get-Content C:\\winvm\\recipe-exit.txt -ErrorAction SilentlyContinue" | tr -dc '0-9')
+        case ${rc:-1} in
+            0) info "recipe applied"; return 0 ;;
+            3010) info "the recipe asked for a restart (run $run done)"
+                  cmd_stop
+                  cmd_start --headless --wait ;;
+            *) die "the recipe failed (exit code $rc); the VM is still running for a look: winvm${VM_OPT} ssh / rdp" ;;
+        esac
+    done
+    die "the recipe still asked for a restart after 5 runs"
+}
+
+cmd_apply() {
+    local online=1 seal=0 r=""
+    while (($#)); do
+        case $1 in
+            --offline) online=0 ;;
+            --seal) seal=1 ;;
+            -*) die "apply: unknown option $1 (see winvm apply --help)" ;;
+            *) r=$1 ;;
+        esac
+        shift
+    done
+    [[ -n $r ]] || die "usage: winvm [-n NAME] apply RECIPE [--seal] [--offline]"
+    need_vm
+    local dir
+    dir=$(recipe_dir "$r")
+    apply_recipe "$dir" "$online"
+    if ((seal)); then
+        cmd_seal --yes
+        basename "$dir" >>"$RECIPE_FILE"
+    else
+        note "keep this as the state 'reset' returns to: winvm${VM_OPT} seal"
+    fi
+}
+
+cmd_new() {
+    local name="" img="" r="" online=1 dir="" k v
+    while (($#)); do
+        case $1 in
+            --image) img=${2:-}; shift ;;
+            --recipe) r=${2:-}; shift ;;
+            --offline) online=0 ;;
+            -*) die "new: unknown option $1 (see winvm new --help)" ;;
+            *) name=$1 ;;
+        esac
+        shift
+    done
+    [[ -n $name ]] || die "usage: winvm new NAME [--recipe RECIPE] [--image IMG]"
+    valid_vm_name "$name" || die "VM names: lowercase letters, digits and -, e.g. 'test2'"
+    [[ ! -d "$VMS/$name" ]] || die "VM '$name' exists already (winvm destroy $name, or apply a recipe to it: winvm -n $name apply RECIPE)"
+    if [[ -n $r ]]; then
+        dir=$(recipe_dir "$r")
+        [[ -n $img ]] || img=$(recipe_get "$dir" IMAGE)
+    fi
+    [[ -n $img ]] || img=$IMAGE
+    NEW_IMAGE=$img select_vm "$name"
+    VM_OPT=" -n $name"
+    need_image_defined
+    [[ -f "$BASE" ]] || die "the $IMG image isn't built yet; run 'winvm build --image $IMG'"
+    mkdir -p "$VMDIR"
+    if [[ -n $dir ]]; then
+        for k in $RECIPE_VM_KEYS; do
+            v=$(recipe_get "$dir" "$k")
+            [[ -n $v ]] && printf '%s=%q\n' "$k" "$v"
+        done >"$VM_ENV"
+        # shellcheck disable=SC1090
+        source "$VM_ENV"
+    fi
+    new_overlay
+    info "created VM '$name' from the $IMG image (ports +$SLOT)"
+    if [[ -n $dir ]]; then
+        apply_recipe "$dir" "$online"
+        cmd_seal --yes
+        basename "$dir" >"$RECIPE_FILE"
+        [[ -s $VM_ENV ]] && note "VM settings from the recipe (edit: state/vms/$name/vm.env): $(paste -sd ' ' "$VM_ENV")"
+    fi
+    note "start: winvm -n $name start    reset: winvm -n $name reset    delete: winvm destroy $name"
+}
+
+# --- managing the guest: info / ps / kill / service / apps / events / ports ---
+
+need_running() {
+    need_vm
+    is_running || die "'$VM' is not running (winvm${VM_OPT} start)"
+}
+guest_manage() { need_running; push_hosttools; guest_tools "$1"; }
+ps_quote() { local q="'"; printf "'%s'" "${1//$q/$q$q}"; }
+
+cmd_info() { guest_manage "Get-WinvmInfo"; }
+
+cmd_ps() { guest_manage "Get-WinvmProcess $(ps_quote "${1:-}")"; }
+
+cmd_kill() {
+    local tree="" target=""
+    while (($#)); do
+        case $1 in
+            --tree) tree=" -Tree" ;;
+            -*) die "kill: unknown option $1 (see winvm kill --help)" ;;
+            *) target=$1 ;;
+        esac
+        shift
+    done
+    [[ -n $target ]] || die "usage: winvm kill NAME|PID [--tree]"
+    guest_manage "Stop-WinvmProcess $(ps_quote "$target")$tree"
+}
+
+cmd_service() {
+    local action=${1:-list} name=${2:-}
+    case $action in
+        list) guest_manage "Get-WinvmService $(ps_quote "$name")" ;;
+        show|start|stop|restart|enable|disable|manual)
+            [[ -n $name ]] || die "usage: winvm service $action NAME"
+            if [[ $action == show ]]; then guest_manage "Show-WinvmService $(ps_quote "$name")"
+            else guest_manage "Set-WinvmService $action $(ps_quote "$name")"; fi ;;
+        *) die "usage: winvm service [list [FILTER] | show|start|stop|restart|enable|manual|disable NAME]" ;;
+    esac
+}
+
+cmd_apps() {
+    case ${1:-list} in
+        uninstall)
+            [[ -n ${2:-} ]] || die "usage: winvm apps uninstall NAME"
+            guest_manage "Uninstall-WinvmApp $(ps_quote "$2")" ;;
+        *)
+            local filter="" store=""
+            [[ ${1:-} == list ]] && shift
+            while (($#)); do
+                case $1 in
+                    --store) store=" -Store" ;;
+                    -*) die "apps: unknown option $1 (see winvm apps --help)" ;;
+                    *) filter=$1 ;;
+                esac
+                shift
+            done
+            guest_manage "Get-WinvmApp $(ps_quote "$filter")$store" ;;
+    esac
+}
+
+cmd_events() {
+    local minutes=60 level=warning logs=() filter="" since
+    while (($#)); do
+        case $1 in
+            --since)
+                since=${2:-}; shift
+                case $since in
+                    *m) minutes=${since%m} ;; *h) minutes=$((${since%h} * 60)) ;; *d) minutes=$((${since%d} * 1440)) ;;
+                    *) minutes=$since ;;
+                esac
+                [[ $minutes =~ ^[0-9]+$ ]] || die "--since: e.g. 30m, 2h, 1d" ;;
+            --errors) level=error ;;
+            --all) level=all ;;
+            --log) logs+=("$(ps_quote "${2:-}")"); shift ;;
+            -*) die "events: unknown option $1 (see winvm events --help)" ;;
+            *) filter=$1 ;;
+        esac
+        shift
+    done
+    local logarg=""
+    ((${#logs[@]})) && logarg=" -Log $(IFS=,; echo "${logs[*]}")"
+    guest_manage "Get-WinvmEvent -Minutes $minutes -Level $level$logarg -Filter $(ps_quote "$filter")"
+}
+
+cmd_ports() { guest_manage "Get-WinvmPort"; }
+
+cmd_windows() {
+    local opts="" filter="*"
+    while (($#)); do
+        case $1 in
+            --all) opts+=" -All" ;;
+            --children) opts+=" -Children" ;;
+            -*) die "windows: unknown option $1 (see winvm windows --help)" ;;
+            *) filter="*$1*" ;;
+        esac
+        shift
+    done
+    need_running
+    guest_ps "(Get-Window -Title $(ps_quote "$filter")$opts | Select-Object Handle, Title, Class, Process, ProcessId, Rect, Parent | Format-Table -AutoSize | Out-String -Width 250).Trim()"
+}
+
+cmd_key() {
+    (($#)) || die "usage: winvm key KEYS... e.g. ctrl-alt-delete, alt-f4, meta_l-r, ret, esc"
+    need_running
+    local k
+    for k in "$@"; do
+        [[ $k =~ ^[a-z0-9_]+(-[a-z0-9_]+)*$ ]] || die "key '$k': QEMU key names joined with -, e.g. ctrl-alt-delete"
+        qmp hmp "sendkey $k" >/dev/null || die "QEMU didn't accept key '$k' (names: winvm key --help)"
+    done
+}
+
+cmd_reboot() {
+    local wait=1
+    [[ ${1:-} == --no-wait ]] && wait=0
+    need_running
+    ssh_opts
+    info "restarting Windows in '$VM'"
+    guest_ps "shutdown.exe /r /t 1 /f" >/dev/null
+    for _ in $(seq 60); do   # until it went down
+        ssh "${SSH_OPTS[@]}" -o BatchMode=yes -o ConnectTimeout=2 -p "$P_SSH" "$WIN_USER@127.0.0.1" exit 2>/dev/null || break
+        sleep 2
+    done
+    ((wait)) && cmd_wait
+    return 0
 }
 
 # --- snapshots --------------------------------------------------------------
@@ -965,7 +1334,12 @@ cmd_status() {
     fw=$(vm_firmware) sb=$(secure_boot)
     echo "image      : $IMG - $IMAGE_DESC ($([[ -f $BASE ]] && du -h "$BASE" | cut -f1 || echo 'not built'))"
     echo "firmware   : $fw$([[ $fw == uefi ]] && echo ", TPM 2.0, Secure Boot $( ((sb)) && echo on || echo off)")"
+    [[ -n $(expiry_text) ]] && echo "license    : $(expiry_text)"
     echo "vm         : $VM$([[ -f $DISK ]] || echo ' (not created yet)')"
+    if is_sealed; then
+        echo "resets to  : its sealed state$([[ -s $RECIPE_FILE ]] && echo " (recipe $(recipes_text))"), not the plain image"
+    fi
+    [[ -s $VM_ENV ]] && echo "settings   : $(paste -sd ' ' "$VM_ENV") (state/vms/$VM/vm.env)"
     [[ -f $DISK ]] && echo "overlay    : $(du -h "$DISK" | cut -f1)"
     if is_running; then
         echo "state      : running (pid $(cat "$PIDFILE"))$([[ -f $TEMP_MARKER ]] && echo ', temporary')"
@@ -980,7 +1354,7 @@ cmd_status() {
 }
 
 cmd_list() {
-    printf '%-12s %-12s %-10s %-6s %-6s %s\n' NAME IMAGE STATE SSH RDP OVERLAY
+    printf '%-14s %-12s %-10s %-6s %-6s %-8s %s\n' NAME IMAGE STATE SSH RDP OVERLAY "RESETS TO"
     local v
     for v in $(all_vms); do
         (
@@ -990,7 +1364,9 @@ cmd_list() {
             elif [[ ! -f $DISK ]]; then state=incomplete
             fi
             [[ -f $DISK ]] && size=$(du -h "$DISK" | cut -f1)
-            printf '%-12s %-12s %-10s %-6s %-6s %s\n' "$v" "$IMG" "$state" "$P_SSH" "$P_RDP" "$size"
+            local resets=image
+            if [[ -s $RECIPE_FILE ]]; then resets="recipe $(recipes_text)"; elif is_sealed; then resets=sealed; fi
+            printf '%-14s %-12s %-10s %-6s %-6s %-8s %s\n' "$v" "$IMG" "$state" "$P_SSH" "$P_RDP" "$size" "$resets"
         )
     done
     [[ -n $(all_vms) ]] || note "no VMs yet ('winvm start' creates one)"
@@ -1006,7 +1382,8 @@ cmd_images() {
         (
             select_image "$i"
             printf '%-12s %-10s %-4s %s%s\n' "$i" "$([[ -f $BASE ]] && du -h "$BASE" | cut -f1 || echo -)" \
-                "$(image_vms "$i" | wc -l)" "$IMAGE_DESC" "$([[ $i == "$IMAGE" ]] && echo '  (default)')"
+                "$(image_vms "$i" | wc -l)" "$IMAGE_DESC" "$([[ $i == "$IMAGE" ]] && echo '  (default)')$(
+                    d=$(eval_days_left) && { ((d < 0)) && echo '  [evaluation EXPIRED]' || echo "  [evaluation: $d days left]"; })"
         )
     done
     note "build one: winvm build --image NAME    then: winvm -n NAME start"
@@ -1489,10 +1866,16 @@ Run a VM
   images         Windows versions (win10, win11, ...) and whether they're built
 
 Undo
-  reset          back to the clean base image
+  reset          back to the clean state
   snapshot       save / load / delete / list named checkpoints
-  commit         make the current state the new clean base
+  commit         make the current state the new clean base image
   destroy        delete VMs: winvm destroy NAME... (or everything: --all)
+
+Custom VMs (docs/custom-vms.md)
+  new            new VM, optionally set up by a recipe: winvm new NAME --recipe R
+  recipes        list recipes, or start one: winvm recipes new NAME
+  apply          run a recipe in an existing VM
+  seal           make this VM's current state the one 'reset' returns to
 
 Use it
   ssh            PowerShell in the VM (or run a command)
@@ -1500,6 +1883,18 @@ Use it
   rdp            desktop with clipboard and shared folder
   wait           block until the VM accepts SSH
   ssh-config     ~/.ssh/config entry (VS Code Remote-SSH, plain ssh, ...)
+
+Manage what runs in the VM
+  info           Windows version, license, uptime, memory, disk, desktop user, pending restart
+  ps / kill      processes (memory, CPU, user, window title) / end one
+  service        services: list, show (binary, account, recovery, recent events),
+                 start, stop, restart, enable, manual, disable
+  apps           installed programs (--store: MSIX too) / apps uninstall NAME (silent)
+  events         event log: warnings and errors of the last hour (--since, --errors, --log)
+  ports          listening TCP/UDP ports with process and service
+  windows        visible windows: title, class, process, position (--children: controls)
+  key            press keys in the VM (ctrl-alt-delete, alt-f4, ...), also on the lock screen
+  reboot         restart Windows and wait until it's back
 
 Test and debug apps
   run            copy a program in, run it on the desktop, get exit code,
@@ -1558,6 +1953,13 @@ progress is printed as it happens. Run 'fetch' first or let build do it.
                Chocolatey packages are skipped and no updates are installed;
                the full list of restrictions is printed when it starts.
   --online     guest has internet during the build (default: BUILD_INTERNET=$BUILD_INTERNET)
+  --no-updates don't install Windows updates (default: BUILD_UPDATES=$BUILD_UPDATES
+               installs all of them, rebooting as needed, so the base image is
+               fully patched; adds 30-60 min). Offline builds never update.
+
+Evaluation editions (win11-ltsc, server2025) stop working after 90/180 days;
+'winvm images' and 'status' show the date, 'start' warns two weeks ahead.
+Rebuilding gives a fresh evaluation period with all current updates.
 
 Changing config.env / config.local.env or anything in provision/ only takes
 effect with 'build --force' (or change the running VM and 'commit').
@@ -1591,10 +1993,52 @@ EOF
         status) echo "winvm [-n NAME] status    base image, firmware, VM state and its host ports" ;;
         list) echo "winvm list    all VMs with state, SSH/RDP ports and how much they changed" ;;
         reset) cat <<EOF
-winvm [-n NAME] reset
+winvm [-n NAME] reset [--image]
 
-Throws away everything that happened in this VM since the build (or the last
-commit): disk, UEFI NVRAM, TPM and snapshots. Takes about a second.
+Throws away everything that happened in this VM since its clean state: disk,
+UEFI NVRAM, TPM and snapshots. Takes about a second. The clean state is the
+base image, or for a sealed VM (seal, new --recipe) the sealed state.
+  --image   back to the plain base image, dropping the sealed state
+EOF
+        ;;
+        seal) cat <<EOF
+winvm [-n NAME] seal [--yes]
+
+Makes the VM's current state the one 'reset' returns to, e.g. after setting it
+up by hand for a special test. Only this VM changes: the base image and other
+VMs stay as they are (unlike commit). Shuts the VM down first and drops its
+snapshots. Sealing again updates the sealed state; 'reset --image' drops it.
+Rebuilding the image deletes its VMs, sealed ones too: recipes recreate them.
+  --yes   don't ask about dropping snapshots
+EOF
+        ;;
+        new) cat <<EOF
+winvm new NAME [--recipe RECIPE] [--image IMG] [--offline]
+
+Creates the VM NAME from a built image. With a recipe (recipes/RECIPE/ or a
+path) it boots it, applies the recipe (packages.txt, setup.ps1, restarts as
+the recipe asks), takes over its VM settings (RAM, CPUs, internet, USB) and
+seals the result: 'winvm -n NAME reset' returns to the set-up state.
+  --image IMG   Windows version (default: the recipe's IMAGE, else IMAGE)
+  --offline     no internet while applying the recipe (default: online; the
+                recipe's VM_INTERNET applies when the VM runs afterwards)
+How to write recipes: docs/custom-vms.md
+EOF
+        ;;
+        apply) cat <<EOF
+winvm [-n NAME] apply RECIPE [--seal] [--offline]
+
+Runs a recipe in an existing VM (starting it if needed), e.g. to try a recipe
+while writing it. Doesn't change the VM's settings.
+  --seal      seal afterwards (else: winvm seal when you're happy)
+  --offline   no internet while applying (only if the VM isn't running yet)
+EOF
+        ;;
+        recipes) cat <<EOF
+winvm recipes [list | new NAME]
+
+  list       the recipes in recipes/ (default)
+  new NAME   start a recipe: copies recipes/_template to recipes/NAME
 EOF
         ;;
         snapshot|snap) cat <<EOF
@@ -1613,7 +2057,8 @@ winvm commit [--yes]
 
 Merges the current state of the VM into the base image, so 'reset' returns to
 it from now on. Handy after installing something by hand. Only allowed while
-no other VMs exist, because they are built on the same base image.
+no other VMs exist, because they are built on the same base image. To keep
+changes for just one VM, use 'seal' instead.
   --yes   don't ask
 EOF
         ;;
@@ -1770,6 +2215,103 @@ Devices that should always be attached: USB_DEVICES in config.local.env.
 Note: RAM snapshots only load with the same devices attached.
 EOF
         ;;
+        info) cat <<EOF
+winvm [-n NAME] info
+
+Windows version and build, license (activation, evaluation days left), CPUs
+and RAM, uptime, memory and disk use, who's signed in to the desktop, regional
+settings, IP, newest installed update, and whether a restart is pending.
+EOF
+        ;;
+        ps) cat <<EOF
+winvm [-n NAME] ps [FILTER]
+
+The 50 biggest processes (or those whose name contains FILTER, or PID FILTER):
+PID, name, CPU seconds, memory MB, session (0 = services, 1+ = desktop),
+user and main window title.
+EOF
+        ;;
+        kill) cat <<EOF
+winvm [-n NAME] kill NAME|PID [--tree]
+
+Ends all processes called NAME (with or without .exe) or the one with PID.
+  --tree   also everything it started
+EOF
+        ;;
+        service) cat <<EOF
+winvm [-n NAME] service [list [FILTER]]
+winvm [-n NAME] service show|start|stop|restart|enable|manual|disable NAME
+
+  list      all services (or those whose name/display name contains FILTER):
+            state, start mode, account, PID
+  show      one service in detail: binary path, account, dependencies,
+            recovery actions on failure, its recent Service Control Manager
+            events (crashes, start failures, timeouts)
+  start / stop / restart
+  enable / manual / disable   start mode automatic / manual / disabled
+EOF
+        ;;
+        apps) cat <<EOF
+winvm [-n NAME] apps [FILTER] [--store]
+winvm [-n NAME] apps uninstall NAME
+
+  (list)      installed programs as in "Apps & features": name, version,
+              publisher, install date, msi/exe/per-user
+  --store     also Store / MSIX packages
+  uninstall   silently: msiexec /x for MSI packages, else the program's quiet
+              uninstaller; NAME must match one program
+EOF
+        ;;
+        events) cat <<EOF
+winvm [-n NAME] events [FILTER] [--since 30m|2h|1d] [--errors|--all] [--log NAME]...
+
+Event log entries of the last hour (default) from System and Application,
+warnings and errors (default), oldest first, one line each. FILTER matches the
+source or the message, e.g. your app's name.
+  --since T   how far back: minutes (30m), hours (2h), days (1d)
+  --errors    errors and critical only;  --all  information too
+  --log NAME  other logs, repeatable: Security, Setup,
+              "Microsoft-Windows-PowerShell/Operational", ...
+All logs with details: FullEventLogView in the VM, or Event Viewer.
+EOF
+        ;;
+        ports) cat <<EOF
+winvm [-n NAME] ports
+
+Listening TCP ports and UDP endpoints with address, process and the services
+in that process. To reach a guest port from this host, tunnel it through SSH:
+  winvm ssh-config >> ~/.ssh/config;  ssh -N -L 8080:127.0.0.1:PORT winvm
+EOF
+        ;;
+        windows) cat <<EOF
+winvm [-n NAME] windows [TITLE] [--all] [--children]
+
+Windows on the desktop: handle, title, class, process, position and size.
+TITLE filters by title (substring). For UI tests and "where did my dialog go".
+  --all        hidden windows too
+  --children   child windows (controls) too
+In the VM: Get-Window (module WinvmTest), FlaUInspect, Accessibility Insights.
+EOF
+        ;;
+        key) cat <<EOF
+winvm [-n NAME] key KEYS...
+
+Presses keys in the VM like a keyboard, through QEMU: works where nothing in
+Windows can (lock screen, secure desktop, a hung session). One argument per
+press; QEMU key names joined with -:
+  winvm key ctrl-alt-delete
+  winvm key alt-f4        winvm key meta_l-r     winvm key esc ret tab spc
+Letters a-z, digits, f1-f12, up/down/left/right, home, end, pgup, pgdn,
+delete, backspace, shift, ctrl, alt, meta_l (Windows key).
+EOF
+        ;;
+        reboot) cat <<EOF
+winvm [-n NAME] reboot [--no-wait]
+
+Restarts Windows (not the VM: QEMU keeps running, no reset) and waits until
+SSH is back. E.g. after installing something that needs a restart.
+EOF
+        ;;
         help) echo "winvm help [COMMAND]" ;;
         *) usage ;;
     esac
@@ -1800,7 +2342,7 @@ migrate_layout
 migrate_images
 select_vm "$vm_name"
 case $cmd in
-    fetch|build|start|stop|reset|commit|ssh|scp|rdp|wait|status|list|images|destroy|debug|uitest|run|crashes|screenshot|netcap|proxy|trace|usb) "cmd_$cmd" "$@" ;;
+    fetch|build|start|stop|reset|commit|seal|new|apply|recipes|ssh|scp|rdp|wait|status|list|images|destroy|debug|uitest|run|crashes|screenshot|netcap|proxy|trace|usb|info|ps|kill|service|apps|events|ports|windows|key|reboot) "cmd_$cmd" "$@" ;;
     ssh-config) cmd_ssh_config "$@" ;;
     snapshot|snap) cmd_snapshot "$@" ;;
     help) help_cmd "${1:-}" ;;

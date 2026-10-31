@@ -1,0 +1,4 @@
+# Chocolatey packages (https://community.chocolatey.org/packages), one per line.
+# Installed before setup.ps1, with retries.
+#dotnet-8.0-desktopruntime
+#vcredist140
