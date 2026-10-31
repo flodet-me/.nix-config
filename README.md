@@ -1,70 +1,567 @@
-# winvm — reproducible Windows 10 VM
+# winvm — clean, reproducible Windows test VMs
 
-Fully scripted Windows 10 dev/test VM on plain QEMU/KVM (no libvirt, runs as
-your user, everything lives in this directory).
+Build a Windows VM once, fully unattended, then start, test and reset it from
+the Linux command line in seconds. Plain QEMU/KVM: no libvirt, no root, all
+files stay in this directory.
 
-- **Unattended install**: `autounattend.xml` + VirtIO drivers, no clicks.
-- **Provisioning**: VirtIO guest tools, OpenSSH (key auth), RDP, Chocolatey
-  packages from `provision/packages.txt`, your own `provision/custom.ps1`.
-- **Easy reset**: the provisioned install is a read-only `base.qcow2`; the VM
-  runs on a copy-on-write overlay. `winvm reset` throws the overlay away in
-  about a second.
+**What you get**
+
+- **Windows 10, 11, 11 LTSC, Server 2025**, installed unattended, all updates
+  applied, online or fully **offline** (air-gapped).
+- **Reset in a second**: the installed Windows is a read-only base image, every
+  VM is a thin copy-on-write layer on top. Snapshots with RAM, throwaway sessions.
+- **Run your app from the host**: `winvm run ./app.exe` copies it in and runs it,
+  then reports exit code, output and a WinDbg crash analysis.
+- **Real-PC firmware**: UEFI, Secure Boot (Microsoft keys) and TPM 2.0, for
+  BitLocker, VBS, Windows Hello.
+- **Clean Windows**: no ads, suggested apps, Bing/Cortana, OneDrive or News;
+  minimal telemetry. Also applies to user accounts created later.
+- **Test, debug and capture**: 30+ test tools preinstalled, remote debugging
+  (Visual Studio, WinDbg, kernel, gdb), UI automation (WinAppDriver),
+  screenshots, `.pcapng`, mitmproxy, Process Monitor traces.
+- **Several VMs** of one or more Windows versions, each with its own ports.
+  If you only need one VM, there's nothing extra to do.
+
+---
+
+## Contents
+
+[Requirements](#requirements) ·
+[Quick start](#quick-start) ·
+[How it works](#how-it-works) ·
+[Everyday use](#everyday-use) ·
+[Commands](#commands) ·
+[Windows versions](#windows-versions) ·
+[Several VMs](#several-vms) ·
+[Custom VMs](#custom-vms) ·
+[Running apps](#running-and-testing-apps) ·
+[Managing the VM](#managing-what-runs-in-the-vm) ·
+[Online / offline](#online-offline-isolated) ·
+[Capturing](#capturing) ·
+[Debugging](#remote-debugging) ·
+[UI testing](#remote-ui-testing) ·
+[Test tools](#test-tools) ·
+[Hardware](#hardware) ·
+[Configuration](#configuration) ·
+[Troubleshooting](#troubleshooting) ·
+[Reference](#reference)
+
+---
+
+## Requirements
+
+| | |
+|---|---|
+| Host | x86-64 Linux with KVM (`/dev/kvm` writable by your user) |
+| Software | [Nix](https://nixos.org/download) with flakes. `nix develop` provides QEMU, swtpm, OVMF, FreeRDP, ... |
+| Disk | ~25 GB free per Windows version (base image ~20 GB) plus a few GB per VM |
+| RAM | 8 GB for the VM by default (`VM_RAM`) on top of what the host needs |
+| Windows host instead? | see [windows-host/](windows-host/README.md) (VirtualBox) |
 
 ## Quick start
 
 ```sh
-nix develop                     # qemu, xorriso, freerdp, ... (or install them yourself)
-# put the Windows 10 ISO at iso/win10.iso
-#   https://www.microsoft.com/software-download/windows10ISO
-winvm build                     # 20-60 min, VM powers off when provisioned
-winvm start --headless --wait
-winvm ssh                       # PowerShell
-winvm rdp                       # desktop, clipboard, \\tsclient\share = ./share
+nix develop                     # tools + tab completion for winvm
+winvm status                    # what exists, what's missing, the next command
+winvm build                     # Windows 10: install + provision + updates, 1-2 h
+winvm start --headless --wait   # boot, wait until Windows answers
+winvm ssh                       # PowerShell in the VM
+winvm rdp                       # desktop; clipboard; host folder share/ = \\tsclient\share
+winvm reset                     # back to the freshly built state
 ```
+
+`build` downloads the Windows ISO if it can. If Microsoft refuses the download,
+`build` stops and prints the download page. Save the ISO under the path shown,
+then run `build` again ([details](#windows-versions)).
+
+Help: `winvm help`, `winvm <command> --help`. Login in the VM: `dev` / `dev`.
+
+---
+
+## How it works
+
+```
+  iso/win10.iso ──── winvm build ────▶  base image "win10"      state/images/win10/
+                    (unattended,        read-only, one per
+                     drivers, tools,    Windows version
+                     updates)                 │
+                                              │ copy-on-write: a VM stores only
+                         ┌────────────────────┼──────────────── what it changed
+                         ▼                    ▼                    ▼
+                    VM "default"          VM "test2"           VM "de"         state/vms/NAME/
+                    overlay disk          overlay disk         sealed state (recipe)
+                    NVRAM, TPM, ports     NVRAM, TPM, ports      └ overlay disk
+```
+
+- **Image**: a Windows version (`win10`, `win11`, ...) installed by `winvm build`.
+  It is never modified while VMs use it.
+- **VM**: a disk layer on top of an image, plus its own UEFI NVRAM, TPM,
+  hardware identity, snapshots and host ports. Without `-n NAME`, every command
+  uses the VM `default`.
+- **Reset point**: what `winvm reset` returns to. Normally the image. A
+  [custom VM](#custom-vms) has its own (`seal`).
+
+### Undo, from coarse to fine
+
+```
+  base image ──▶ [sealed state] ──▶ snapshot A ──▶ snapshot B ──▶ now
+       ▲               ▲                 ▲
+  reset --image      reset         snapshot load A          start --temp: nothing written
+```
+
+| you want to... | command | keeps |
+|---|---|---|
+| throw away everything since the build | `winvm reset` | image (or sealed state) |
+| go back to a named checkpoint | `winvm snapshot save X` ... `snapshot load X` | disk, plus RAM + TPM if it was running |
+| test without writing anything | `winvm start --temp` or `winvm run --temp` | nothing of the session |
+| keep the current state for this VM | `winvm seal` | becomes this VM's reset point |
+| keep the current state for all future VMs | `winvm commit` | becomes the new base image |
+
+NVRAM and TPM go with the disk: `reset` restores them, `commit` and `seal`
+save them.
+
+---
+
+## Everyday use
+
+```
+  winvm start ──▶ test (ssh / rdp / run) ──▶ winvm reset ──┐
+       ▲                                                   │
+       └───────────────────────────────────────────────────┘
+```
+
+```sh
+winvm start --wait                 # window on the host (--headless: none)
+winvm run ./myapp.exe --flag       # run your build, get exit code + crash analysis
+winvm screenshot                   # captures/....png
+winvm stop                         # clean shutdown
+winvm reset                        # clean again
+```
+
+---
 
 ## Commands
 
-| command | |
+All commands take `-n NAME` to act on another VM: `winvm -n test2 start`.
+Each has `--help`.
+
+| Set up | |
 |---|---|
-| `build [--force] [--headless]` | install + provision → clean base image |
-| `start [--headless\|--gui] [--temp] [--wait]` | boot; `--temp` discards every change on stop |
-| `stop [--force]` | ACPI shutdown / hard stop |
-| `reset` | back to the clean base image |
-| `commit` | make the current state the new clean base |
-| `snapshot save\|load\|delete\|list NAME` | live (with RAM) when running, disk-only when stopped |
-| `ssh`, `scp SRC vm:DST`, `rdp`, `wait`, `status`, `destroy` | |
+| `fetch [--refresh]` | download ISOs and tools into `iso/` and `cache/` (`build` does this too) |
+| `build [--image IMG] [--force] [--headless] [--offline] [--no-updates]` | install Windows → base image |
+| `images` | Windows versions, built or not, days left for evaluation editions |
+| `completion` | bash completion script (`source <(winvm completion)`) |
 
-Three levels of "undo", from coarse to fine:
+| Run | |
+|---|---|
+| `start [--headless\|--gui] [--wait] [--temp] [--offline] [--image IMG] [--kd] [--gdb]` | boot; the first start creates the VM |
+| `stop [--force]` | shut down (ACPI, forced after 3 min) / pull the plug |
+| `status [--json]` | what exists, config, state, guest ready?, ports, next step (`--json` for scripts) |
+| `list` | all VMs: state, ports, size, reset point |
+| `wait [SEC]` | block until SSH answers |
 
-1. `winvm reset` — everything since the build (or the last `commit`).
-2. `winvm snapshot load NAME` — named checkpoints on top of the base.
-3. `winvm start --temp` — a throwaway session; nothing is written.
+| Undo | |
+|---|---|
+| `reset [--image]` | back to the reset point (`--image`: to the plain image) |
+| `snapshot save\|load\|delete\|list [NAME]` | named checkpoints (with RAM while running) |
+| `seal [--yes]` | current state becomes this VM's reset point |
+| `commit [--yes]` | current state becomes the base image |
+| `destroy [NAME...] [--all] [--yes]` | delete VMs (`--all`: also base images) |
+
+| Custom VMs | |
+|---|---|
+| `new NAME [--recipe R] [--image IMG] [--offline]` | create a VM, optionally set up by a recipe and sealed |
+| `recipes [list \| new NAME]` | list recipes / start a new one from the template |
+| `apply RECIPE [--seal] [--offline]` | run a recipe in an existing VM |
+
+| Access | |
+|---|---|
+| `ssh [COMMAND...]` | PowerShell, or run one command |
+| `scp SRC... DST` | copy; `vm:PATH` is a guest path |
+| `rdp [FREERDP_ARGS...]` | desktop, clipboard, `share/` as `\\tsclient\share` |
+| `ssh-config` | entry for `~/.ssh/config` (VS Code Remote-SSH, plain ssh) |
+
+| Inside the VM | |
+|---|---|
+| `info` | version, license, uptime, memory, disk, signed-in user, pending restart |
+| `ps [FILTER]` / `kill NAME\|PID [--tree]` | processes / end one |
+| `service [list\|show\|start\|stop\|restart\|enable\|manual\|disable] [NAME]` | services |
+| `apps [FILTER] [--store]` / `apps uninstall NAME` | installed programs / silent uninstall |
+| `events [FILTER] [--since 2h] [--errors\|--all] [--log NAME]` | event log |
+| `ports` | listening ports with process and service |
+| `windows [TITLE] [--all] [--children]` | visible windows and their controls |
+| `key KEYS...` | send keys, e.g. `ctrl-alt-delete`, also on the lock screen |
+| `reboot [--no-wait]` | restart Windows and wait |
+
+| Test, debug, capture | |
+|---|---|
+| `run [--dir DIR] [--timeout S] [--no-wait] [--temp] PROGRAM [ARGS]` | run a host program in the VM |
+| `crashes [list \| analyze [DUMP]]` | crash dumps, analyzed with WinDbg |
+| `debug [info\|vs\|windbg\|stop\|kernel on\|off]` | remote debugging |
+| `uitest [info\|start\|stop]` | WinAppDriver for UI automation |
+| `screenshot` | PNG of the screen |
+| `netcap start\|stop` | network capture (`.pcapng`) |
+| `proxy start\|stop` | HTTP(S) through mitmproxy |
+| `trace start [--etw] \| stop` | Process Monitor trace |
+| `usb [list \| attach VID:PID \| detach VID:PID]` | USB passthrough |
+
+---
+
+## Windows versions
+
+```sh
+winvm images                        # what's available, built, days left
+winvm build --image win11           # build another version
+winvm -n win11 start                # its first VM; a VM named like an image uses that image
+winvm -n w11b start --image win11   # any other name: say which image
+```
+
+| image | edition | ISO | expires |
+|---|---|---|---|
+| `win10` (default) | Windows 10 22H2 Pro | consumer ISO: auto-download, or [by hand](https://www.microsoft.com/software-download/windows10ISO) → `iso/win10.iso` | no (not activated) |
+| `win11` | Windows 11 Pro | consumer ISO, [by hand](https://www.microsoft.com/software-download/windows11) ("English (United Kingdom)") → `iso/win11-pro.iso` | no (not activated) |
+| `win11-ltsc` | Windows 11 Enterprise LTSC 2024 | Evaluation Center, auto-download | 90 days |
+| `server2025` | Server 2025 Standard, Desktop Experience | Evaluation Center, auto-download | 180 days |
+
+- **Consumer ISOs** go through Microsoft's download API (like Rufus/Fido). Its
+  bot protection often refuses, depending on IP or VPN. When it does, `build`
+  prints the page to download from manually. `winvm status` shows whether the
+  ISO is present.
+- **Updates**: builds install all Windows updates (`--no-updates` or
+  `BUILD_UPDATES=0` skips them).
+- **Expiry**: evaluation editions shut down every hour once expired.
+  `images`/`status` show the days left, `start` warns 14 days ahead. A rebuild
+  starts a new evaluation period:
+  `winvm build --force --image win11-ltsc`. Note: **this deletes the image's VMs**.
+  Recipe VMs can be recreated with the commands the build prints.
+- **Not activated**: generic keys install without activation. Fine for testing;
+  some personalization settings stay locked. Home editions don't work (no RDP
+  server).
+- **Add a version**: copy a file in `images/`. Per-image overrides (your own
+  key, ISO checksum) go in `images/NAME.local.env`.
+- **Default version**: `IMAGE=win11` in `config.local.env`.
+
+---
+
+## Several VMs
+
+```sh
+winvm -n test2 start --headless   # created from the base image on first start
+winvm list                        # NAME, IMAGE, STATE, SSH, RDP, OVERLAY, RESETS TO
+winvm destroy test2               # the base image stays
+```
+
+Or set `WINVM_VM=test2` in your shell instead of passing `-n` every time.
+
+Each VM gets a slot number; its ports are the configured port + slot:
+
+```
+  host 127.0.0.1                         guest
+  ─────────────────────────────          ──────────────────────
+  VM default (slot 0)   :2222   ───────▶  :22    SSH
+                        :33890  ───────▶  :3389  RDP
+  VM test2   (slot 1)   :2223   ───────▶  :22
+                        :33891  ───────▶  :3389
+  ...                                    guest sees the host as 10.0.2.2
+```
+
+`winvm status` and `winvm list` show the actual ports.
+
+- VMs of one image are clones with the same computer name, SID and TPM
+  endorsement key. That's fine for isolated tests, but they can't join the same domain.
+- VMs reach each other through the host: from VM A, `10.0.2.2:<B's port>`
+  (e.g. a debugger VM attaching to a target VM).
+- `commit` only works while no other VM uses the same image.
+
+---
+
+## Custom VMs
+
+For tests that need a specially prepared VM (German formats, non-admin user,
+150 % scaling, slow offline PC, old app version for upgrade tests). `reset`
+returns to the prepared state, not the plain image.
+
+```sh
+winvm recipes                          # german-formats, standard-user, hidpi, low-spec-offline
+winvm new de --recipe german-formats   # create + set up + seal
+winvm -n de start                      # ... test ...
+winvm -n de reset                      # back to the German setup
+winvm recipes new my-test              # write your own: recipes/my-test/
+```
+
+Tutorial and recipe format: **[docs/custom-vms.md](docs/custom-vms.md)**.
+
+---
+
+## Running and testing apps
+
+Build on Linux, run in Windows, e.g. with `zig cc -target x86_64-windows-gnu`,
+`cargo-xwin`, `pkgsCross.mingwW64` or `dotnet publish -r win-x64`.
+
+```sh
+winvm run ./app.exe --some-arg      # copy in, run on the desktop, wait
+winvm run --dir build/ bin/app.exe  # copy the whole folder (DLLs, .pdb, data)
+winvm run --temp ./installer.exe    # in a throwaway session
+winvm run --timeout 30 ./app.exe    # kill after 30 s
+```
+
+```
+  host                                   VM
+  ./app.exe ───── copy ────────────────▶ C:\winvm\runs\ID\app.exe  runs on the desktop
+  runs/VM-TIME/ ◀── exit code, stdout/stderr, crash dump, WinDbg analysis
+```
+
+```
+exit code : -1073741819 (0xC0000005) — access violation
+crash dump: crash.exe.4160.dmp
+      SYMBOL_NAME:  crash!parse_config+d
+      FAILURE_BUCKET_ID:  INVALID_POINTER_WRITE_c0000005_crash.exe!parse_config
+      stack:
+        crash!parse_config+0xd
+        crash!main+0x3e
+```
+
+- Crash codes are decoded (access violation, missing DLL, stack overflow, ...).
+  With a `.pdb` next to the program, the stack has function names.
+- `winvm run` exits with the program's exit status, so it works in scripts and CI.
+- `winvm crashes` lists and analyzes dumps of anything else that crashed
+  (every crash in the VM is dumped to `C:\dumps`).
+- Other ways to move files: `winvm scp ./f vm:C:/t/`, or `\\tsclient\share` in RDP.
+
+---
+
+## Managing what runs in the VM
+
+Quick looks and changes without opening the desktop:
+
+```sh
+winvm info                        # version + build, license, uptime, memory, disk, user, pending restart
+winvm ps myapp                    # processes: memory, CPU, user, window title
+winvm kill myapp --tree           # end it and its children
+winvm service show MyAppSvc       # binary, account, dependencies, recovery, recent crashes
+winvm service restart MyAppSvc    # also start, stop, enable, manual, disable
+winvm apps myapp                  # installed programs (--store: MSIX too)
+winvm apps uninstall "MyApp"      # silent (MSI or the app's quiet uninstaller)
+winvm events --since 2h myapp     # warnings/errors from System + Application
+winvm ports                       # listening ports with process and service
+winvm windows --children          # windows and controls: title, class, process, position
+winvm key ctrl-alt-delete         # lock screen, secure desktop, hung UI
+winvm reboot                      # restart Windows, wait until it's back
+```
+
+---
+
+## Online, offline, isolated
+
+| when | online (default) | offline |
+|---|---|---|
+| running | `VM_INTERNET=1`: NAT internet | `VM_INTERNET=0` or `start --offline`: no network at all. SSH/RDP from the host still work |
+| building | `BUILD_INTERNET=1` | `build --offline`: like an air-gapped PC, run `winvm fetch` first |
+
+An offline build differs as follows (also printed when the build starts):
+
+- no Chocolatey packages (`provision/packages.txt`)
+- OpenSSH from the Win32-OpenSSH MSI in `cache/` instead of Windows Update
+- optional features only if their payload is on the ISO (`sources\sxs`, e.g. .NET 3.5)
+- no updates: Windows, Defender signatures and root certificates stay at the ISO's level
+
+---
+
+## Capturing
+
+Results go to `captures/`.
+
+| command | result |
+|---|---|
+| `winvm screenshot` | PNG of the screen |
+| `winvm netcap start` ... `stop` | all VM traffic as `.pcapng`. In Wireshark, `!(tcp.port == 22)` hides winvm's own SSH |
+| `winvm proxy start` ... `stop` | HTTP(S) through mitmproxy with a live web UI. The VM trusts its CA while active |
+| `winvm trace start [--etw]` ... `stop` | Process Monitor `.pml` + `.csv` (+ ETW `.etl`) |
+
+---
+
+## Remote debugging
+
+`winvm debug` prints the exact connection strings for the current VM.
+
+| what | how |
+|---|---|
+| VS Code | `winvm ssh-config >> ~/.ssh/config`, then Remote-SSH to `winvm` |
+| Visual Studio 2026 | `winvm debug vs`, attach to `127.0.0.1:40260` (Remote, no authentication) |
+| WinDbg, user mode | `winvm debug windbg`, process server `tcp:Port=50050,Server=127.0.0.1` |
+| WinDbg, kernel | `winvm debug kernel on`, `winvm start --kd`, `windbg -k com:ipport=50150,port=127.0.0.1`. Needs `SECURE_BOOT=0` or `FIRMWARE=bios` |
+| whole VM / firmware | `winvm start --gdb`, `gdb -ex 'target remote 127.0.0.1:12340'` |
+
+Visual Studio and WinDbg are Windows programs. Run them in a second VM
+(`winvm -n dbg start`, connect to `10.0.2.2:PORT`) or on a Windows PC through
+`ssh -L PORT:127.0.0.1:PORT you@this-host`.
+
+---
+
+## Remote UI testing
+
+```
+  host: Python/C#/Java test  ──WebDriver──▶  127.0.0.1:47230  ──▶  WinAppDriver in the VM ──▶ your app
+```
+
+```sh
+winvm uitest start                 # starts WinAppDriver on the VM's desktop, prints examples
+pip install Appium-Python-Client
+python examples/uitest.py          # opens Notepad, types, reads back, takes a screenshot
+```
+
+- To find element names and AutomationIds, use Accessibility Insights or
+  FlaUInspect in the VM, or `winvm ssh "Get-Window -Children"`.
+- WinAppDriver 1.2 speaks the old JSON Wire Protocol. The `WinAppDriver` class
+  in `examples/uitest.py` adapts current Appium/Selenium clients to it.
+
+---
+
+## Test tools
+
+Installed in `C:\Tools`, on `PATH`, and in the Start menu and desktop folder
+"Test Tools". The list is in `provision/tools.txt`. Tools you add there are
+installed by the next `build --force`.
+
+| area | tools |
+|---|---|
+| file types, URL protocols, default apps | FileTypesMan, URLProtocolView, OpenWithView |
+| shell extensions, context menus | ShellExView, ShellMenuView |
+| windows, UI Automation tree | GUIPropView, WinLister, Accessibility Insights, FlaUInspect |
+| scripted UI actions | AutoHotkey v2 |
+| processes, handles, DLLs | Process Explorer, System Informer, Handle, ListDLLs, Dependencies |
+| services and drivers | ServiWin, PsService, Autoruns |
+| file / registry / network activity | Process Monitor, ProcessActivityView, TCPView, RegScanner |
+| what an installer changed | FolderChangesView, RegistryChangesView, InstalledAppView, Autoruns |
+| robustness | TestLimit (exhaust memory/handles), clumsy (packet loss, latency) |
+| binaries, API calls | PE-bear, Detect It Easy, API Monitor, Sigcheck |
+| permissions, kernel objects | AccessChk, WinObj |
+| crashes, logs, timeline | BlueScreenView, FullEventLogView, LastActivityView |
+| debugging | x64dbg, WinDbg (cdb, kd, dbgsrv), VS 2026 remote debugger, DebugView, VMMap, RAMMap |
+| .NET | dnSpyEx |
+| UI automation | WinAppDriver |
+| finding files | Everything |
+
+The PowerShell module `WinvmTest` is loaded in every session, including SSH:
+
+```powershell
+Get-FileHandler .pdf, .html                    # effective handler, incl. the user's choice
+Get-UrlHandler mailto; Get-UrlHandler -All
+Invoke-Handler https://example.com             # open like a click, report what started
+Invoke-Handler C:\t\a.pdf -Expect msedge.exe   # fail if that app didn't start
+Get-Window -Process notepad -Children          # HWND, class, style, position
+Start-Interactive notepad.exe                  # start on the desktop, also from SSH
+Invoke-Interactive { Get-Clipboard }           # run on the desktop, get the output
+Get-Crash                                      # recent dumps + crash events
+```
+
+From the host: `winvm ssh "Invoke-Handler https://example.com"`.
+
+---
+
+## Hardware
+
+| | |
+|---|---|
+| Sound | Intel HD Audio → host PipeWire. `AUDIO=pipewire\|pa\|alsa\|none` |
+| USB | `winvm usb list`, `winvm usb attach VID:PID`. `USB_DEVICES="VID:PID ..."` attaches at every start. If your user can't access the device, `attach` prints the udev rule |
+| Graphics | standard VGA, no 3D acceleration. DirectX/OpenGL apps use Windows' software renderer (slow, but they run) |
+
+RAM snapshots only load with the same sound/USB setup they were saved with.
+
+---
 
 ## Configuration
 
-Defaults are in `config.env`; put overrides in `config.local.env` (gitignored).
-Things you will likely want:
+Defaults: `config.env`. Your overrides: `config.local.env` (not in git).
 
 ```sh
+# config.local.env
+IMAGE="win11"                         # default Windows version
+VM_RAM="12G"; VM_CPUS=6
 WIN_INPUT_LOCALE="de-DE"              # keyboard layout
 WIN_TIMEZONE="W. Europe Standard Time"
-VM_RAM="12G"; VM_CPUS=6
-WIN_ISO_SHA256="..."                  # pin the exact ISO for reproducibility
+DISPLAY_MODE="none"                   # always headless (gtk | sdl | none)
 ```
 
-Changing `config.env`, `packages.txt` or `custom.ps1` needs
-`winvm build --force`. For a quick change, install it in the running VM and
-`winvm commit` instead.
+| what changes | takes effect |
+|---|---|
+| `VM_RAM`, `VM_CPUS`, `VM_INTERNET`, `AUDIO`, `USB_DEVICES`, `DISPLAY_MODE` | next `start` |
+| one VM only | `state/vms/NAME/vm.env` (same variables), next `start` |
+| locale, user, edition, `FIRMWARE`, anything in `provision/` | `winvm build --force` |
+| quick one-off change to the image | install it in the VM, then `winvm commit` |
 
-## Notes
+What the build installs (`provision/`):
 
-- Default credentials are `dev` / `dev`. SSH and RDP are only forwarded to
-  127.0.0.1 (`SSH_PORT`, `RDP_PORT`). The SSH key is generated in
-  `state/id_ed25519`.
-- Generic product keys install Windows **without activating it**. That's fine
-  for testing; some personalization settings stay locked.
-- Use Pro or Enterprise: Home has no RDP server.
-- The guest has outbound internet through QEMU user networking (NAT). Only the
-  SSH and RDP ports are reachable from the host.
-- Provisioning progress is written to the serial port and shown during
-  `build`. In the guest it is at `C:\winvm\provision.log`.
+| file | |
+|---|---|
+| `tools.txt` | test/debug tools, downloaded on the host |
+| `packages.txt` | Chocolatey packages (online builds only) |
+| `remove-apps.txt` | preinstalled apps to remove (`DEBLOAT=1`). Store, winget, Photos, Calculator stay |
+| `features.txt` | optional features (Sandbox, Hyper-V, WSL, .NET 3.5, ...). Hypervisor features run nested |
+| `custom.ps1` | your own steps; `$Online` tells you whether the build has network |
+
+---
+
+## Troubleshooting
+
+Start with `winvm status`: it lists problems and the next command.
+
+| symptom | cause / fix |
+|---|---|
+| `build`: ISO download refused | Microsoft's bot protection. Download from the printed page, save under the path shown, run `build` again |
+| `/dev/kvm not accessible` | enable virtualization in the BIOS/UEFI; add your user to the `kvm` group |
+| `qemu-system-x86_64 not found` | run inside `nix develop` |
+| `status`: guest "not answering SSH yet" | still booting or installing updates: `winvm wait`. Hung? `winvm screenshot` |
+| build fails | the error is printed; install log: `state/images/IMG/install-serial.log`, provisioning log in the guest: `C:\winvm\provision.log`. Rerun `winvm build --image IMG` (starts over) |
+| evaluation expired (shuts down hourly) | `winvm build --force --image IMG` (deletes that image's VMs) |
+| low disk space | `winvm destroy NAME` for unused VMs; `winvm destroy --all` removes everything incl. base images |
+| RAM snapshot won't load | sound/USB setup differs from when it was saved |
+| wrong keyboard layout | `WIN_INPUT_LOCALE` in `config.local.env` + rebuild, or a recipe like `german-formats` |
+
+---
+
+## Reference
+
+**Directory layout**
+
+```
+config.env, config.local.env   settings (defaults / yours)
+images/NAME.env                Windows versions
+provision/                     what the build installs
+recipes/                       custom VM recipes
+iso/                           installation media          (not in git)
+cache/                         downloaded tools            (not in git)
+state/images/NAME/             base images                 (not in git)
+state/vms/NAME/                VMs: disk, NVRAM, TPM, vm.env
+runs/                          winvm run results
+captures/                      screenshots, pcaps, traces
+share/                         \\tsclient\share during RDP
+completions/winvm.bash         tab completion
+tests/smoke.sh                 smoke test of winvm itself
+windows-host/                  VirtualBox version for Windows hosts
+```
+
+**Security and identity**
+
+- Login `dev` / `dev`. SSH key: `state/id_ed25519`.
+- All forwarded ports listen on 127.0.0.1 only (the VS debugger runs without
+  authentication).
+- Every VM gets its own SMBIOS serial and UUID (`state/vms/NAME/smbios`).
+  QEMU's default identity is registered with some organization's Windows
+  Autopilot and would enroll the VM into their MDM. The build fails if an
+  Autopilot profile is ever applied.
+
+**Test-friendly Windows settings**: crash dumps of every process in
+`C:\dumps`, developer mode, long paths, no fast startup, verbose boot/logon
+messages, automatic Windows/Store updates off (`DISABLE_WINDOWS_UPDATE`), Defender on but not uploading samples.
+
+**Testing winvm itself**: `tests/smoke.sh [--image IMG] [--keep]` runs the
+everyday commands on a throwaway VM `smoke-test` (4 GB RAM): status, start,
+ssh/scp, `run` with exit code, output and a real crash, management commands,
+live snapshots, stop/reset. It needs a built image, takes about 5 minutes and
+exits non-zero if any check fails. Run it after changing `winvm`.
+
+**Tab completion**: loaded by `nix develop`. Elsewhere, add
+`source <(winvm completion)` to `~/.bashrc`. For zsh, run
+`autoload -U +X bashcompinit && bashcompinit` first.

@@ -1,6 +1,19 @@
-state/
-iso/*.iso
-iso/*.part
-share/
+# Generated/large content; the directories themselves are kept via .gitkeep.
+state/*
+!state/.gitkeep
+iso/*
+!iso/.gitkeep
+share/*
+!share/.gitkeep
 config.local.env
 result
+cache/*
+!cache/.gitkeep
+runs/
+captures/
+images/*.local.env
+
+# windows-host (VirtualBox): keys, known_hosts, VMs, personal config
+windows-host/state/
+windows-host/vms/
+windows-host/config.local.ps1

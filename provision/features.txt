@@ -1,0 +1,15 @@
+# Optional Windows features enabled during Setup (dism /enable-feature /all).
+# One feature name per line; list them in a VM with
+#   Get-WindowsOptionalFeature -Online | Sort FeatureName
+# Changing this requires `winvm build --force`.
+#
+# The hypervisor-based ones run nested (needs nested virtualization on the
+# host: /sys/module/kvm_{amd,intel}/parameters/nested = 1 or Y);
+# they make the VM slower and turn on VBS.
+# Containers-DisposableClientVM          # Windows Sandbox
+# Microsoft-Hyper-V-All
+# VirtualMachinePlatform                 # WSL 2
+# Microsoft-Windows-Subsystem-Linux
+# NetFx3                                 # .NET Framework 3.5 (downloaded, needs internet)
+# TelnetClient
+# IIS-WebServerRole

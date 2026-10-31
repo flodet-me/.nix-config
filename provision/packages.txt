@@ -8,3 +8,9 @@ powershell-core
 # python
 # visualstudio2022buildtools
 # visualstudio2022-workload-vctools
+# Often handy on a test machine, but each one changes what you test against
+# (e.g. installed runtimes hide missing dependencies of your app):
+# vcredist-all                # all Visual C++ runtimes
+# dotnet-desktopruntime       # .NET desktop runtime
+# notepadplusplus
+# wireshark                   # npcap needs an interactive install; pktmon.exe is built in
