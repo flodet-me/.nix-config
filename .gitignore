@@ -17,3 +17,6 @@ images/*.local.env
 windows-host/state/
 windows-host/vms/
 windows-host/config.local.ps1
+
+# Claude Code: personal settings
+.claude/settings.local.json

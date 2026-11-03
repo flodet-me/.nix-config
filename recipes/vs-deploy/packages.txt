@@ -1,0 +1,4 @@
+# Runtimes for framework-dependent .NET desktop apps (WPF, WinForms, console).
+# Self-contained builds don't need them.
+dotnet-10.0-desktopruntime
+vcredist140

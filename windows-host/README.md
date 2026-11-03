@@ -75,6 +75,9 @@ apply RECIPE [-Seal]   run a recipe in an existing VM
 destroy [NAME...] [-All] [-Yes]
 ssh [COMMAND] / scp SRC... DST (vm:PATH = guest) / rdp
 info, ps, kill, service, apps, events, ports, reboot    (as in ../winvm)
+vs [APP]               Visual Studio: check the VM, print the F5 settings
+vs setup SOLUTION [-Remove]           configure a solution's apps for F5 into the VM
+deploy FOLDER [-As APP] [-Install]    build output -> C:\deploy\APP in the VM
 ```
 
 ## Custom VMs and recipes
@@ -91,6 +94,142 @@ The recipes in `..\recipes` work here too (see `..\docs\custom-vms.md`):
 `USB_DEVICES` and `AUDIO` are not (a note says so): use VirtualBox Manager for
 those.
 
+## Visual Studio: deploy and debug
+
+Visual Studio 2026 on this PC deploys into a VM and debugs there with F5, like
+a second PC on the desk.
+
+### Setting it up on a new machine
+
+Needs: Windows 10/11 with VirtualBox 7, Visual Studio 2026 with the workloads
+your apps need, the OpenSSH client, and a Windows ISO (see Requirements).
+
+```powershell
+git clone <this repo> C:\src\windows-vm
+cd C:\src\windows-vm\windows-host
+.\winvm.ps1 build                                # once: Windows image, 1-2 h
+.\winvm.ps1 new dev -Recipe vs-deploy            # once: the deploy VM, ~10 min
+.\winvm.ps1 -Name dev vs setup C:\src\MyApp\MyApp.sln   # once per solution
+```
+
+Then open the solution in Visual Studio, choose the launch profile
+**winvm dev** next to the start button and press F5. That's all.
+
+`vs setup` looks at every project in the solution (`.sln`, `.slnx`, a single
+project, or a folder with one solution) and configures each app by type:
+
+| project | what `vs setup` does | F5 then |
+|---|---|---|
+| .NET exe: WPF, WinForms, console, unpackaged WinUI 3 | `PROJECT.csproj.user`: copy the build to `C:\deploy\PROJECT` in the VM after every build (`vs\Winvm.targets`), and make `C:\deploy\PROJECT` on this PC a junction to the build output (VS checks the path exists locally); launch profile *winvm dev* (`Executable`, remote) | builds, copies, starts it in the VM under the debugger; boots a stopped VM |
+| packaged WinUI 3, UWP on .NET 9+ (MSIX) | launch profile *winvm dev* (`MsixPackage`, remote); *Deploy* ticked in the solution | VS installs the package in the VM, starts and debugs it |
+| classic UWP, packaging project (`.wapproj`) | `PROJECT.csproj.user`: remote machine `127.0.0.1:PORT`, authentication None, for every configuration; *Deploy* ticked in the solution | start button shows *Remote Machine*; VS installs the package in the VM, starts and debugs it |
+| libraries, test projects | nothing | |
+
+What it changes, so you know what to commit: the `.csproj.user` files are
+personal (normally in `.gitignore`); the launch profile goes into
+`Properties\launchSettings.json` (kept next to your other profiles; commit it
+or not); *Deploy* goes into the solution file. The project files themselves
+aren't touched. Run it again any time (it doesn't add things twice);
+`vs setup ... -Remove` takes the profiles and the `.user` entries out again.
+Another VM: `-Name other vs setup ...` adds a profile *winvm other*.
+
+The rest of this section explains what these pieces do, for setting projects
+up by hand or when something doesn't work. `.\winvm.ps1 -Name dev vs MyApp`
+checks the VM and prints the manual settings.
+
+The recipe (`..\recipes\vs-deploy`) turns on Developer Mode, installs the VS
+2026 remote tools and starts the remote debugger (msvsmon, no authentication,
+port 4026) at every sign-in. It also installs the .NET 10 desktop runtime,
+the Windows App SDK 1.8 and 2.6 runtimes (for unpackaged WinUI 3 apps; change
+`$appRuntimes` in the recipe for other versions) and the VC++ runtime, and
+creates `C:\deploy`. The VM's port 4026 is at `127.0.0.1:40260`
+(`VsDebugPort` + the VM's number; `status` shows it). `reset` keeps all of it:
+the VM was sealed after the recipe.
+
+```
+  Visual Studio ──F5──▶ 127.0.0.1:40260 ──NAT──▶ msvsmon in the VM ──▶ app on the VM's desktop
+        │                                              ▲
+        └─ .NET: after the build, vs\Winvm.targets ────┘ copies bin\... to C:\deploy\APP (deploy)
+```
+
+**UWP and packaged WinUI 3 (MSIX)**: Visual Studio deploys the package itself.
+
+- UWP: choose *Remote Machine* in the device list next to the start button
+  (or Project > Properties > Debug), address `127.0.0.1:40260`, authentication
+  *None*. Not *Universal (Unencrypted Protocol)*, which older docs name:
+  Visual Studio 2026 does that over SSH and fails with DEP6957. `vs setup`
+  writes these settings into `PROJECT.csproj.user` itself.
+- Packaged WinUI 3: the start button lists the launch profiles of
+  `Properties\launchSettings.json`. Add one for the VM next to the local one:
+
+  ```json
+  "MyApp (VM)": {
+    "commandName": "MsixPackage",
+    "remoteDebugEnabled": true,
+    "remoteDebugMachine": "127.0.0.1:40260",
+    "authenticationMode": "None"
+  }
+  ```
+
+Then F5. The project needs *Deploy* ticked in Build > Configuration Manager (templates
+do that; a `.csproj` opened without its `.sln` doesn't), otherwise VS says
+the project "needs to be deployed before it can be started".
+Without F5 deployment, build an app package for sideloading and install it:
+`.\winvm.ps1 -Name dev deploy ...\AppPackages\MyApp_1.0.0.0_x64_Debug_Test -Install`
+(trusts the package's `.cer`, installs the dependencies from its folder).
+
+**.NET 8+ desktop (WPF, WinForms, console)**: Visual Studio doesn't copy these
+to a remote machine, so `vs\Winvm.targets` does it after every build:
+
+```xml
+<!-- in the .csproj, or in Directory.Build.targets for all projects -->
+<PropertyGroup>
+  <WinvmDeploy>true</WinvmDeploy>
+  <WinvmVm>dev</WinvmVm>               <!-- default: the VM "default" -->
+</PropertyGroup>
+<Import Project="C:\path\to\windows-vm\windows-host\vs\Winvm.targets" />
+```
+
+and a launch profile in `Properties\launchSettings.json` that starts the copy
+in the VM under the debugger (`vs MyApp` prints it with this VM's port):
+
+```json
+"winvm": {
+  "commandName": "Executable",
+  "executablePath": "C:\\deploy\\MyApp\\MyApp.exe",
+  "workingDirectory": "C:\\deploy\\MyApp",
+  "remoteDebugEnabled": true,
+  "remoteDebugMachine": "127.0.0.1:40260",
+  "authenticationMode": "None"
+}
+```
+
+Choose the profile *winvm* next to the start button and press F5: it builds,
+copies to `C:\deploy\MyApp` (stopping a running copy first) and starts the app
+on the VM's desktop. A stopped VM is started first (the first F5 then takes
+about a minute longer). `deploy FOLDER -As APP` does the copy by hand.
+
+**Two ways into the VM.** .NET and packaged apps use the port forward
+`127.0.0.1:PORT`. Classic UWP needs the VM's own address: Visual Studio 2026
+hangs ("Deploy started...", Not Responding) deploying UWP to a port forward.
+So every VM also gets a network card on VirtualBox's host-only network
+(`HostOnlyAdapter = 'auto'` in `config.ps1`, the adapter VirtualBox's
+installer creates; `status` shows the address), and `vs setup` uses
+`IP:4026` for UWP projects. The debugger has no authentication; only this PC
+can reach a host-only network, so don't bridge it to your LAN. A VM created
+before this gets the card when it's next started from the powered-off state.
+
+**When F5 doesn't work**
+
+| Visual Studio says | Cause and fix |
+|---|---|
+| "needs to be deployed before it can be started" | *Deploy* not ticked for the project (Build > Configuration Manager); `vs setup` ticks it. Open the `.sln`, not the bare `.csproj`. |
+| "The debug executable 'C:\deploy\...' ... does not exist" | The build didn't run the copy step (no `vs setup`, or `WinvmDeploy` off), so `C:\deploy\APP` on this PC is missing. |
+| "Remote Debugger (MSVSMON.EXE) does not appear to be running" | VM not running, or Windows Firewall added *block* rules for msvsmon (it does when its prompt isn't answered). `.\winvm.ps1 -Name dev vs` removes them and starts the debugger. |
+| UWP: DEP6957 "Failed to connect ... using Universal Authentication" | Authentication must be *None*; `vs setup` sets it. |
+| UWP: hangs at "Deploy started..." | Address is `127.0.0.1:PORT`; use the host-only `IP:4026` (`vs setup` does, once the VM has the address). |
+| UWP: "Cannot resolve 'Windows.metadata'" right after installing the UWP tools | Visual Studio's cache: `devenv /updateconfiguration`, or restart Visual Studio. |
+
 ## Differences from the Linux version
 
 | | Linux (`../winvm`) | Windows host (`winvm.ps1`) |
@@ -99,7 +238,8 @@ those.
 | clean state | read-only base image + overlay per VM | snapshot "clean" + linked clones |
 | install | own `autounattend.xml`, VirtIO drivers | VirtualBox unattended install, Guest Additions |
 | test tools (`provision/tools.txt`) | installed | not installed: add what you need to `packages.txt` or a recipe |
-| run / crashes / debug / uitest / netcap / proxy / trace / usb | yes | no |
+| Visual Studio remote deploy + debugging | `debug vs`, attach | `vs`, `deploy`, F5 (recipe `vs-deploy`) |
+| run / crashes / WinDbg / uitest / netcap / proxy / trace / usb | yes | no |
 | offline VMs (`VM_INTERNET=0`) | yes | no |
 | evaluation expiry warnings | yes | no (evaluation images: rebuild after 90/180 days) |
 
@@ -137,3 +277,12 @@ Notes:
 - `ssh` reports exit codes only as 0 or 1 (a limit of Windows' SSH server).
 - Not tested yet: `apply`, `seal` by hand, `rdp`, `apps`, `events`, `kill`,
   images other than win10, `-Gui`.
+- Visual Studio deployment tested end to end on 2026-11-03 (VirtualBox 7.2.22,
+  Visual Studio Community 2026 18.11.3, VM from the win10 image, nested):
+  recipe `vs-deploy` (applied 4 times: idempotent), `vs`, `vs setup` on three
+  solutions from scratch, then F5 in Visual Studio for a .NET 10 WPF app, a
+  packaged WinUI 3 app (Windows App SDK 2.6) and a classic UWP app: each was
+  built, deployed into the VM, started on its desktop and debugged (debugger
+  attached to the process in the VM). Also: the build boots a stopped VM,
+  32-bit MSBuild, the remote debugger watchdog. Not tested: UWP on .NET 9+
+  (`UseUwp`), `.wapproj`, `.slnx` in Visual Studio, `deploy -Install`.

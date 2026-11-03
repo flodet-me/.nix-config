@@ -1319,6 +1319,12 @@ cmd_wait() {
 
 cmd_rdp() {
     need_vm
+    if ! is_running; then   # otherwise FreeRDP only says "Connection refused"
+        local others
+        others=$(running_vms | tr '\n' ' ')
+        others=${others% }
+        die "'$VM' is not running (winvm${VM_OPT} start)${others:+; running: ${others// /, } (e.g. winvm -n ${others%% *} rdp)}"
+    fi
     local bin
     for c in xfreerdp3 sdl-freerdp3 xfreerdp sdl-freerdp wlfreerdp3 wlfreerdp; do
         command -v "$c" >/dev/null && { bin=$c; break; }

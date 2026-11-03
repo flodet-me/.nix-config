@@ -19,6 +19,15 @@ $Config = @{
     # Host ports on 127.0.0.1 for the VM "default"; VM number N uses PORT + N.
     SshPort = 2222
     RdpPort = 33890
+    VsDebugPort = 40260     # -> guest 4026, the VS 2026 remote debugger (recipe vs-deploy)
+
+    # Second network card on a VirtualBox host-only network: the VM gets an
+    # address only this PC can reach (`status` shows it). Classic UWP needs it:
+    # Visual Studio 2026 hangs deploying UWP to 127.0.0.1:PORT. 'auto' = the
+    # first host-only adapter VirtualBox has (its installer creates one), a name
+    # such as 'VirtualBox Host-Only Ethernet Adapter', or '' for none.
+    # Applied when a VM is started from the powered-off state.
+    HostOnlyAdapter = 'auto'
 
     # Install all Windows updates during build ($false: faster, unpatched).
     Updates = $true

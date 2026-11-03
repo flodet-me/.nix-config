@@ -1,0 +1,29 @@
+<!--
+  winvm: copies a .NET project's build output into a winvm VirtualBox VM after
+  every build, so Visual Studio can start it there (launch profile with
+  remoteDebugEnabled, see `winvm.ps1 vs`). Import it in the .csproj or in a
+  Directory.Build.targets, and opt in per project:
+
+    <PropertyGroup>
+      <WinvmDeploy>true</WinvmDeploy>
+      <WinvmVm>default</WinvmVm>            optional: which VM
+      <WinvmApp>$(MSBuildProjectName)</WinvmApp>   optional: C:\deploy\APP in the VM
+    </PropertyGroup>
+    <Import Project="C:\path\to\windows-vm\windows-host\vs\Winvm.targets" />
+
+  Not for UWP / packaged WinUI 3: Visual Studio deploys those itself.
+-->
+<Project>
+  <PropertyGroup>
+    <WinvmScript Condition="'$(WinvmScript)' == ''">$(MSBuildThisFileDirectory)..\winvm.ps1</WinvmScript>
+    <WinvmVm Condition="'$(WinvmVm)' == ''">default</WinvmVm>
+    <WinvmApp Condition="'$(WinvmApp)' == ''">$(MSBuildProjectName)</WinvmApp>
+  </PropertyGroup>
+
+  <!-- Not in design-time builds (VS runs those constantly) or for libraries. -->
+  <Target Name="WinvmDeploy" AfterTargets="Build"
+          Condition="'$(WinvmDeploy)' == 'true' and '$(DesignTimeBuild)' != 'true' and '$(OutputType)' != 'Library'">
+    <!-- TrimEnd: a trailing \ would escape the closing quote. -->
+    <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(WinvmScript)&quot; -Name $(WinvmVm) deploy &quot;$(TargetDir.TrimEnd('\'))&quot; -As $(WinvmApp) -LinkLocal" />
+  </Target>
+</Project>

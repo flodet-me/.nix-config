@@ -83,6 +83,7 @@ What `winvm new NAME --recipe R` does (the recipe's output appears in your termi
 | `standard-user` | The desktop signs in as `tester`, a standard (non-admin) user. `winvm run` starts programs there, without admin rights (Medium integrity). SSH and the other commands keep using the admin `dev`. |
 | `hidpi` | 150 % display scaling: layout, clipped text, blurry bitmaps. Change `$dpi` for 125 % (120) or 200 % (192). |
 | `low-spec-offline` | 2 GB RAM, 1 CPU, no network. Only settings, no script. |
+| `vs-deploy` | Visual Studio 2026 deploy target: Developer Mode, remote debugger at every sign-in, .NET desktop runtimes. See [windows-host/README.md](../windows-host/README.md#visual-studio-deploy-and-debug). |
 
 ### Writing your own
 

@@ -21,6 +21,7 @@ $State = Join-Path $Root 'state'
 $SshKey = Join-Path $State 'id_ed25519'
 $Prefix = 'winvm-'                  # VirtualBox names: winvm-NAME (VMs), winvm-base-IMAGE (images)
 $BuildSlot = 99                     # port offset while an image is being built
+$HostOnlyAuto = $null               # HostOnly-Adapter: cached adapter name
 
 # Errors are thrown (so cleanup in catch/finally runs) and printed once in main.
 function Die([string]$msg) { throw "WINVM: $msg" }
@@ -57,10 +58,18 @@ function Find-Tool([string]$name, [string[]]$candidates) {
 
 $VBoxManage = Find-Tool 'VBoxManage' @(
     $(if ($env:VBOX_MSI_INSTALL_PATH) { Join-Path $env:VBOX_MSI_INSTALL_PATH 'VBoxManage.exe' }),
-    $(if ($env:ProgramFiles) { Join-Path $env:ProgramFiles 'Oracle\VirtualBox\VBoxManage.exe' }))
-$SshExe = Find-Tool 'ssh' @($(if ($env:SystemRoot) { Join-Path $env:SystemRoot 'System32\OpenSSH\ssh.exe' }))
-$ScpExe = Find-Tool 'scp' @($(if ($env:SystemRoot) { Join-Path $env:SystemRoot 'System32\OpenSSH\scp.exe' }))
-$SshKeygen = Find-Tool 'ssh-keygen' @($(if ($env:SystemRoot) { Join-Path $env:SystemRoot 'System32\OpenSSH\ssh-keygen.exe' }))
+    $(if ($env:ProgramFiles) { Join-Path $env:ProgramFiles 'Oracle\VirtualBox\VBoxManage.exe' }),
+    $(if ($env:ProgramW6432) { Join-Path $env:ProgramW6432 'Oracle\VirtualBox\VBoxManage.exe' }))   # from 32-bit processes
+# Windows' own tools. From a 32-bit process (32-bit MSBuild running the deploy
+# step, for example) System32 is redirected to SysWOW64, which has no OpenSSH:
+# Sysnative is the real System32 there.
+function Win-Tool([string]$name, [string]$rel) {
+    $c = @(); if ($env:SystemRoot) { $c = @((Join-Path $env:SystemRoot "System32\$rel"), (Join-Path $env:SystemRoot "Sysnative\$rel")) }
+    Find-Tool $name $c
+}
+$SshExe = Win-Tool 'ssh' 'OpenSSH\ssh.exe'
+$ScpExe = Win-Tool 'scp' 'OpenSSH\scp.exe'
+$SshKeygen = Win-Tool 'ssh-keygen' 'OpenSSH\ssh-keygen.exe'
 
 function Need-VBox { if (-not $VBoxManage) { Die 'VBoxManage not found: install VirtualBox 7 (https://www.virtualbox.org) or put VBoxManage on PATH' } }
 function Need-Ssh {
@@ -125,7 +134,40 @@ function Valid-Name([string]$name) { $name -cmatch '^[a-z0-9][a-z0-9-]{0,30}$' }
 
 function Vm-Ports([string]$vm) {
     $slot = [int](Get-Extra $vm 'slot')
-    @{ Slot = $slot; Ssh = $Config.SshPort + $slot; Rdp = $Config.RdpPort + $slot }
+    @{ Slot = $slot; Ssh = $Config.SshPort + $slot; Rdp = $Config.RdpPort + $slot; VsDebug = $Config.VsDebugPort + $slot }
+}
+# The host-only adapter VMs get as a second network card ('' = none): the
+# configured name, or with 'auto' the first one VirtualBox has (its installer
+# creates one on Windows).
+function HostOnly-Adapter {
+    $a = [string]$Config.HostOnlyAdapter
+    if ($a -ne 'auto') { return $a }
+    if (-not $script:HostOnlyAuto) {
+        $script:HostOnlyAuto = '-'
+        foreach ($l in @(VBoxTry list hostonlyifs)) { if ($l -match '^Name:\s+(.+?)\s*$') { $script:HostOnlyAuto = $Matches[1]; break } }
+    }
+    if ($script:HostOnlyAuto -eq '-') { '' } else { $script:HostOnlyAuto }
+}
+# Port forwards (and the host-only card) of a powered-off VM. Also for VMs
+# created before a forward existed.
+function Set-Forwards([string]$vm) {
+    $p = Vm-Ports $vm
+    foreach ($rule in 'ssh', 'rdp', 'vsdebug') { VBoxTry modifyvm $vm --natpf1 delete $rule | Out-Null }
+    VBox modifyvm $vm --natpf1 "ssh,tcp,127.0.0.1,$($p.Ssh),,22" --natpf1 "rdp,tcp,127.0.0.1,$($p.Rdp),,3389" `
+        --natpf1 "vsdebug,tcp,127.0.0.1,$($p.VsDebug),,4026" | Out-Null
+    $i = VmInfo $vm
+    $ho = HostOnly-Adapter
+    if ($ho) {
+        if ($i['nic2'] -ne 'hostonly' -or $i['hostonlyadapter2'] -ne $ho) {
+            VBox modifyvm $vm --nic2 hostonly --hostonlyadapter2 $ho --nictype2 82540EM | Out-Null
+        }
+    } elseif ($i['nic2'] -eq 'hostonly') { VBox modifyvm $vm --nic2 none | Out-Null }
+}
+# The VM's address on the host-only network (from the guest additions), or ''.
+function HostOnly-Ip([string]$vm) {
+    if (-not (HostOnly-Adapter)) { return '' }
+    $l = VBoxTry guestproperty get $vm '/VirtualBox/GuestInfo/Net/1/V4/IP'
+    if ($l -and $l -match '^Value: (\S+)') { $Matches[1] } else { '' }
 }
 function Free-Slot {
     $used = @(0) + @(All-Vms | ForEach-Object { [int](Get-Extra (Vm-Name $_) 'slot') })
@@ -146,7 +188,9 @@ function Ssh-Opts([string]$vm) {
     New-Item -ItemType Directory -Force $State | Out-Null
     $known = Join-Path $State "known_hosts-$vm"
     @('-i', $SshKey, '-o', 'IdentitiesOnly=yes', '-o', 'StrictHostKeyChecking=accept-new',
-      '-o', "UserKnownHostsFile=$known", '-o', 'ConnectTimeout=5', '-o', 'LogLevel=ERROR')
+      '-o', "UserKnownHostsFile=$known", '-o', 'ConnectTimeout=5', '-o', 'LogLevel=ERROR',
+      # A VM that hangs or loses its network fails the command within 2 min instead of hanging it.
+      '-o', 'ServerAliveInterval=15', '-o', 'ServerAliveCountMax=8')
 }
 
 # The guest command line that runs PowerShell code. Base64 survives every
@@ -310,7 +354,9 @@ function Cmd-Build([object[]]$argv) {
     }
     $disk = Join-Path $vmdir "$base.vdi"
     VBox createmedium disk --filename $disk --size ($Config.DiskGB * 1024) --format VDI | Out-Null
-    VBox storagectl $base --name SATA --add sata --controller IntelAhci --portcount 4 | Out-Null
+    # Host I/O cache: without it, slow host storage (nested VMs, busy disks) can stall the
+    # guest disk into "AHCI port reset" timeouts that leave Windows half-hung.
+    VBox storagectl $base --name SATA --add sata --controller IntelAhci --portcount 4 --hostiocache on | Out-Null
     VBox storageattach $base --storagectl SATA --port 0 --device 0 --type hdd --medium $disk | Out-Null
     $port = $Config.SshPort + $BuildSlot
     VBox modifyvm $base --natpf1 "ssh,tcp,127.0.0.1,$port,,22" | Out-Null
@@ -420,8 +466,7 @@ function New-Clone([string]$img, [string]$name) {
         Set-Extra $vm 'image' $img
         Set-Extra $vm 'slot' $slot
         $p = Vm-Ports $vm
-        foreach ($rule in 'ssh', 'rdp') { VBoxTry modifyvm $vm --natpf1 delete $rule | Out-Null }
-        VBox modifyvm $vm --natpf1 "ssh,tcp,127.0.0.1,$($p.Ssh),,22" --natpf1 "rdp,tcp,127.0.0.1,$($p.Rdp),,3389" | Out-Null
+        Set-Forwards $vm
         Take-Clean $vm
     } catch { VBoxTry unregistervm $vm --delete | Out-Null; throw }
     Info "created VM '$name' from the $img image (linked clone; ssh $($p.Ssh), rdp $($p.Rdp))"
@@ -508,13 +553,16 @@ function Cmd-Status([string]$name) {
     "state      : $($i['VMState'])"
     "hardware   : $($i['cpus']) CPUs, $($i['memory']) MB RAM, firmware $($i['firmware'])"
     "resets to  : $(if (Get-Extra $vm 'recipe') { "recipe $(Get-Extra $vm 'recipe')" } else { 'clean snapshot' })"
-    "ports      : ssh $($p.Ssh)  rdp $($p.Rdp)  (127.0.0.1)"
+    "ports      : ssh $($p.Ssh)  rdp $($p.Rdp)  vs debugger $($p.VsDebug)  (127.0.0.1)"
+    $ip = HostOnly-Ip $vm
+    if ($ip) { "host-only  : $ip" }
 }
 
 function Cmd-Start([string]$name, [object[]]$argv) {
     $o = Parse-Args $argv @('gui', 'wait') @()
     $vm = Need-Vm $name
     if (Is-Running $vm) { Die "'$name' is already running" }
+    if ((Vm-State $vm) -ne 'saved') { Set-Forwards $vm }   # a saved state can't take new NICs
     Start-Vm $vm -Gui:([bool]$o['gui'])
     $p = Vm-Ports $vm
     Info "started '$name'"
@@ -656,6 +704,376 @@ function Cmd-Reboot([string]$name) {
     Guest-Restart $vm $p.Ssh
 }
 
+# --- Visual Studio ----------------------------------------------------------------
+
+# Copies a build output folder to C:\deploy\APP in the VM (replacing what was
+# there; programs running from it are stopped first). -Install: the folder has
+# an .msix/.appx package (e.g. AppPackages\..._Test), which is installed with
+# its certificate and dependencies.
+# -LinkLocal: the same path on this PC (C:\deploy\APP) as a junction to the
+# build output. Visual Studio checks that a launch profile's executable exists
+# locally before it starts it on the remote machine; with the junction it does,
+# without a second copy, wherever the project lives.
+function Set-LocalLink([string]$path, [string]$target) {
+    $item = Get-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue
+    if ($item -and $item.LinkType -ne 'Junction') {
+        Write-Host "winvm: note: $path exists on this PC as a real folder; Visual Studio starts what's in it only if it matches the build"
+        return
+    }
+    if ($item) {
+        if ((@($item.Target) -join '') -eq $target) { return }
+        [IO.Directory]::Delete($path)   # the junction only, never its target's files
+    }
+    New-Item -ItemType Directory -Force (Split-Path -Parent $path) | Out-Null
+    New-Item -ItemType Junction -Path $path -Target $target | Out-Null
+    Note "on this PC: $path -> $target"
+}
+
+function Cmd-Deploy([string]$name, [object[]]$argv) {
+    $o = Parse-Args $argv @('install', 'linklocal') @('as')
+    if ($o.Pos.Count -ne 1) { Die 'usage: winvm.ps1 [-Name NAME] deploy FOLDER [-As APP] [-Install] [-LinkLocal]' }
+    if (-not (Test-Path -LiteralPath $o.Pos[0] -PathType Container)) { Die "no folder '$($o.Pos[0])'" }
+    $src = (Resolve-Path -LiteralPath $o.Pos[0]).Path.TrimEnd('\')
+    $app = if ($o['as']) { $o['as'] } else { Split-Path -Leaf $src }
+    if ($app -notmatch '^[\w.-]+$') { Die "app name '$app': letters, digits, '.', '-', '_' (-As NAME)" }
+    $vm = Need-Vm $name; $p = Vm-Ports $vm
+    if (-not (Is-Running $vm)) {
+        # F5 with the VM off: boot it, and wait for the desktop (msvsmon starts at
+        # sign-in), so Visual Studio can launch the app right after this.
+        Info "starting '$name' for the deployment"
+        if ((Vm-State $vm) -ne 'saved') { Set-Forwards $vm }
+        Start-Vm $vm
+        Wait-Ssh $vm $p.Ssh
+        $up = Guest-Ps $vm $p.Ssh 'for ($i = 0; $i -lt 60 -and -not (Get-Process explorer -ErrorAction SilentlyContinue); $i++) { Start-Sleep 2 }; for ($i = 0; $i -lt 15 -and (Get-ScheduledTask winvm-msvsmon -ErrorAction SilentlyContinue) -and -not (Get-Process msvsmon -ErrorAction SilentlyContinue); $i++) { Start-Sleep 2 }' -Quiet
+        if ($up -ne 0) { Write-Host "winvm: note: could not check the desktop of '$name'" }
+    }
+    $tar = Win-Tool 'tar' 'tar.exe'
+    if (-not $tar) { Die 'tar.exe not found (part of Windows 10 1803 and later)' }
+
+    # One archive instead of scp -r: .NET output is many small files.
+    $tmp = Join-Path ([IO.Path]::GetTempPath()) "winvm-deploy-$app-$PID.tar"
+    try {
+        $eap = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
+        & $tar -cf $tmp -C $src . 2>&1 | ForEach-Object { Write-Host "$_" }
+        $code = $LASTEXITCODE; $ErrorActionPreference = $eap
+        if ($code -ne 0) { Die "tar could not pack $src" }
+        Copy-ToGuest $vm $p.Ssh @($tmp) "C:/winvm/deploy-$app.tar"
+    } finally { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue }
+
+    $dest = "C:\deploy\$app"
+    $install = if ($o['install']) { @"
+`$pkg = Get-ChildItem `$dest -Recurse -Include *.msixbundle, *.msix, *.appxbundle, *.appx |
+    Where-Object { `$_.DirectoryName -notmatch '\\Dependencies(\\|$)' } | Select-Object -First 1
+if (-not `$pkg) { throw 'no .msix/.appx package in the folder' }
+Get-ChildItem `$pkg.DirectoryName -Filter *.cer | ForEach-Object {
+    Import-Certificate -FilePath `$_.FullName -CertStoreLocation Cert:\LocalMachine\TrustedPeople | Out-Null
+    Write-Host "trusted certificate `$(`$_.Name)"
+}
+`$deps = @(Get-ChildItem (Join-Path `$pkg.DirectoryName 'Dependencies') -Recurse -Include *.msix, *.appx -ErrorAction SilentlyContinue |
+    Where-Object { `$_.Directory.Name -in 'x64', 'neutral' } | ForEach-Object FullName)
+`$a = @{ Path = `$pkg.FullName; ForceApplicationShutdown = `$true; ForceUpdateFromAnyVersion = `$true }
+if (`$deps) { `$a.DependencyPath = `$deps }
+Add-AppxPackage @a
+Write-Host "installed `$(`$pkg.Name)"
+"@ } else { '' }
+    $code = Guest-Ps $vm $p.Ssh @"
+`$dest = '$dest'
+`$running = @(Get-CimInstance Win32_Process | Where-Object { `$_.ExecutablePath -and `$_.ExecutablePath.StartsWith("`$dest\", [StringComparison]::OrdinalIgnoreCase) })
+foreach (`$r in `$running) { Stop-Process -Id `$r.ProcessId -Force -ErrorAction SilentlyContinue; Write-Host "stopped `$(`$r.Name) (`$(`$r.ProcessId))" }
+for (`$i = 1; Test-Path `$dest; `$i++) {   # files of a just stopped program can stay locked briefly
+    try { Remove-Item -Recurse -Force `$dest } catch { if (`$i -ge 10) { throw }; Start-Sleep 1 }
+}
+New-Item -ItemType Directory -Force `$dest | Out-Null
+tar.exe -xf 'C:\winvm\deploy-$app.tar' -C `$dest
+if (`$LASTEXITCODE -ne 0) { throw "tar -x exit code `$LASTEXITCODE" }
+Remove-Item 'C:\winvm\deploy-$app.tar' -Force
+$install
+"@
+    if ($code -ne 0) { Die "deploying into '$name' failed" }
+    Info "deployed $src -> ${name}:$dest"
+    if ($o['linklocal']) { Set-LocalLink $dest $src }
+}
+
+# --- vs setup: a solution's app projects deploy into a VM ----------------------
+
+# The projects of a .sln / .slnx, or the one project given (full paths).
+function Solution-Projects([string]$path) {
+    $dir = Split-Path -Parent $path
+    if ($path -like '*.slnx') {
+        foreach ($n in ([xml](Get-Content -Raw -LiteralPath $path)).SelectNodes('//Project')) { [IO.Path]::GetFullPath((Join-Path $dir $n.GetAttribute('Path'))) }
+    } elseif ($path -like '*.sln') {
+        foreach ($m in (Select-String -LiteralPath $path -Pattern '^Project\("[^"]+"\) = "[^"]+", "([^"]+\.(csproj|vbproj|wapproj))"')) {
+            [IO.Path]::GetFullPath((Join-Path $dir $m.Matches[0].Groups[1].Value))
+        }
+    } else { $path }
+}
+function Project-Prop([string]$text, [string]$prop) {
+    if ($text -match "<$prop>\s*([^<]*?)\s*</$prop>") { $Matches[1] } else { '' }
+}
+# dotnet: an exe Visual Studio doesn't copy (WPF, WinForms, console, unpackaged
+# WinUI); msix: packaged app with launch profiles (WinUI 3, UWP on .NET 9+);
+# uwp: classic UWP or a packaging project (device list "Remote Machine"); '': no app.
+function Project-Kind([string]$proj) {
+    if ($proj -like '*.wapproj') { return 'uwp' }
+    $x = Get-Content -Raw -LiteralPath $proj
+    if ((Project-Prop $x 'TargetPlatformIdentifier') -eq 'UAP' -or $x -match 'A5A43C5B-DE2A-4C0C-9213-0A381AF9435A') { return 'uwp' }
+    if ((Project-Prop $x 'UseUwp') -eq 'true') { return 'msix' }
+    if ((Project-Prop $x 'OutputType') -notin 'WinExe', 'Exe' -or (Project-Prop $x 'IsTestProject') -eq 'true') { return '' }
+    $manifest = (Project-Prop $x 'EnableMsixTooling') -eq 'true' -or (Test-Path (Join-Path (Split-Path $proj) 'Package.appxmanifest'))
+    if ($manifest -and (Project-Prop $x 'WindowsPackageType') -ne 'None') { 'msix' } else { 'dotnet' }
+}
+
+# JSON indented with 2 spaces, like Visual Studio writes it (Windows PowerShell's
+# ConvertTo-Json output has odd, deep indentation).
+function Format-Json([string]$json) {
+    $sb = New-Object Text.StringBuilder
+    $level = 0; $inStr = $false; $esc = $false
+    foreach ($ch in $json.ToCharArray()) {
+        if ($inStr) {
+            [void]$sb.Append($ch)
+            if ($esc) { $esc = $false } elseif ($ch -eq '\') { $esc = $true } elseif ($ch -eq '"') { $inStr = $false }
+            continue
+        }
+        switch -CaseSensitive ($ch) {
+            '"' { [void]$sb.Append($ch); $inStr = $true }
+            { $_ -eq '{' -or $_ -eq '[' } { $level++; [void]$sb.Append($ch).Append("`r`n").Append('  ' * $level) }
+            { $_ -eq '}' -or $_ -eq ']' } { $level--; [void]$sb.Append("`r`n").Append('  ' * $level).Append($ch) }
+            ',' { [void]$sb.Append(",`r`n").Append('  ' * $level) }
+            ':' { [void]$sb.Append(': ') }
+            { [char]::IsWhiteSpace($_) } { }
+            default { [void]$sb.Append($ch) }
+        }
+    }
+    # Empty objects/arrays on one line
+    ($sb.ToString() -replace '\{\s+\}', '{}' -replace '\[\s+\]', '[]') + "`r`n"
+}
+
+# Adds (or with $profile $null removes) a profile in Properties\launchSettings.json.
+function Set-LaunchProfile([string]$proj, [string]$profName, $profile) {
+    $f = Join-Path (Join-Path (Split-Path $proj) 'Properties') 'launchSettings.json'
+    if (-not $profile -and -not (Test-Path $f)) { return }
+    if (Test-Path $f) {
+        try { $j = Get-Content -Raw $f | ConvertFrom-Json } catch { Die "can't read $f (comments in it?): $_" }
+    } else { $j = [pscustomobject]@{} }
+    if (-not $j.PSObject.Properties['profiles']) { $j | Add-Member -NotePropertyName profiles -NotePropertyValue ([pscustomobject]@{}) }
+    $j.profiles.PSObject.Properties.Remove($profName)
+    if ($profile) { $j.profiles | Add-Member -NotePropertyName $profName -NotePropertyValue ([pscustomobject]$profile) }
+    New-Item -ItemType Directory -Force (Split-Path $f) | Out-Null
+    [IO.File]::WriteAllText($f, (Format-Json ($j | ConvertTo-Json -Depth 20)), (New-Object Text.UTF8Encoding $false))
+}
+
+# PROJECT.user (personal, usually not committed; MSBuild imports it). $groups:
+# @{ Condition = ''; Props = [ordered]@{...} } each; $imports: project paths.
+# Our elements carry Label="winvm"; they're replaced on every run.
+function Set-UserFile([string]$proj, [object[]]$groups, [string[]]$imports, [bool]$remove) {
+    $f = "$proj.user"
+    if (Test-Path $f) { $x = [xml](Get-Content -Raw $f) }
+    elseif ($remove) { return }
+    else { $x = [xml]'<?xml version="1.0" encoding="utf-8"?><Project ToolsVersion="Current" xmlns="http://schemas.microsoft.com/developer/msbuild/2003"></Project>' }
+    $r = $x.DocumentElement
+    foreach ($n in @($r.ChildNodes | Where-Object { $_.NodeType -eq 'Element' -and $_.GetAttribute('Label') -eq 'winvm' })) { [void]$r.RemoveChild($n) }
+    if (-not $remove) {
+        $ns = $r.NamespaceURI
+        foreach ($g in $groups) {
+            $pg = $x.CreateElement('PropertyGroup', $ns); $pg.SetAttribute('Label', 'winvm')
+            if ($g.Condition) { $pg.SetAttribute('Condition', $g.Condition) }
+            foreach ($kv in $g.Props.GetEnumerator()) { $e = $x.CreateElement($kv.Key, $ns); $e.InnerText = $kv.Value; [void]$pg.AppendChild($e) }
+            [void]$r.AppendChild($pg)
+        }
+        foreach ($i in $imports) {
+            $imp = $x.CreateElement('Import', $ns); $imp.SetAttribute('Project', $i); $imp.SetAttribute('Label', 'winvm')
+            [void]$r.AppendChild($imp)
+        }
+    }
+    $x.Save($f)
+}
+# Configuration|Platform pairs a classic project defines ('Debug|x64', ...).
+function Project-Configs([string]$proj) {
+    $c = @([regex]::Matches((Get-Content -Raw -LiteralPath $proj), "'\`$\(Configuration\)\|\`$\(Platform\)'\s*==\s*'([^']+)'") | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique)
+    $c
+}
+
+# Ticks "Deploy" (Configuration Manager) for these projects in a .sln / .slnx.
+function Enable-SlnDeploy([string]$sln, [string[]]$projects) {
+    $dir = Split-Path -Parent $sln
+    if ($sln -like '*.slnx') {
+        $x = [xml](Get-Content -Raw -LiteralPath $sln); $changed = $false
+        foreach ($n in $x.SelectNodes('//Project')) {
+            if ($projects -contains [IO.Path]::GetFullPath((Join-Path $dir $n.GetAttribute('Path'))) -and -not $n.SelectSingleNode('Deploy')) {
+                [void]$n.AppendChild($x.CreateElement('Deploy')); $changed = $true
+            }
+        }
+        if ($changed) { $x.Save($sln) }
+        return
+    }
+    $lines = [IO.File]::ReadAllLines($sln)
+    $guids = @{}
+    foreach ($l in $lines) {
+        if ($l -match '^Project\("[^"]+"\) = "[^"]+", "([^"]+)", "(\{[^}]+\})"' -and $projects -contains [IO.Path]::GetFullPath((Join-Path $dir $Matches[1]))) { $guids[$Matches[2]] = $true }
+    }
+    $have = @{}; foreach ($l in $lines) { if ($l -match '^\s*(\{[^}]+\}\..+)\.Deploy\.0 = ') { $have[$Matches[1]] = $true } }
+    $out = New-Object Collections.Generic.List[string]
+    foreach ($l in $lines) {
+        $out.Add($l)
+        if ($l -match '^(\s*)((\{[^}]+\})\..+)\.ActiveCfg = (.+)$' -and $guids[$Matches[3]] -and -not $have[$Matches[2]]) {
+            $out.Add("$($Matches[1])$($Matches[2]).Deploy.0 = $($Matches[4])")
+        }
+    }
+    if ($out.Count -ne $lines.Count) { [IO.File]::WriteAllLines($sln, $out, (New-Object Text.UTF8Encoding $true)) }
+}
+
+function Cmd-VsSetup([string]$name, [object[]]$argv) {
+    $o = Parse-Args $argv @('remove') @()
+    if ($o.Pos.Count -ne 1) { Die 'usage: winvm.ps1 [-Name NAME] vs setup SOLUTION.sln|SOLUTION.slnx|PROJECT.csproj|FOLDER [-Remove]' }
+    $path = $o.Pos[0]
+    if (Test-Path -LiteralPath $path -PathType Container) {
+        $c = @(Get-ChildItem -LiteralPath $path -File | Where-Object { $_.Extension -in '.sln', '.slnx' })
+        if ($c.Count -ne 1) { Die "${path}: $(if ($c) { 'several solutions in it, name one' } else { 'no .sln/.slnx in it' })" }
+        $path = $c[0].FullName
+    }
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { Die "no file '$path'" }
+    $path = (Resolve-Path -LiteralPath $path).Path
+    $vm = Need-Vm $name; $p = Vm-Ports $vm
+    $addr = "127.0.0.1:$($p.VsDebug)"
+    $profName = "winvm $name"
+    $remove = [bool]$o['remove']
+    $msixUwp = @(); $uwp = @(); $apps = 0; $dotnet = $false; $uwpAddr = $null
+    foreach ($proj in @(Solution-Projects $path)) {
+        $pn = [IO.Path]::GetFileNameWithoutExtension($proj)
+        if (-not (Test-Path -LiteralPath $proj)) { Note "skipped $pn (file missing: $proj)"; continue }
+        $kind = Project-Kind $proj
+        if (-not $kind) { Note "skipped $pn (no app: library, tests, ...)"; continue }
+        $apps++
+        if ($kind -eq 'dotnet') {
+            $dotnet = $true
+            $asm = Project-Prop (Get-Content -Raw -LiteralPath $proj) 'AssemblyName'
+            if (-not $asm -or $asm -match '\$') { $asm = $pn }
+            Set-UserFile $proj @(@{ Condition = ''; Props = [ordered]@{ WinvmDeploy = 'true'; WinvmVm = $name; WinvmApp = $pn } }) @([IO.Path]::Combine($Root, 'vs', 'Winvm.targets')) $remove
+            Set-LaunchProfile $proj $profName $(if (-not $remove) { [ordered]@{
+                commandName = 'Executable'; executablePath = "C:\deploy\$pn\$asm.exe"; workingDirectory = "C:\deploy\$pn"
+                remoteDebugEnabled = $true; remoteDebugMachine = $addr; authenticationMode = 'None' } })
+            Info "${pn}: .NET app$(if (-not $remove) { ", copied to ${name}:C:\deploy\$pn after every build in Visual Studio; launch profile '$profName'" } else { ': removed' })"
+        } elseif ($kind -eq 'msix') {
+            Set-LaunchProfile $proj $profName $(if (-not $remove) { [ordered]@{
+                commandName = 'MsixPackage'; remoteDebugEnabled = $true; remoteDebugMachine = $addr; authenticationMode = 'None' } })
+            $msixUwp += $proj
+            Info "${pn}: packaged app (MSIX)$(if (-not $remove) { ", launch profile '$profName'" } else { ': removed' })"
+        } else {
+            $msixUwp += $proj; $uwp += $pn
+            # What the Debug page writes for "Remote Machine" (read back through DTE).
+            # Authentication None, not Universal: Visual Studio 2026 does Universal over
+            # SSH (port 22) instead of the remote debugger, and fails here. The address is
+            # the VM's own one on the host-only network: deploying to 127.0.0.1:PORT (a
+            # port forward) hangs Visual Studio 2026 for classic UWP.
+            if ($null -eq $uwpAddr) { $ip = HostOnly-Ip $vm; $uwpAddr = if ($ip) { "${ip}:4026" } else { '' } }
+            $cfgs = @(Project-Configs $proj); if (-not $cfgs) { $cfgs = @('') }
+            $props = [ordered]@{ RemoteDebugEnabled = 'true'; RemoteDebugMachine = $(if ($uwpAddr) { $uwpAddr } else { $addr }); AuthenticationMode = 'None' }
+            $groups = foreach ($c in $cfgs) { @{ Condition = $(if ($c) { "'`$(Configuration)|`$(Platform)' == '$c'" } else { '' }); Props = $props } }
+            Set-UserFile $proj @($groups) @() $remove
+            Info "${pn}: UWP$(if (-not $remove) { ", remote machine $($props.RemoteDebugMachine) in $pn.csproj.user ($($cfgs -join ', '))" } else { ': removed' })"
+        }
+    }
+    if (-not $apps) { Die "no app projects in $path" }
+    if ($remove) { Info "removed; 'Deploy' in the solution and the VM stay as they are"; return }
+    if ($msixUwp) {
+        if ($path -match '\.slnx?$') { Enable-SlnDeploy $path $msixUwp; Note "Deploy ticked in $(Split-Path -Leaf $path) for the packaged/UWP projects" }
+        else { Write-Host "winvm: note: open it through a solution with 'Deploy' ticked (Build > Configuration Manager), not the bare project" }
+    }
+    $nameOpt = if ($name -ne 'default') { "-Name $name " } else { '' }
+    Write-Host ''
+    Info 'next'
+    if ((Get-Extra $vm 'recipe') -notmatch 'vs-deploy') { Note "set the VM up once:  .\winvm.ps1 ${nameOpt}apply vs-deploy -Seal" }
+    Note "open $(Split-Path -Leaf $path) in Visual Studio 2026 (reopen it if it was open), choose '$profName'"
+    Note 'next to the start button and press F5.'
+    if ($dotnet) { Note '.NET apps: a stopped VM is started by the build.' }
+    if ($msixUwp) { Note "packaged/UWP apps: start the VM first (.\winvm.ps1 ${nameOpt}start)" }
+    if ($uwp -and $uwpAddr) { Note "UWP ($($uwp -join ', ')): the start button says 'Remote Machine' ($uwpAddr, authentication None)" }
+    if ($uwp -and -not $uwpAddr) {
+        Write-Host "winvm: note: classic UWP needs the VM's host-only address (Visual Studio hangs deploying UWP to 127.0.0.1:PORT), and '$name' has none now:"
+        if (HostOnly-Adapter) { Note "start it (it gets the address at start; if it's running: stop, start), then run this vs setup again" }
+        else { Note "VirtualBox has no host-only adapter: VirtualBox Manager > Tools > Network > Host-only Networks > Create (or `$Config.HostOnlyAdapter), stop/start the VM, run vs setup again" }
+    }
+    Note "watch it: .\winvm.ps1 ${nameOpt}rdp    undo: .\winvm.ps1 ${nameOpt}vs setup `"$path`" -Remove"
+}
+
+# Checks the VM's side (msvsmon, Developer Mode) and prints the settings for
+# Visual Studio, filled in for this VM and the app name APP.
+function Cmd-Vs([string]$name, [object[]]$argv) {
+    if ($argv.Count -and [string]$argv[0] -eq 'setup') { Cmd-VsSetup $name @($argv | Select-Object -Skip 1); return }
+    $vm = Need-Vm $name; $p = Vm-Ports $vm
+    $app = if ($argv.Count) { [string]$argv[0] } else { 'MyApp' }
+    $addr = "127.0.0.1:$($p.VsDebug)"
+    $nameOpt = if ($name -ne 'default') { "-Name $name " } else { '' }
+    if (Is-Running $vm) {
+        $st = @(Guest-Ps $vm $p.Ssh @'
+$ProgressPreference = 'SilentlyContinue'
+$dev = (Get-ItemProperty HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock -ErrorAction SilentlyContinue).AllowDevelopmentWithoutDevLicense -eq 1
+$task = [bool](Get-ScheduledTask winvm-msvsmon -ErrorAction SilentlyContinue)
+if ($task -and -not (Get-Process msvsmon -ErrorAction SilentlyContinue)) { Start-ScheduledTask winvm-msvsmon; Start-Sleep 2 }
+# Block rules Windows adds when nobody answers its firewall prompt for msvsmon: they beat our allow rules
+$block = @(Get-NetFirewallApplicationFilter -ErrorAction SilentlyContinue | Where-Object { $_.Program -match '\\Remote Debugger\\[^\\]+\\msvsmon\.exe$' } | Get-NetFirewallRule | Where-Object { $_.Action -eq 'Block' -and $_.Direction -eq 'Inbound' })
+$block | Remove-NetFirewallRule
+"$dev,$task,$([bool](Get-Process msvsmon -ErrorAction SilentlyContinue)),$($block.Count)"
+'@ -Capture)
+        $f = if ($st) { ([string]$st[-1]).Trim() -split ',' } else { @() }
+        if ($f.Count -ne 4) { Write-Host "winvm: note: could not check the VM (ssh $($p.Ssh))" }
+        elseif ($f[1] -ne 'True' -or $f[0] -ne 'True') {
+            Write-Host "winvm: note: '$name' isn't set up for Visual Studio yet: winvm.ps1 ${nameOpt}apply vs-deploy -Seal"
+        } elseif ($f[2] -ne 'True') { Write-Host "winvm: note: msvsmon isn't running in '$name' (is the desktop signed in? winvm.ps1 ${nameOpt}rdp)" }
+        else {
+            if ([int]$f[3]) { Note "removed $($f[3]) Windows Firewall rule(s) that blocked the remote debugger in '$name'" }
+            Info "'$name' is ready: remote debugger on $addr, Developer Mode on"
+        }
+    } else { Write-Host "winvm: note: '$name' is not running (winvm.ps1 ${nameOpt}start)" }
+    $ip = HostOnly-Ip $vm
+    $targets = Join-Path $Root 'vs\Winvm.targets'
+    $vmProp = if ($name -ne 'default') { "`n         <WinvmVm>$name</WinvmVm>" } else { '' }
+    @"
+
+Remote machine for Visual Studio 2026:  $addr$(if ($ip) { "   (or host-only: ${ip}:4026)" })
+Easiest: winvm.ps1 ${nameOpt}vs setup YOUR.sln sets up all of the below for a solution.
+
+UWP and packaged WinUI 3 (MSIX): Visual Studio deploys the package itself
+  UWP: device list next to the start button > "Remote Machine",
+  address $addr, Authentication mode "None" (not "Universal (Unencrypted Protocol)":
+  Visual Studio 2026 tries that over SSH and fails). vs setup sets this itself.
+  WinUI 3: the start button lists Properties\launchSettings.json; add a profile:
+       "winvm $name": {
+         "commandName": "MsixPackage",
+         "remoteDebugEnabled": true,
+         "remoteDebugMachine": "$addr",
+         "authenticationMode": "None"
+       }
+  F5 deploys, starts the app on the VM's desktop and attaches. Needs "Deploy"
+  ticked for the project in Build > Configuration Manager (open the .sln, not
+  only the .csproj), or VS says it "needs to be deployed before it can be started".
+  Without F5 deployment: build an app package (Publish > Create App Packages,
+  sideloading) and install it:  winvm.ps1 ${nameOpt}deploy PATH\TO\${app}_..._Test -Install
+
+.NET 8+ desktop apps (WPF, WinForms, console): copied after every build
+  1. In the .csproj (or Directory.Build.props/.targets for all projects):
+       <PropertyGroup>
+         <WinvmDeploy>true</WinvmDeploy>$vmProp
+       </PropertyGroup>
+       <Import Project="$targets" />
+     Each build then copies the output to $($name):C:\deploy\$app, and makes
+     C:\deploy\$app on this PC a junction to the build output: Visual Studio
+     checks that the profile's exe exists locally before starting it remotely.
+  2. Properties\launchSettings.json, a profile next to the existing ones:
+       "winvm $name": {
+         "commandName": "Executable",
+         "executablePath": "C:\\deploy\\$app\\$app.exe",
+         "workingDirectory": "C:\\deploy\\$app",
+         "remoteDebugEnabled": true,
+         "remoteDebugMachine": "$addr",
+         "authenticationMode": "None"
+       }
+  3. Pick the profile "winvm $name" next to the start button, F5: build, copy,
+     start in the VM under the debugger.
+  By hand: winvm.ps1 ${nameOpt}deploy bin\Debug\net8.0-windows -As $app
+"@
+}
+
 function Show-Help([string]$topic) {
     switch ($topic) {
         'build' { @'
@@ -678,6 +1096,31 @@ With a recipe from ..\recipes\ (or a path) it boots it, applies the recipe
 (packages.txt, setup.ps1, restarts as asked), takes VM_RAM / VM_CPUS from
 recipe.env and makes the result the state 'reset' returns to.
 Writing recipes: ..\docs\custom-vms.md
+'@ }
+        'deploy' { @'
+winvm.ps1 [-Name NAME] deploy FOLDER [-As APP] [-Install]
+
+Copies FOLDER (a build output, e.g. bin\Debug\net8.0-windows) to C:\deploy\APP
+in the running VM, replacing the previous copy; programs running from there are
+stopped first. APP defaults to the folder's name. vs\Winvm.targets runs this
+after every build of a project with <WinvmDeploy>true</WinvmDeploy>.
+  -Install   FOLDER holds an app package (.msix/.appx, e.g. AppPackages\..._Test):
+             trusts its .cer and installs it with its dependencies
+'@ }
+        'vs' { @'
+winvm.ps1 [-Name NAME] vs [APP]
+winvm.ps1 [-Name NAME] vs setup SOLUTION.sln|SOLUTION.slnx|PROJECT.csproj|FOLDER [-Remove]
+
+Checks that the VM is ready for Visual Studio 2026 (Developer Mode, remote
+debugger running; starts it if needed) and prints the settings for deploying
+UWP, WinUI 3/MSIX and .NET apps with F5, filled in for this VM and APP.
+Set a VM up with the recipe vs-deploy: winvm.ps1 apply vs-deploy -Seal
+
+vs setup configures every app project of a solution for F5 into this VM:
+.NET exes get a copy step in PROJECT.csproj.user and a launch profile
+"winvm NAME"; packaged (MSIX) apps the launch profile and "Deploy" in the
+solution; classic UWP "Deploy" (then choose Remote Machine once). Libraries
+and tests are left alone. Safe to run again; -Remove takes it out again.
 '@ }
         'snapshot' { @'
 winvm.ps1 [-Name NAME] snapshot save|load|delete|list [SNAPSHOT]
@@ -711,6 +1154,10 @@ Use it
 Manage what runs in the VM
   info, ps [FILTER], kill NAME|PID, service [list|show|start|stop|restart|...] NAME,
   apps [FILTER] / apps uninstall NAME, events [MINUTES], ports, reboot
+Visual Studio (set a VM up first: apply vs-deploy -Seal, or new NAME -Recipe vs-deploy)
+  vs [APP]               check the VM, print the settings for deploying with F5
+  vs setup SOLUTION      configure a solution's apps for F5 into this VM (-Remove: undo)
+  deploy FOLDER [-As APP] [-Install]   build output -> C:\deploy\APP (-Install: MSIX)
 
 Without -Name everything acts on the VM "default". Configuration: config.ps1,
 your changes in config.local.ps1. More: README.md
@@ -751,9 +1198,13 @@ switch ($script:Command) {
     'scp'      { Cmd-Scp $vmName $rest }
     'rdp'      { Cmd-Rdp $vmName }
     'reboot'   { Cmd-Reboot $vmName }
+    'deploy'   { Cmd-Deploy $vmName $rest }
+    'vs'       { Cmd-Vs $vmName $rest }
     { $_ -in 'info', 'ps', 'kill', 'service', 'apps', 'events', 'ports' } { Cmd-Manage $vmName $script:Command $rest }
     default    { Show-Help ''; Die "unknown command '$script:Command'" }
 }
+# Success: 0, not the exit code of whatever VBoxManage call ran last.
+exit 0
 } catch {
     $m = $_.Exception.Message
     if ($m -like 'WINVM: *') { [Console]::Error.WriteLine("winvm: $($m.Substring(7))") }
