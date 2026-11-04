@@ -20,9 +20,17 @@
     <WinvmApp Condition="'$(WinvmApp)' == ''">$(MSBuildProjectName)</WinvmApp>
   </PropertyGroup>
 
-  <!-- Not in design-time builds (VS runs those constantly) or for libraries. -->
+  <!-- Not in design-time builds (VS runs those constantly) or for libraries. With
+       several target frameworks (MAUI: android, ios, windows): only the Windows
+       ones, and not the outer build that just dispatches to them.
+       WinvmProfile (set by vs setup): only while that launch profile is the
+       active one (ActiveDebugProfile, which Visual Studio keeps in the .user
+       file), so builds for other profiles ("this PC") don't touch the VM. -->
   <Target Name="WinvmDeploy" AfterTargets="Build"
-          Condition="'$(WinvmDeploy)' == 'true' and '$(DesignTimeBuild)' != 'true' and '$(OutputType)' != 'Library'">
+          Condition="'$(WinvmDeploy)' == 'true' and '$(DesignTimeBuild)' != 'true' and '$(OutputType)' != 'Library'
+                     and ('$(TargetPlatformIdentifier)' == '' or '$(TargetPlatformIdentifier)' == 'windows')
+                     and ('$(TargetFrameworks)' == '' or '$(TargetFramework)' != '')
+                     and ('$(WinvmProfile)' == '' or '$(ActiveDebugProfile)' == '$(WinvmProfile)')">
     <!-- TrimEnd: a trailing \ would escape the closing quote. -->
     <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(WinvmScript)&quot; -Name $(WinvmVm) deploy &quot;$(TargetDir.TrimEnd('\'))&quot; -As $(WinvmApp) -LinkLocal" />
   </Target>

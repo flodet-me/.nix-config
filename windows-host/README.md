@@ -18,6 +18,17 @@ Chocolatey package list (`../provision/packages.txt`), the recipes
   Machine Platform" and "Hyper-V" gives VirtualBox the CPU's VT-x directly.
 - The Windows ISO: put it where `config.ps1` expects it (`..\iso\win10.iso`,
   ...) or set the path in `config.local.ps1`.
+- For deploying from Visual Studio (see below):
+  - Visual Studio 2026 with the workloads your solution needs anyway
+    (".NET desktop development", "WinUI application development",
+    ".NET Multi-platform App UI development"). Classic UWP also needs the
+    optional component **Universal Windows Platform tools** (Visual Studio
+    Installer > Modify > WinUI application development); Visual Studio 2026
+    no longer installs it by default.
+  - **Developer Mode** on this PC (Settings > System > For developers), for
+    packaged apps (WinUI 3, MAUI, UWP). The VMs get it from the recipe.
+  - Run `winvm.ps1` from a normal desktop session. VirtualBox's
+    `VBoxManage` hangs in an SSH session to this PC.
 
 If scripts are blocked: `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`,
 or run with `powershell -ExecutionPolicy Bypass -File .\winvm.ps1 ...`.
@@ -120,17 +131,38 @@ project, or a folder with one solution) and configures each app by type:
 
 | project | what `vs setup` does | F5 then |
 |---|---|---|
-| .NET exe: WPF, WinForms, console, unpackaged WinUI 3 | `PROJECT.csproj.user`: copy the build to `C:\deploy\PROJECT` in the VM after every build (`vs\Winvm.targets`), and make `C:\deploy\PROJECT` on this PC a junction to the build output (VS checks the path exists locally); launch profile *winvm dev* (`Executable`, remote) | builds, copies, starts it in the VM under the debugger; boots a stopped VM |
-| packaged WinUI 3, UWP on .NET 9+ (MSIX) | launch profile *winvm dev* (`MsixPackage`, remote); *Deploy* ticked in the solution | VS installs the package in the VM, starts and debugs it |
+| Windows GUI exe (`WinExe`): WPF, WinForms, unpackaged WinUI 3; unpackaged MAUI (`WindowsPackageType` None; only the Windows target framework is copied); C#, VB, F# | `PROJECT.csproj.user`: copy the build to `C:\deploy\PROJECT` in the VM after builds **while the profile *winvm dev* is selected** (`vs\Winvm.targets`; builds for other profiles leave the VM alone), and make `C:\deploy\PROJECT` on this PC a junction to the build output (VS checks the path exists locally); launch profile *winvm dev* (`Executable`, remote) | builds, copies, starts it in the VM under the debugger; boots a stopped VM |
+| packaged WinUI 3 or MAUI (the default for MAUI), UWP on .NET 9+ (MSIX) | launch profile *winvm dev* (`MsixPackage`, remote); *Deploy* ticked in the solution | VS installs the package in the VM, starts and debugs it |
 | classic UWP, packaging project (`.wapproj`) | `PROJECT.csproj.user`: remote machine `127.0.0.1:PORT`, authentication None, for every configuration; *Deploy* ticked in the solution | start button shows *Remote Machine*; VS installs the package in the VM, starts and debugs it |
-| libraries, test projects | nothing | |
+| console apps, web apps, worker services (`Exe` without a window) | nothing, unless named: `vs setup ... -Project Tool,Api` treats them like a GUI exe | |
+| libraries, test projects, MAUI projects without a Windows target, C++/WiX/SQL/shared projects | nothing | |
+| old-style .NET Framework projects (non-SDK `.csproj`) | not supported yet: their remote settings live in the `.user` file (Debug page: *Use remote machine*), which `vs setup` doesn't write; the copy step works (`Winvm.targets`), set the remote machine by hand | |
 
 What it changes, so you know what to commit: the `.csproj.user` files are
 personal (normally in `.gitignore`); the launch profile goes into
-`Properties\launchSettings.json` (kept next to your other profiles; commit it
-or not); *Deploy* goes into the solution file. The project files themselves
-aren't touched. Run it again any time (it doesn't add things twice);
-`vs setup ... -Remove` takes the profiles and the `.user` entries out again.
+`Properties\launchSettings.json` (`My Project\` for VB; kept next to your
+other profiles; commit it or not); *Deploy* goes into the solution file. The
+project files themselves aren't touched. Run it again any time (it doesn't
+add things twice).
+
+How it edits files: only what it adds is written, as text, into the file as
+it is. The profile *winvm dev* is inserted as the last profile; your other
+profiles, comments (Visual Studio allows `//` and `/* */`), trailing commas,
+escapes, indentation, line endings and BOM stay byte for byte as they were.
+In `.user` and `.slnx` files only its own elements are added (`Label="winvm"`
+in `.user`), indented like the rest of the file. A `launchSettings.json` it
+can't read is left alone, and that project is skipped with a note.
+
+What it doesn't change: profiles other than *winvm dev* keep running on this
+PC, and their builds don't copy anything into the VM or start it.
+
+`vs setup ... -Remove` undoes all of it: the profiles, the `.user` entries,
+the *Deploy* ticks it added (it records them in the `.user` file; ticks that
+were there before stay), files it created, and the `C:\deploy\APP` junctions
+on this PC. Files it changed are written back byte for byte (encoding, line
+endings), so git shows no difference afterwards. The VM keeps the copies it
+received; `reset` returns it to its sealed state.
+
 Another VM: `-Name other vs setup ...` adds a profile *winvm other*.
 
 The rest of this section explains what these pieces do, for setting projects
@@ -284,5 +316,22 @@ Notes:
   packaged WinUI 3 app (Windows App SDK 2.6) and a classic UWP app: each was
   built, deployed into the VM, started on its desktop and debugged (debugger
   attached to the process in the VM). Also: the build boots a stopped VM,
-  32-bit MSBuild, the remote debugger watchdog. Not tested: UWP on .NET 9+
-  (`UseUwp`), `.wapproj`, `.slnx` in Visual Studio, `deploy -Install`.
+  32-bit MSBuild, the remote debugger watchdog. On 2026-11-04 (VS 18.11.3 with
+  the MAUI workload): a .NET 10 MAUI app from `dotnet new maui`, unpackaged
+  (the template default) and packaged, in a `.slnx`: F5 deployed and debugged
+  both in the VM (only the Windows target framework copied). `vs setup -Remove`
+  checked with git: no difference left in the projects and solutions (WPF,
+  MAUI, plus a solution with all project kinds), junctions and an empty
+  `C:\deploy` removed. Later on 2026-11-04, after `vs setup` changed to editing
+  files as text: a test solution with every project kind (C#/VB/F# apps, web
+  app, worker, console tool, library, tests, MAUI variants, C++/WiX/SQL/shared
+  projects, solution folders) and hostile files (`launchSettings.json` with
+  comments, trailing commas, escapes, emoji, a broken one; tab-indented `.user`;
+  BOM, CRLF, missing final newline) as `.sln` and `.slnx`, in PowerShell 7 and
+  Windows PowerShell 5.1: projects it doesn't set up stay byte-identical, the
+  others only gain lines, a second run changes nothing, `-Remove` restores
+  every file byte for byte. In Visual Studio (profile picked in the start
+  button's dropdown): with *winvm dev* F5 copies and runs in the VM; with the
+  local profile builds don't touch the VM and F5 runs on this PC. F5 into the
+  VM again for WPF, WinUI 3, classic UWP and packaged MAUI. Not tested: UWP on
+  .NET 9+ (`UseUwp`), `.wapproj`, `deploy -Install`.

@@ -620,7 +620,8 @@ function Cmd-Apply([string]$name, [object[]]$argv) {
     if ($o['seal']) {
         Stop-Vm $vm; Take-Clean $vm
         $prev = Get-Extra $vm 'recipe'
-        Set-Extra $vm 'recipe' $(if ($prev) { "$prev + $(Split-Path -Leaf $dir)" } else { Split-Path -Leaf $dir })
+        $r = Split-Path -Leaf $dir   # applied again: listed once
+        Set-Extra $vm 'recipe' $(if (-not $prev) { $r } elseif (@($prev -split ' \+ ') -contains $r) { $prev } else { "$prev + $r" })
         Info "sealed '$name'"
     } else { Note "keep it as the clean state: winvm.ps1 -Name $name seal" }
 }
@@ -795,6 +796,10 @@ $install
 }
 
 # --- vs setup: a solution's app projects deploy into a VM ----------------------
+#
+# Rules for everything below: only what vs setup adds is touched, as text, so
+# the rest of every file stays byte for byte as it was (other launch profiles,
+# comments, formatting, encoding); -Remove takes out exactly what was added.
 
 # The projects of a .sln / .slnx, or the one project given (full paths).
 function Solution-Projects([string]$path) {
@@ -802,114 +807,328 @@ function Solution-Projects([string]$path) {
     if ($path -like '*.slnx') {
         foreach ($n in ([xml](Get-Content -Raw -LiteralPath $path)).SelectNodes('//Project')) { [IO.Path]::GetFullPath((Join-Path $dir $n.GetAttribute('Path'))) }
     } elseif ($path -like '*.sln') {
-        foreach ($m in (Select-String -LiteralPath $path -Pattern '^Project\("[^"]+"\) = "[^"]+", "([^"]+\.(csproj|vbproj|wapproj))"')) {
-            [IO.Path]::GetFullPath((Join-Path $dir $m.Matches[0].Groups[1].Value))
+        foreach ($m in (Select-String -LiteralPath $path -Pattern '^Project\("[^"]+"\) = "[^"]+", "([^"]+\.(csproj|vbproj|fsproj|wapproj))"')) {
+            [IO.Path]::GetFullPath((Join-Path $dir ($m.Matches[0].Groups[1].Value -replace '\\', [IO.Path]::DirectorySeparatorChar)))
         }
     } else { $path }
 }
+# A property's (first) value in a project file, also with a Condition attribute
+# (MAUI sets Windows-only ones that way).
 function Project-Prop([string]$text, [string]$prop) {
-    if ($text -match "<$prop>\s*([^<]*?)\s*</$prop>") { $Matches[1] } else { '' }
+    if ($text -match "<$prop(\s[^>]*)?>\s*([^<]*?)\s*</$prop>") { $Matches[2] } else { '' }
 }
-# dotnet: an exe Visual Studio doesn't copy (WPF, WinForms, console, unpackaged
-# WinUI); msix: packaged app with launch profiles (WinUI 3, UWP on .NET 9+);
-# uwp: classic UWP or a packaging project (device list "Remote Machine"); '': no app.
+# What a project is, for vs setup:
+#   dotnet  a Windows GUI exe Visual Studio doesn't copy (WPF, WinForms,
+#           unpackaged WinUI 3 or MAUI): copied in after each build
+#   msix    packaged app with launch profiles (WinUI 3, MAUI, UWP on .NET 9+)
+#   uwp     classic UWP or a packaging project (device list "Remote Machine")
+#   console an Exe without a window (console tool, web app, worker service, ...):
+#           only with -Project NAME
+#   ''      nothing to do (library, tests, no Windows target)
 function Project-Kind([string]$proj) {
     if ($proj -like '*.wapproj') { return 'uwp' }
     $x = Get-Content -Raw -LiteralPath $proj
     if ((Project-Prop $x 'TargetPlatformIdentifier') -eq 'UAP' -or $x -match 'A5A43C5B-DE2A-4C0C-9213-0A381AF9435A') { return 'uwp' }
+    if ((Project-Prop $x 'IsTestProject') -eq 'true') { return '' }
     if ((Project-Prop $x 'UseUwp') -eq 'true') { return 'msix' }
-    if ((Project-Prop $x 'OutputType') -notin 'WinExe', 'Exe' -or (Project-Prop $x 'IsTestProject') -eq 'true') { return '' }
-    $manifest = (Project-Prop $x 'EnableMsixTooling') -eq 'true' -or (Test-Path (Join-Path (Split-Path $proj) 'Package.appxmanifest'))
-    if ($manifest -and (Project-Prop $x 'WindowsPackageType') -ne 'None') { 'msix' } else { 'dotnet' }
-}
-
-# JSON indented with 2 spaces, like Visual Studio writes it (Windows PowerShell's
-# ConvertTo-Json output has odd, deep indentation).
-function Format-Json([string]$json) {
-    $sb = New-Object Text.StringBuilder
-    $level = 0; $inStr = $false; $esc = $false
-    foreach ($ch in $json.ToCharArray()) {
-        if ($inStr) {
-            [void]$sb.Append($ch)
-            if ($esc) { $esc = $false } elseif ($ch -eq '\') { $esc = $true } elseif ($ch -eq '"') { $inStr = $false }
-            continue
-        }
-        switch -CaseSensitive ($ch) {
-            '"' { [void]$sb.Append($ch); $inStr = $true }
-            { $_ -eq '{' -or $_ -eq '[' } { $level++; [void]$sb.Append($ch).Append("`r`n").Append('  ' * $level) }
-            { $_ -eq '}' -or $_ -eq ']' } { $level--; [void]$sb.Append("`r`n").Append('  ' * $level).Append($ch) }
-            ',' { [void]$sb.Append(",`r`n").Append('  ' * $level) }
-            ':' { [void]$sb.Append(': ') }
-            { [char]::IsWhiteSpace($_) } { }
-            default { [void]$sb.Append($ch) }
-        }
+    # MAUI: packaged unless WindowsPackageType is None (its manifest sits in
+    # Platforms\Windows\); only the Windows target framework is deployed.
+    if ((Project-Prop $x 'UseMaui') -eq 'true') {
+        if ($x -notmatch 'net\d+\.\d+-windows') { return '' }
+        if ((Project-Prop $x 'WindowsPackageType') -eq 'None') { return 'dotnet' } else { return 'msix' }
     }
-    # Empty objects/arrays on one line
-    ($sb.ToString() -replace '\{\s+\}', '{}' -replace '\[\s+\]', '[]') + "`r`n"
+    $out = Project-Prop $x 'OutputType'
+    if ($out -notin 'WinExe', 'Exe') { return '' }
+    $manifest = (Project-Prop $x 'EnableMsixTooling') -eq 'true' -or (Test-Path (Join-Path (Split-Path $proj) 'Package.appxmanifest'))
+    if ($manifest -and (Project-Prop $x 'WindowsPackageType') -ne 'None') { return 'msix' }
+    if ($out -eq 'WinExe') { 'dotnet' } else { 'console' }
+}
+# Writes $text the way the file was written before ($orig: its bytes; $null for
+# a new file): same BOM or none, same line endings, same final newline.
+function Write-Like([string]$path, [string]$text, [byte[]]$orig, [bool]$newBom) {
+    if ($orig) {
+        $bom = $orig.Length -ge 3 -and $orig[0] -eq 0xEF -and $orig[1] -eq 0xBB -and $orig[2] -eq 0xBF
+        $s = [Text.Encoding]::UTF8.GetString($orig)
+        $nl = if ($s -match "`r`n") { "`r`n" } else { "`n" }
+        $tail = if ($s -match '[\r\n]*$') { $Matches[0] } else { '' }   # exactly what the file ended with
+    } else { $bom = $newBom; $nl = "`r`n"; $tail = "`r`n" }
+    $t = ($text -replace "`r?`n", $nl).TrimEnd("`r", "`n") + $tail
+    [IO.File]::WriteAllText($path, $t, (New-Object Text.UTF8Encoding $bom))
+}
+function Read-Bytes([string]$path) { if (Test-Path -LiteralPath $path) { [IO.File]::ReadAllBytes($path) } else { $null } }
+function Text-Newline([string]$t) { if ($t -match "`r`n") { "`r`n" } else { "`n" } }
+
+# An XML file loaded with its whitespace kept, so saving it changes only what
+# was changed. Xml-Text: back to text (without an <?xml?> line if it had none).
+function Load-Xml([string]$path) {
+    $x = New-Object Xml.XmlDocument; $x.PreserveWhitespace = $true
+    $x.LoadXml([IO.File]::ReadAllText($path)); $x
+}
+function Xml-Text($x, [byte[]]$orig) {
+    $sw = New-Object IO.StringWriter
+    $x.Save($sw)
+    $t = $sw.ToString() -replace '^(<\?xml[^>]*encoding=")utf-16"', '$1utf-8"'
+    if ($orig -and [Text.Encoding]::UTF8.GetString($orig).TrimStart([char]0xFEFF) -notmatch '^\s*<\?xml') { $t = $t -replace '^<\?xml[^>]*\?>\s*', '' }
+    $t
+}
+# The indentation in front of an element (whitespace after the last line break before it).
+function Xml-Indent($node) {
+    $p = $node.PreviousSibling
+    if ($p -and $p.NodeType -in 'Whitespace', 'SignificantWhitespace' -and $p.Value -match '([ \t]*)$') { $Matches[1] } else { '' }
+}
+# Appends $child as the last element of $parent, indented like XML Visual
+# Studio writes: one level ($unit) deeper than $parent.
+function Xml-AppendChild($parent, $child, [string]$nl, [string]$unit) {
+    $x = $parent.OwnerDocument
+    $pin = Xml-Indent $parent
+    $last = $parent.LastChild
+    if ($parent.IsEmpty -or -not $parent.HasChildNodes) {
+        [void]$parent.AppendChild($x.CreateWhitespace("$nl$pin$unit")); [void]$parent.AppendChild($child)
+        [void]$parent.AppendChild($x.CreateWhitespace("$nl$pin"))
+    } elseif ($last.NodeType -in 'Whitespace', 'SignificantWhitespace') {
+        [void]$parent.InsertBefore($x.CreateWhitespace("$nl$pin$unit"), $last); [void]$parent.InsertBefore($child, $last)
+    } else {
+        [void]$parent.AppendChild($x.CreateWhitespace("$nl$pin$unit")); [void]$parent.AppendChild($child)
+    }
+}
+# Removes $node and the whitespace in front of it (what Xml-AppendChild added);
+# a parent left with whitespace only becomes <Parent /> again.
+function Xml-RemoveChild($node) {
+    $parent = $node.ParentNode
+    $p = $node.PreviousSibling
+    if ($p -and $p.NodeType -in 'Whitespace', 'SignificantWhitespace') { [void]$parent.RemoveChild($p) }
+    [void]$parent.RemoveChild($node)
+    if (-not @($parent.ChildNodes | Where-Object { $_.NodeType -notin 'Whitespace', 'SignificantWhitespace' })) {
+        foreach ($c in @($parent.ChildNodes)) { [void]$parent.RemoveChild($c) }
+        $parent.IsEmpty = $true
+    }
 }
 
-# Adds (or with $profile $null removes) a profile in Properties\launchSettings.json.
-function Set-LaunchProfile([string]$proj, [string]$profName, $profile) {
-    $f = Join-Path (Join-Path (Split-Path $proj) 'Properties') 'launchSettings.json'
-    if (-not $profile -and -not (Test-Path $f)) { return }
-    if (Test-Path $f) {
-        try { $j = Get-Content -Raw $f | ConvertFrom-Json } catch { Die "can't read $f (comments in it?): $_" }
-    } else { $j = [pscustomobject]@{} }
-    if (-not $j.PSObject.Properties['profiles']) { $j | Add-Member -NotePropertyName profiles -NotePropertyValue ([pscustomobject]@{}) }
-    $j.profiles.PSObject.Properties.Remove($profName)
-    if ($profile) { $j.profiles | Add-Member -NotePropertyName $profName -NotePropertyValue ([pscustomobject]$profile) }
-    New-Item -ItemType Directory -Force (Split-Path $f) | Out-Null
-    [IO.File]::WriteAllText($f, (Format-Json ($j | ConvertTo-Json -Depth 20)), (New-Object Text.UTF8Encoding $false))
+# --- launchSettings.json, edited as text --------------------------------------
+# A small JSON reader that only finds where things are (it also skips // and
+# /* */ comments, which Visual Studio accepts); nothing is re-serialized.
+function Json-SkipWs([string]$t, [int]$i) {
+    while ($i -lt $t.Length) {
+        $c = $t[$i]
+        if ([char]::IsWhiteSpace($c) -or $c -eq [char]0xFEFF) { $i++; continue }
+        if ($c -eq '/' -and $i + 1 -lt $t.Length -and $t[$i + 1] -eq '/') { while ($i -lt $t.Length -and $t[$i] -ne "`n") { $i++ }; continue }
+        if ($c -eq '/' -and $i + 1 -lt $t.Length -and $t[$i + 1] -eq '*') { $e = $t.IndexOf('*/', $i + 2); if ($e -lt 0) { throw 'unterminated comment' }; $i = $e + 2; continue }
+        break
+    }
+    $i
+}
+function Json-SkipString([string]$t, [int]$i) {   # $t[$i] is '"'; returns the index after the closing '"'
+    $i++
+    while ($i -lt $t.Length) { if ($t[$i] -eq '\') { $i += 2; continue }; if ($t[$i] -eq '"') { return $i + 1 }; $i++ }
+    throw 'unterminated string'
+}
+function Json-SkipValue([string]$t, [int]$i) {     # returns the index after the value at $i
+    $c = $t[$i]
+    if ($c -eq '"') { return Json-SkipString $t $i }
+    if ($c -eq '{' -or $c -eq '[') {
+        $depth = 0
+        while ($i -lt $t.Length) {
+            $c = $t[$i]
+            if ($c -eq '"') { $i = Json-SkipString $t $i; continue }
+            if ($c -eq '/' -and $i + 1 -lt $t.Length -and ($t[$i + 1] -eq '/' -or $t[$i + 1] -eq '*')) { $i = Json-SkipWs $t $i; continue }
+            if ($c -eq '{' -or $c -eq '[') { $depth++ } elseif ($c -eq '}' -or $c -eq ']') { $depth--; if ($depth -eq 0) { return $i + 1 } }
+            $i++
+        }
+        throw 'unbalanced brackets'
+    }
+    while ($i -lt $t.Length -and $t[$i] -notmatch '[\s,}\]/]') { $i++ }
+    $i
+}
+# The members of the object whose '{' is at $open: @{ Key; KeyStart; ValueStart; ValueEnd }.
+function Json-Members([string]$t, [int]$open) {
+    if ($t[$open] -ne '{') { throw "expected an object at $open" }
+    $m = @(); $i = $open + 1
+    while ($true) {
+        $i = Json-SkipWs $t $i
+        if ($i -ge $t.Length) { throw 'unterminated object' }
+        if ($t[$i] -eq '}') { return , $m }
+        if ($t[$i] -eq ',') { $i++; continue }
+        if ($t[$i] -ne '"') { throw "expected a property name at $i" }
+        $ke = Json-SkipString $t $i
+        $key = [regex]::Unescape($t.Substring($i + 1, $ke - $i - 2))
+        $j = Json-SkipWs $t $ke
+        if ($t[$j] -ne ':') { throw "expected ':' at $j" }
+        $vs = Json-SkipWs $t ($j + 1)
+        $ve = Json-SkipValue $t $vs
+        $m += @{ Key = $key; KeyStart = $i; ValueStart = $vs; ValueEnd = $ve }
+        $i = $ve
+    }
+}
+function Json-Quote([string]$s) { '"' + ($s -replace '\\', '\\' -replace '"', '\"') + '"' }
+# An ordered hashtable as a JSON object, its members at indentation $in + $unit.
+function Json-Object($h, [string]$in, [string]$unit, [string]$nl) {
+    $lines = foreach ($kv in $h.GetEnumerator()) {
+        $v = if ($kv.Value -is [bool]) { if ($kv.Value) { 'true' } else { 'false' } } else { Json-Quote ([string]$kv.Value) }
+        "$in$unit$(Json-Quote $kv.Key): $v"
+    }
+    "{$nl" + ($lines -join ",$nl") + "$nl$in}"
+}
+# Inserts "key": value as the last member of the object at $open (Json-RemoveMember is its exact inverse).
+function Json-InsertMember([string]$t, [int]$open, [string]$key, [string]$value, [string]$in, [string]$nl) {
+    $m = Json-Members $t $open
+    if ($m.Count) { $t.Insert($m[-1].ValueEnd, ",$nl$in$(Json-Quote $key): $value") }
+    else { $t.Insert($open + 1, "$nl$in$(Json-Quote $key): $value") }
+}
+function Json-RemoveMember([string]$t, [int]$open, [string]$key) {
+    $m = Json-Members $t $open
+    for ($k = 0; $k -lt $m.Count; $k++) {
+        if ($m[$k].Key -ne $key) { continue }
+        if ($m.Count -eq 1) { return $t.Remove($open + 1, $m[$k].ValueEnd - $open - 1) }
+        if ($k -lt $m.Count - 1) { return $t.Remove($m[$k].KeyStart, $m[$k + 1].KeyStart - $m[$k].KeyStart) }
+        return $t.Remove($m[$k - 1].ValueEnd, $m[$k].ValueEnd - $m[$k - 1].ValueEnd)
+    }
+    $t
+}
+function Launch-File([string]$proj) {
+    Join-Path (Join-Path (Split-Path $proj) $(if ($proj -like '*.vbproj') { 'My Project' } else { 'Properties' })) 'launchSettings.json'
+}
+# Checks that the file can be edited (before anything is changed); '' or the reason.
+function Launch-Problem([string]$proj) {
+    $f = Launch-File $proj
+    if (-not (Test-Path -LiteralPath $f)) { return '' }
+    try {
+        $t = [IO.File]::ReadAllText($f); $top = Json-SkipWs $t 0
+        $m = Json-Members $t $top
+        foreach ($p in $m) { if ($p.Key -eq 'profiles') { [void](Json-Members $t $p.ValueStart) } }
+        ''
+    } catch { "$f can't be read as JSON ($($_.Exception.Message))" }
+}
+# Adds (replaces) or, with $profile $null, removes the profile $profName.
+# Returns what it created, for -Remove: @{ File; Profiles } (booleans).
+function Set-LaunchProfile([string]$proj, [string]$profName, $profile, $rec) {
+    $f = Launch-File $proj
+    $made = @{ File = [bool]$rec['WinvmLaunchFileCreated']; Profiles = [bool]$rec['WinvmLaunchProfilesCreated'] }
+    if (-not (Test-Path -LiteralPath $f)) {
+        if (-not $profile) { return $made }
+        New-Item -ItemType Directory -Force (Split-Path $f) | Out-Null
+        $nl = "`r`n"
+        $t = "{$nl  `"profiles`": {$nl    $(Json-Quote $profName): $(Json-Object $profile '    ' '  ' $nl)$nl  }$nl}"
+        Write-Like $f $t $null $false
+        return @{ File = $true; Profiles = $true }
+    }
+    $orig = Read-Bytes $f
+    $t = [IO.File]::ReadAllText($f)
+    $nl = Text-Newline $t
+    $unit = if ($t -match "\n([ \t]+)`"") { $Matches[1] } else { '  ' }
+    $top = Json-SkipWs $t 0
+    $topMembers = Json-Members $t $top   # (assigned first: the function returns the list as one object)
+    $pm = $topMembers | Where-Object { $_.Key -eq 'profiles' } | Select-Object -First 1
+    if ($pm) { $t = Json-RemoveMember $t $pm.ValueStart $profName }
+    if ($profile) {
+        $value = Json-Object $profile "$unit$unit" $unit $nl
+        if ($pm) {
+            $t = Json-InsertMember $t $pm.ValueStart $profName $value "$unit$unit" $nl
+        } else {
+            $t = Json-InsertMember $t $top 'profiles' "{$nl$unit$unit$(Json-Quote $profName): $value$nl$unit}" $unit $nl
+            $made.Profiles = $true
+        }
+    } elseif ($pm -and $made.Profiles -and -not (Json-Members $t $pm.ValueStart).Count) {
+        $t = Json-RemoveMember $t $top 'profiles'   # "profiles" was added by vs setup and is empty now
+    }
+    if (-not $profile -and $made.File -and -not (Json-Members $t $top).Count) {
+        Remove-Item -LiteralPath $f -Force   # a file vs setup created, empty now
+        $d = Split-Path $f
+        if (-not (Get-ChildItem -LiteralPath $d -Force -ErrorAction SilentlyContinue)) { Remove-Item -LiteralPath $d -Force }
+        return @{ File = $false; Profiles = $false }
+    }
+    if ($t -ne [IO.File]::ReadAllText($f)) { Write-Like $f $t $orig $false }
+    if (-not $profile) { $made = @{ File = $false; Profiles = $false } }
+    $made
 }
 
-# PROJECT.user (personal, usually not committed; MSBuild imports it). $groups:
+# --- PROJECT.user ---------------------------------------------------------------
+# Personal (usually not committed); MSBuild imports it into the project. $groups:
 # @{ Condition = ''; Props = [ordered]@{...} } each; $imports: project paths.
-# Our elements carry Label="winvm"; they're replaced on every run.
+# Our elements carry Label="winvm" and are replaced on every run; everything
+# else in the file stays as it is.
 function Set-UserFile([string]$proj, [object[]]$groups, [string[]]$imports, [bool]$remove) {
     $f = "$proj.user"
-    if (Test-Path $f) { $x = [xml](Get-Content -Raw $f) }
+    if (-not $groups -and -not $imports) { $remove = $true }   # nothing to write: just clean up
+    $orig = Read-Bytes $f
+    if ($orig) { $x = Load-Xml $f }
     elseif ($remove) { return }
-    else { $x = [xml]'<?xml version="1.0" encoding="utf-8"?><Project ToolsVersion="Current" xmlns="http://schemas.microsoft.com/developer/msbuild/2003"></Project>' }
+    else {
+        $x = New-Object Xml.XmlDocument; $x.PreserveWhitespace = $true
+        $x.LoadXml("<?xml version=`"1.0`" encoding=`"utf-8`"?>`r`n<Project ToolsVersion=`"Current`" xmlns=`"http://schemas.microsoft.com/developer/msbuild/2003`">`r`n</Project>")
+    }
     $r = $x.DocumentElement
-    foreach ($n in @($r.ChildNodes | Where-Object { $_.NodeType -eq 'Element' -and $_.GetAttribute('Label') -eq 'winvm' })) { [void]$r.RemoveChild($n) }
+    $ourNodes = @($r.ChildNodes | Where-Object { $_.NodeType -eq 'Element' -and $_.GetAttribute('Label') -eq 'winvm' })
+    if (-not $ourNodes -and $remove) { return }
+    foreach ($n in $ourNodes) { Xml-RemoveChild $n }
     if (-not $remove) {
         $ns = $r.NamespaceURI
+        $nl = if ($orig) { Text-Newline ([IO.File]::ReadAllText($f)) } else { "`r`n" }
+        # The file's own indentation (Visual Studio: 2 spaces, but tabs exist too)
+        $first = $r.ChildNodes | Where-Object { $_.NodeType -eq 'Element' } | Select-Object -First 1
+        $unit = if ($first -and (Xml-Indent $first)) { Xml-Indent $first } else { '  ' }
         foreach ($g in $groups) {
             $pg = $x.CreateElement('PropertyGroup', $ns); $pg.SetAttribute('Label', 'winvm')
             if ($g.Condition) { $pg.SetAttribute('Condition', $g.Condition) }
-            foreach ($kv in $g.Props.GetEnumerator()) { $e = $x.CreateElement($kv.Key, $ns); $e.InnerText = $kv.Value; [void]$pg.AppendChild($e) }
-            [void]$r.AppendChild($pg)
+            Xml-AppendChild $r $pg $nl $unit
+            foreach ($kv in $g.Props.GetEnumerator()) { $e = $x.CreateElement($kv.Key, $ns); $e.InnerText = $kv.Value; Xml-AppendChild $pg $e $nl $unit }
         }
         foreach ($i in $imports) {
             $imp = $x.CreateElement('Import', $ns); $imp.SetAttribute('Project', $i); $imp.SetAttribute('Label', 'winvm')
-            [void]$r.AppendChild($imp)
+            Xml-AppendChild $r $imp $nl $unit
         }
     }
-    $x.Save($f)
+    # Nothing but our elements was in it (vs setup created it): delete it
+    if (-not @($r.ChildNodes | Where-Object { $_.NodeType -eq 'Element' })) { Remove-Item -LiteralPath $f -Force; return }
+    Write-Like $f (Xml-Text $x $orig) $orig $true
 }
 # Configuration|Platform pairs a classic project defines ('Debug|x64', ...).
 function Project-Configs([string]$proj) {
     $c = @([regex]::Matches((Get-Content -Raw -LiteralPath $proj), "'\`$\(Configuration\)\|\`$\(Platform\)'\s*==\s*'([^']+)'") | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique)
     $c
 }
+# Properties of the unconditioned Label="winvm" groups in PROJECT.user.
+function Get-WinvmUserProps([string]$proj) {
+    $h = @{}
+    $f = "$proj.user"
+    if (-not (Test-Path -LiteralPath $f)) { return $h }
+    try { $x = Load-Xml $f } catch { return $h }
+    foreach ($g in $x.DocumentElement.ChildNodes) {
+        if ($g.NodeType -ne 'Element' -or $g.LocalName -ne 'PropertyGroup' -or $g.GetAttribute('Label') -ne 'winvm' -or $g.GetAttribute('Condition')) { continue }
+        foreach ($e in $g.ChildNodes) { if ($e.NodeType -eq 'Element') { $h[$e.LocalName] = $e.InnerText } }
+    }
+    $h
+}
 
+# --- solution: "Deploy" ticks ---------------------------------------------------
 # Ticks "Deploy" (Configuration Manager) for these projects in a .sln / .slnx.
+# Returns what it added: @{ PROJECT = @(keys) }, keys being '{GUID}.Debug|x64'
+# (.sln) or 'slnx', so that -Remove takes out exactly these again.
 function Enable-SlnDeploy([string]$sln, [string[]]$projects) {
     $dir = Split-Path -Parent $sln
+    $added = @{}
+    $orig = Read-Bytes $sln
     if ($sln -like '*.slnx') {
-        $x = [xml](Get-Content -Raw -LiteralPath $sln); $changed = $false
+        $x = Load-Xml $sln
+        $nl = Text-Newline ([IO.File]::ReadAllText($sln))
         foreach ($n in $x.SelectNodes('//Project')) {
-            if ($projects -contains [IO.Path]::GetFullPath((Join-Path $dir $n.GetAttribute('Path'))) -and -not $n.SelectSingleNode('Deploy')) {
-                [void]$n.AppendChild($x.CreateElement('Deploy')); $changed = $true
+            $pp = [IO.Path]::GetFullPath((Join-Path $dir $n.GetAttribute('Path')))
+            if ($projects -contains $pp -and -not $n.SelectSingleNode('Deploy')) {
+                Xml-AppendChild $n $x.CreateElement('Deploy') $nl '  '
+                $added[$pp] = @('slnx')
             }
         }
-        if ($changed) { $x.Save($sln) }
-        return
+        if ($added.Count) { Write-Like $sln (Xml-Text $x $orig) $orig $false }
+        return $added
     }
-    $lines = [IO.File]::ReadAllLines($sln)
+    $text = [IO.File]::ReadAllText($sln)
+    $nl = Text-Newline $text
+    $lines = $text -split "`r?`n"
     $guids = @{}
     foreach ($l in $lines) {
-        if ($l -match '^Project\("[^"]+"\) = "[^"]+", "([^"]+)", "(\{[^}]+\})"' -and $projects -contains [IO.Path]::GetFullPath((Join-Path $dir $Matches[1]))) { $guids[$Matches[2]] = $true }
+        if ($l -match '^Project\("[^"]+"\) = "[^"]+", "([^"]+)", "(\{[^}]+\})"') {
+            $pp = [IO.Path]::GetFullPath((Join-Path $dir ($Matches[1] -replace '\\', [IO.Path]::DirectorySeparatorChar)))
+            if ($projects -contains $pp) { $guids[$Matches[2]] = $pp }
+        }
     }
     $have = @{}; foreach ($l in $lines) { if ($l -match '^\s*(\{[^}]+\}\..+)\.Deploy\.0 = ') { $have[$Matches[1]] = $true } }
     $out = New-Object Collections.Generic.List[string]
@@ -917,14 +1136,46 @@ function Enable-SlnDeploy([string]$sln, [string[]]$projects) {
         $out.Add($l)
         if ($l -match '^(\s*)((\{[^}]+\})\..+)\.ActiveCfg = (.+)$' -and $guids[$Matches[3]] -and -not $have[$Matches[2]]) {
             $out.Add("$($Matches[1])$($Matches[2]).Deploy.0 = $($Matches[4])")
+            $pp = $guids[$Matches[3]]
+            if (-not $added.ContainsKey($pp)) { $added[$pp] = @() }
+            $added[$pp] += $Matches[2]
         }
     }
-    if ($out.Count -ne $lines.Count) { [IO.File]::WriteAllLines($sln, $out, (New-Object Text.UTF8Encoding $true)) }
+    if ($added.Count) { Write-Like $sln ($out -join $nl) $orig $true }
+    $added
+}
+# Unticks what Enable-SlnDeploy added for one project.
+function Disable-SlnDeploy([string]$sln, [string]$proj, [string[]]$keys) {
+    if (-not (Test-Path -LiteralPath $sln)) { return }
+    $dir = Split-Path -Parent $sln
+    $orig = Read-Bytes $sln
+    if ($sln -like '*.slnx') {
+        $x = Load-Xml $sln; $changed = $false
+        foreach ($n in $x.SelectNodes('//Project')) {
+            if ([IO.Path]::GetFullPath((Join-Path $dir $n.GetAttribute('Path'))) -ne $proj) { continue }
+            foreach ($d in @($n.SelectNodes('Deploy'))) { if (-not $d.HasAttributes -and -not $d.HasChildNodes) { Xml-RemoveChild $d; $changed = $true } }
+        }
+        if ($changed) { Write-Like $sln (Xml-Text $x $orig) $orig $false }
+        return
+    }
+    $text = [IO.File]::ReadAllText($sln)
+    $lines = $text -split "`r?`n"
+    $out = @($lines | Where-Object { -not ($_ -match '^\s*(\{[^}]+\}\..+)\.Deploy\.0 = ' -and $keys -contains $Matches[1]) })
+    if ($out.Count -ne $lines.Count) { Write-Like $sln ($out -join (Text-Newline $text)) $orig $true }
+}
+# The C:\deploy\APP junction deploy -LinkLocal made on this PC (never a real folder).
+function Remove-LocalLink([string]$path) {
+    $item = Get-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue
+    if (-not $item -or $item.LinkType -ne 'Junction') { return }
+    [IO.Directory]::Delete($path)
+    $parent = Split-Path -Parent $path
+    if (-not (Get-ChildItem -LiteralPath $parent -Force -ErrorAction SilentlyContinue)) { Remove-Item -LiteralPath $parent -Force -ErrorAction SilentlyContinue }
+    Note "removed the junction $path on this PC"
 }
 
 function Cmd-VsSetup([string]$name, [object[]]$argv) {
-    $o = Parse-Args $argv @('remove') @()
-    if ($o.Pos.Count -ne 1) { Die 'usage: winvm.ps1 [-Name NAME] vs setup SOLUTION.sln|SOLUTION.slnx|PROJECT.csproj|FOLDER [-Remove]' }
+    $o = Parse-Args $argv @('remove') @('project')
+    if ($o.Pos.Count -ne 1) { Die 'usage: winvm.ps1 [-Name NAME] vs setup SOLUTION.sln|SOLUTION.slnx|PROJECT.csproj|FOLDER [-Project NAME[,NAME...]] [-Remove]' }
     $path = $o.Pos[0]
     if (Test-Path -LiteralPath $path -PathType Container) {
         $c = @(Get-ChildItem -LiteralPath $path -File | Where-Object { $_.Extension -in '.sln', '.slnx' })
@@ -933,33 +1184,89 @@ function Cmd-VsSetup([string]$name, [object[]]$argv) {
     }
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { Die "no file '$path'" }
     $path = (Resolve-Path -LiteralPath $path).Path
+    $isSln = $path -match '\.slnx?$'
     $vm = Need-Vm $name; $p = Vm-Ports $vm
     $addr = "127.0.0.1:$($p.VsDebug)"
     $profName = "winvm $name"
     $remove = [bool]$o['remove']
-    $msixUwp = @(); $uwp = @(); $apps = 0; $dotnet = $false; $uwpAddr = $null
-    foreach ($proj in @(Solution-Projects $path)) {
+    $only = @(if ($o['project']) { $o['project'] -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ } })
+    $projects = @(Solution-Projects $path)
+    foreach ($n in $only) {
+        if (-not ($projects | Where-Object { [IO.Path]::GetFileNameWithoutExtension($_) -eq $n })) { Die "no project '$n' in $(Split-Path -Leaf $path)" }
+    }
+
+    if ($remove) {
+        # Every project of the solution, whatever it is now: what vs setup added
+        # once is taken out (nothing else), even if the project changed since.
+        foreach ($proj in $projects) {
+            $pn = [IO.Path]::GetFileNameWithoutExtension($proj)
+            if (-not (Test-Path -LiteralPath $proj)) { continue }
+            if ($only -and $only -notcontains $pn) { continue }
+            $rec = Get-WinvmUserProps $proj
+            $did = @()
+            if ($rec['WinvmSlnDeployFile'] -and $rec['WinvmSlnDeploy']) {
+                Disable-SlnDeploy $rec['WinvmSlnDeployFile'] $proj @($rec['WinvmSlnDeploy'] -split ';'); $did += "'Deploy' unticked in $(Split-Path -Leaf $rec['WinvmSlnDeployFile'])"
+            }
+            $lp = Launch-Problem $proj
+            if ($lp) { Write-Host "winvm: note: ${pn}: $lp; profile '$profName' not removed from it" }
+            else {
+                $before = Read-Bytes (Launch-File $proj)
+                [void](Set-LaunchProfile $proj $profName $null $rec)
+                $after = Read-Bytes (Launch-File $proj)
+                if ("$before" -ne "$after") { $did += "launch profile '$profName'" }
+            }
+            $ub = Read-Bytes "$proj.user"
+            Set-UserFile $proj @() @() $true
+            if ("$ub" -ne "$(Read-Bytes "$proj.user")") { $did += "$pn$([IO.Path]::GetExtension($proj)).user entries" }
+            Remove-LocalLink "C:\deploy\$pn"
+            if ($did) { Info "${pn}: removed $($did -join ', ')" }
+        }
+        Info 'done (the VM stays as it is: winvm.ps1 reset returns it to its sealed state)'
+        return
+    }
+
+    # Plan first, so a file that can't be edited stops nothing halfway
+    $plans = @(); $uwp = @(); $dotnet = $false; $uwpAddr = $null
+    foreach ($proj in $projects) {
         $pn = [IO.Path]::GetFileNameWithoutExtension($proj)
         if (-not (Test-Path -LiteralPath $proj)) { Note "skipped $pn (file missing: $proj)"; continue }
+        if ($only -and $only -notcontains $pn) { continue }
         $kind = Project-Kind $proj
-        if (-not $kind) { Note "skipped $pn (no app: library, tests, ...)"; continue }
-        $apps++
-        if ($kind -eq 'dotnet') {
+        if ($kind -eq 'console') {
+            if ($only -contains $pn) { $kind = 'dotnet' }
+            else { Note "skipped $pn (no window: console app, web app, service, ...; include it with -Project $pn)"; continue }
+        }
+        if (-not $kind) { Note "skipped $pn (no app for Windows: library, tests, ...)"; continue }
+        if ($kind -ne 'uwp') {
+            $lp = Launch-Problem $proj
+            if ($lp) { Write-Host "winvm: note: skipped ${pn}: $lp"; continue }
+        }
+        $plans += @{ Proj = $proj; Pn = $pn; Kind = $kind; Groups = @(); Imports = @(); Prev = (Get-WinvmUserProps $proj)
+                     Maui = $(if ((Project-Prop (Get-Content -Raw -LiteralPath $proj) 'UseMaui') -eq 'true') { 'MAUI ' } else { '' }) }
+    }
+    if (-not $plans) { Die "no app projects to set up in $(Split-Path -Leaf $path)" }
+
+    foreach ($pl in $plans) {
+        $proj = $pl.Proj; $pn = $pl.Pn
+        $rec = @{ WinvmLaunchFileCreated = $pl.Prev['WinvmLaunchFileCreated']; WinvmLaunchProfilesCreated = $pl.Prev['WinvmLaunchProfilesCreated'] }
+        if ($pl.Kind -eq 'dotnet') {
             $dotnet = $true
             $asm = Project-Prop (Get-Content -Raw -LiteralPath $proj) 'AssemblyName'
             if (-not $asm -or $asm -match '\$') { $asm = $pn }
-            Set-UserFile $proj @(@{ Condition = ''; Props = [ordered]@{ WinvmDeploy = 'true'; WinvmVm = $name; WinvmApp = $pn } }) @([IO.Path]::Combine($Root, 'vs', 'Winvm.targets')) $remove
-            Set-LaunchProfile $proj $profName $(if (-not $remove) { [ordered]@{
+            # WinvmProfile: Winvm.targets copies only when this profile is the
+            # active one, so builds for "this PC" don't touch the VM.
+            $pl.Groups = @(@{ Condition = ''; Props = [ordered]@{ WinvmDeploy = 'true'; WinvmVm = $name; WinvmApp = $pn; WinvmProfile = $profName } })
+            $pl.Imports = @([IO.Path]::Combine($Root, 'vs', 'Winvm.targets'))
+            $made = Set-LaunchProfile $proj $profName ([ordered]@{
                 commandName = 'Executable'; executablePath = "C:\deploy\$pn\$asm.exe"; workingDirectory = "C:\deploy\$pn"
-                remoteDebugEnabled = $true; remoteDebugMachine = $addr; authenticationMode = 'None' } })
-            Info "${pn}: .NET app$(if (-not $remove) { ", copied to ${name}:C:\deploy\$pn after every build in Visual Studio; launch profile '$profName'" } else { ': removed' })"
-        } elseif ($kind -eq 'msix') {
-            Set-LaunchProfile $proj $profName $(if (-not $remove) { [ordered]@{
-                commandName = 'MsixPackage'; remoteDebugEnabled = $true; remoteDebugMachine = $addr; authenticationMode = 'None' } })
-            $msixUwp += $proj
-            Info "${pn}: packaged app (MSIX)$(if (-not $remove) { ", launch profile '$profName'" } else { ': removed' })"
+                remoteDebugEnabled = $true; remoteDebugMachine = $addr; authenticationMode = 'None' }) $rec
+            Info "${pn}: $($pl.Maui).NET app, launch profile '$profName': with it, each build copies it to ${name}:C:\deploy\$pn"
+        } elseif ($pl.Kind -eq 'msix') {
+            $made = Set-LaunchProfile $proj $profName ([ordered]@{
+                commandName = 'MsixPackage'; remoteDebugEnabled = $true; remoteDebugMachine = $addr; authenticationMode = 'None' }) $rec
+            Info "${pn}: $($pl.Maui)packaged app (MSIX), launch profile '$profName'"
         } else {
-            $msixUwp += $proj; $uwp += $pn
+            $uwp += $pn; $made = $null
             # What the Debug page writes for "Remote Machine" (read back through DTE).
             # Authentication None, not Universal: Visual Studio 2026 does Universal over
             # SSH (port 22) instead of the remote debugger, and fails here. The address is
@@ -968,25 +1275,56 @@ function Cmd-VsSetup([string]$name, [object[]]$argv) {
             if ($null -eq $uwpAddr) { $ip = HostOnly-Ip $vm; $uwpAddr = if ($ip) { "${ip}:4026" } else { '' } }
             $cfgs = @(Project-Configs $proj); if (-not $cfgs) { $cfgs = @('') }
             $props = [ordered]@{ RemoteDebugEnabled = 'true'; RemoteDebugMachine = $(if ($uwpAddr) { $uwpAddr } else { $addr }); AuthenticationMode = 'None' }
-            $groups = foreach ($c in $cfgs) { @{ Condition = $(if ($c) { "'`$(Configuration)|`$(Platform)' == '$c'" } else { '' }); Props = $props } }
-            Set-UserFile $proj @($groups) @() $remove
-            Info "${pn}: UWP$(if (-not $remove) { ", remote machine $($props.RemoteDebugMachine) in $pn.csproj.user ($($cfgs -join ', '))" } else { ': removed' })"
+            $pl.Groups = @(foreach ($c in $cfgs) { @{ Condition = $(if ($c) { "'`$(Configuration)|`$(Platform)' == '$c'" } else { '' }); Props = $props } })
+            Info "${pn}: UWP, remote machine $($props.RemoteDebugMachine) in $pn.csproj.user ($($cfgs -join ', '))"
         }
+        $pl.Made = $made
     }
-    if (-not $apps) { Die "no app projects in $path" }
-    if ($remove) { Info "removed; 'Deploy' in the solution and the VM stay as they are"; return }
-    if ($msixUwp) {
-        if ($path -match '\.slnx?$') { Enable-SlnDeploy $path $msixUwp; Note "Deploy ticked in $(Split-Path -Leaf $path) for the packaged/UWP projects" }
-        else { Write-Host "winvm: note: open it through a solution with 'Deploy' ticked (Build > Configuration Manager), not the bare project" }
+    $packaged = @($plans | Where-Object { $_.Kind -ne 'dotnet' })
+
+    # Deploy ticks: the ones added now plus the ones an earlier run added (recorded
+    # in PROJECT.user), so -Remove can take out exactly those and no others.
+    $added = @{}
+    if ($packaged -and $isSln) {
+        $added = Enable-SlnDeploy $path @($packaged | ForEach-Object { $_.Proj })
+        Note "Deploy ticked in $(Split-Path -Leaf $path) for the packaged/UWP projects"
+    } elseif ($packaged) {
+        Write-Host "winvm: note: open it through a solution with 'Deploy' ticked (Build > Configuration Manager), not the bare project"
     }
+    foreach ($pl in $plans) {
+        $rec = $pl.Prev
+        $props = [ordered]@{}
+        if ($pl.Made -and $pl.Made.File) { $props.WinvmLaunchFileCreated = 'true' }
+        if ($pl.Made -and $pl.Made.Profiles) { $props.WinvmLaunchProfilesCreated = 'true' }
+        if ($pl.Kind -ne 'dotnet') {
+            $keys = @()
+            if ($rec['WinvmSlnDeployFile'] -and $rec['WinvmSlnDeployFile'] -ne $path) {
+                $keys = @($rec['WinvmSlnDeploy'] -split ';'); $file = $rec['WinvmSlnDeployFile']   # another solution: keep its record
+            } else {
+                if ($rec['WinvmSlnDeploy']) { $keys = @($rec['WinvmSlnDeploy'] -split ';') }
+                if ($added.ContainsKey($pl.Proj)) { $keys += $added[$pl.Proj] }
+                $file = $path
+            }
+            $keys = @($keys | Where-Object { $_ } | Sort-Object -Unique)
+            if ($keys) { $props.WinvmSlnDeployFile = $file; $props.WinvmSlnDeploy = ($keys -join ';') }
+        }
+        if ($props.Count) {
+            if ($pl.Groups -and -not $pl.Groups[0].Condition) { foreach ($kv in $props.GetEnumerator()) { $pl.Groups[0].Props[$kv.Key] = $kv.Value } }
+            else { $pl.Groups = @(@{ Condition = ''; Props = $props }) + @($pl.Groups) }
+        }
+        Set-UserFile $pl.Proj $pl.Groups $pl.Imports $false
+        # Packaged now, copied before (e.g. WindowsPackageType changed): the junction isn't needed any more
+        if ($pl.Kind -ne 'dotnet') { Remove-LocalLink "C:\deploy\$($pl.Pn)" }
+    }
+
     $nameOpt = if ($name -ne 'default') { "-Name $name " } else { '' }
     Write-Host ''
     Info 'next'
     if ((Get-Extra $vm 'recipe') -notmatch 'vs-deploy') { Note "set the VM up once:  .\winvm.ps1 ${nameOpt}apply vs-deploy -Seal" }
     Note "open $(Split-Path -Leaf $path) in Visual Studio 2026 (reopen it if it was open), choose '$profName'"
-    Note 'next to the start button and press F5.'
+    Note 'next to the start button and press F5. Other profiles run on this PC as before.'
     if ($dotnet) { Note '.NET apps: a stopped VM is started by the build.' }
-    if ($msixUwp) { Note "packaged/UWP apps: start the VM first (.\winvm.ps1 ${nameOpt}start)" }
+    if ($packaged) { Note "packaged/UWP apps: start the VM first (.\winvm.ps1 ${nameOpt}start)" }
     if ($uwp -and $uwpAddr) { Note "UWP ($($uwp -join ', ')): the start button says 'Remote Machine' ($uwpAddr, authentication None)" }
     if ($uwp -and -not $uwpAddr) {
         Write-Host "winvm: note: classic UWP needs the VM's host-only address (Visual Studio hangs deploying UWP to 127.0.0.1:PORT), and '$name' has none now:"
@@ -1109,18 +1447,22 @@ after every build of a project with <WinvmDeploy>true</WinvmDeploy>.
 '@ }
         'vs' { @'
 winvm.ps1 [-Name NAME] vs [APP]
-winvm.ps1 [-Name NAME] vs setup SOLUTION.sln|SOLUTION.slnx|PROJECT.csproj|FOLDER [-Remove]
+winvm.ps1 [-Name NAME] vs setup SOLUTION.sln|SOLUTION.slnx|PROJECT.csproj|FOLDER [-Project NAME,...] [-Remove]
 
 Checks that the VM is ready for Visual Studio 2026 (Developer Mode, remote
 debugger running; starts it if needed) and prints the settings for deploying
 UWP, WinUI 3/MSIX and .NET apps with F5, filled in for this VM and APP.
 Set a VM up with the recipe vs-deploy: winvm.ps1 apply vs-deploy -Seal
 
-vs setup configures every app project of a solution for F5 into this VM:
-.NET exes get a copy step in PROJECT.csproj.user and a launch profile
-"winvm NAME"; packaged (MSIX) apps the launch profile and "Deploy" in the
-solution; classic UWP "Deploy" (then choose Remote Machine once). Libraries
-and tests are left alone. Safe to run again; -Remove takes it out again.
+vs setup configures the app projects of a solution for F5 into this VM:
+Windows GUI exes (WPF, WinForms, unpackaged WinUI 3/MAUI) get a launch profile
+"winvm NAME" and, in PROJECT.csproj.user, a copy step that runs only while
+that profile is selected; packaged apps (WinUI 3, MAUI, UWP) the profile and
+"Deploy" in the solution; classic UWP the remote machine in PROJECT.csproj.user.
+Console/web apps and services only with -Project NAME (that also limits it to
+the named projects); libraries and tests are left alone. Other profiles and
+the rest of every file stay as they are. Safe to run again; -Remove takes out
+exactly what it added.
 '@ }
         'snapshot' { @'
 winvm.ps1 [-Name NAME] snapshot save|load|delete|list [SNAPSHOT]
