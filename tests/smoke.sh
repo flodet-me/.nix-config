@@ -101,6 +101,53 @@ check "service list sshd" bash -c "'$WINVM' -n $VM service list sshd 2>/dev/null
 check "ports shows :22" bash -c "'$WINVM' -n $VM ports 2>/dev/null | grep -qw 22"
 check "screenshot" bash -c "'$WINVM' -n $VM screenshot >'$LOG.shot' 2>&1"
 
+# --- deploy and IDE setup ----------------------------------------------------
+step "deploy and IDE setup"
+expect "ssh: quotes arrive as typed" "$(gssh "Write-Host \"a 'b' c\"")" "a 'b' c"
+if ! command -v dotnet >/dev/null; then
+    ok "skipped: no dotnet on PATH (a .NET SDK builds the test app)"
+else
+    app="$(dirname "$LOG")/SmokeApp"
+    mkdir -p "$app"
+    cat >"$app/SmokeApp.csproj" <<'EOF'
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net8.0</TargetFramework></PropertyGroup>
+</Project>
+EOF
+    cat >"$app/Program.cs" <<'EOF'
+System.IO.File.WriteAllText(@"C:\Windows\Temp\smoke-app.txt",
+    $"args={string.Join(",", args)} debugger={System.Diagnostics.Debugger.IsAttached}");
+EOF
+    out="$app/bin/Debug/net8.0/win-x64"
+    if dotnet build "$app/SmokeApp.csproj" -r win-x64 --self-contained true -p:EnableWindowsTargeting=true >"$LOG.out" 2>&1; then
+        ok "test app built (self-contained: the base image has no .NET runtime)"
+        marker() { gssh 'Get-Content C:\Windows\Temp\smoke-app.txt -ErrorAction SilentlyContinue'; }
+        gssh 'Remove-Item C:\Windows\Temp\smoke-app.txt -ErrorAction SilentlyContinue' >/dev/null
+        check "deploy --run with arguments" w deploy "$out" --as SmokeApp --run --args "x y"
+        timeout 5 tail -f /dev/null
+        expect "app ran on the desktop with its arguments" "$(marker)" "args=x,y debugger=False"
+        gssh 'Remove-Item C:\Windows\Temp\smoke-app.txt -ErrorAction SilentlyContinue' >/dev/null
+        check "deploy --run --wait" w deploy "$out" --as SmokeApp --run --wait
+        timeout 5 tail -f /dev/null
+        expect "--wait: running, but waiting before Main" "$(gssh 'if (Get-Process SmokeApp -ErrorAction SilentlyContinue) { if (Test-Path C:\Windows\Temp\smoke-app.txt) { "ran" } else { "waiting" } } else { "gone" }')" waiting
+        check "redeploy stops the waiting app" w deploy "$out" --as SmokeApp
+        expect "no SmokeApp left running" "$(gssh '@(Get-Process SmokeApp -ErrorAction SilentlyContinue).Count')" 0
+        printf 'Microsoft Visual Studio Solution File, Format Version 12.00\nProject("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "SmokeApp", "SmokeApp\\SmokeApp.csproj", "{11111111-2222-3333-4444-555555555555}"\nEndProject\n' >"$(dirname "$app")/Smoke.sln"
+        if command -v pwsh >/dev/null; then
+            check "vscode setup" w vscode setup "$(dirname "$app")/Smoke.sln"
+            check "launch.json has the configurations" grep -q '"winvm smoke-test: SmokeApp on the VM desktop"' "$(dirname "$app")/.vscode/launch.json"
+            check "vscode setup --remove deletes what it created" bash -c "'$WINVM' -n $VM vscode setup '$(dirname "$app")/Smoke.sln' --remove >/dev/null 2>&1 && [[ ! -e '$(dirname "$app")/.vscode' ]]"
+            check "rider setup" w rider setup "$(dirname "$app")/Smoke.sln"
+            expect "rider setup: 4 run configurations" "$(find "$(dirname "$app")/.run" -name '*.run.xml' | wc -l)" 4
+            check "rider setup --remove deletes them" bash -c "'$WINVM' -n $VM rider setup '$(dirname "$app")/Smoke.sln' --remove >/dev/null 2>&1 && [[ ! -e '$(dirname "$app")/.run' ]]"
+        else
+            ok "skipped vscode/rider setup: no pwsh (nix develop)"
+        fi
+    else
+        fail "test app built (dotnet build -r win-x64)"; tail -n 15 "$LOG.out" | sed 's/^/         | /'
+    fi
+fi
+
 # --- snapshots ---------------------------------------------------------------
 step "snapshots (live, with RAM)"
 check "snapshot save" w snapshot save smoke1

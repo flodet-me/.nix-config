@@ -22,6 +22,8 @@ $SshKey = Join-Path $State 'id_ed25519'
 $Prefix = 'winvm-'                  # VirtualBox names: winvm-NAME (VMs), winvm-base-IMAGE (images)
 $BuildSlot = 99                     # port offset while an image is being built
 $HostOnlyAuto = $null               # HostOnly-Adapter: cached adapter name
+. (Join-Path $Repo 'lib\ide\vscode.ps1')   # vscode setup (shared with the Linux host)
+. (Join-Path $Repo 'lib\ide\rider.ps1')    # rider setup (shared with the Linux host)
 
 # Errors are thrown (so cleanup in catch/finally runs) and printed once in main.
 function Die([string]$msg) { throw "WINVM: $msg" }
@@ -195,14 +197,32 @@ function Ssh-Opts([string]$vm) {
 
 # The guest command line that runs PowerShell code. Base64 survives every
 # quoting layer (Windows PowerShell 5.1 drops inner double quotes when it calls
-# ssh.exe; Windows' sshd and the guest's login shell parse it again).
-# Write-Host and warnings go to stdout as text: otherwise powershell.exe sends
-# them as CLIXML on stderr, and the guest's PowerShell login shell prints them
-# a second time.
+# ssh.exe; Windows' sshd and the guest's login shell, cmd.exe or PowerShell,
+# parse it again), so the command line has no quotes at all.
+# Write-Host and warnings go to stdout as text; what powershell.exe still sends
+# as CLIXML on stderr (errors, progress) is turned back into text by
+# Convert-GuestOutput.
 function Guest-PsCommand([string]$code) {
     $full = "& { $code } 3>&1 6>&1 | ForEach-Object { if (`$_ -is [System.Management.Automation.WarningRecord]) { `"WARNING: `$(`$_.Message)`" } elseif (`$_ -is [System.Management.Automation.InformationRecord]) { `"`$_`" } else { `$_ } }"
     $enc = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($full))
     "powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand $enc"
+}
+
+# Output lines of a guest powershell -EncodedCommand: CLIXML (a "#< CLIXML" line,
+# then <Objs ...>) becomes its error and warning text; progress records go.
+function Convert-GuestOutput {
+    process {
+        $l = "$_"
+        if ($l -eq '#< CLIXML') { return }
+        if ($l.StartsWith('<Objs ')) {
+            $t = ([regex]::Matches($l, '<S S="(?:Error|Warning|Information)">(.*?)</S>') | ForEach-Object { $_.Groups[1].Value }) -join ''
+            if (-not $t) { return }
+            $t = [regex]::Replace($t, '_x([0-9A-Fa-f]{4})_', { param($m) [string][char][Convert]::ToInt32($m.Groups[1].Value, 16) })
+            $t = [System.Net.WebUtility]::HtmlDecode($t) -replace "`r", ''
+            return ($t -split "`n" | Where-Object { $_.Trim() })
+        }
+        $l
+    }
 }
 
 # Runs PowerShell in the guest. Shows its output and returns the exit code;
@@ -215,7 +235,7 @@ function Guest-Ps([string]$vm, [int]$port, [string]$script, [switch]$Quiet, [swi
     try {
         if ($Capture) { return @(& $SshExe @sshArgs 2>$null | ForEach-Object { "$_" }) }
         if ($Quiet) { & $SshExe @sshArgs 2>&1 | Out-Null }
-        else { & $SshExe @sshArgs 2>&1 | ForEach-Object { Write-Host "$_" } }
+        else { & $SshExe @sshArgs 2>&1 | Convert-GuestOutput | ForEach-Object { Write-Host "$_" } }
         return $LASTEXITCODE
     } finally { $ErrorActionPreference = $eap }
 }
@@ -647,10 +667,17 @@ function Cmd-Ssh([string]$name, [object[]]$argv) {
     Need-Ssh
     $vm = Need-Vm $name; $p = Vm-Ports $vm
     $opts = Ssh-Opts $vm
-    # A command is sent encoded, so its quotes arrive as typed.
-    $cmd = @(); if ($argv.Count) { $cmd = @(Guest-PsCommand (($argv | ForEach-Object { "$_" }) -join ' ')) }
-    & $SshExe @opts -p $p.Ssh "$($Config.User)@127.0.0.1" @cmd
-    exit $LASTEXITCODE
+    # A command is sent encoded, so its quotes arrive as typed. PowerShell
+    # explicitly: the guest's login shell may be cmd.exe (vs-deploy recipe, for Rider).
+    if (-not $argv.Count) {
+        & $SshExe @opts -t -p $p.Ssh "$($Config.User)@127.0.0.1" 'powershell -NoLogo'
+        exit $LASTEXITCODE
+    }
+    $cmd = Guest-PsCommand ("`$ProgressPreference='SilentlyContinue'; " + (($argv | ForEach-Object { "$_" }) -join ' '))
+    $eap = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
+    & $SshExe @opts -p $p.Ssh "$($Config.User)@127.0.0.1" $cmd 2>&1 | Convert-GuestOutput | ForEach-Object { Write-Host "$_" }
+    $code = $LASTEXITCODE; $ErrorActionPreference = $eap
+    exit $code
 }
 
 function Cmd-Scp([string]$name, [object[]]$argv) {
@@ -731,8 +758,10 @@ function Set-LocalLink([string]$path, [string]$target) {
 }
 
 function Cmd-Deploy([string]$name, [object[]]$argv) {
-    $o = Parse-Args $argv @('install', 'linklocal') @('as')
-    if ($o.Pos.Count -ne 1) { Die 'usage: winvm.ps1 [-Name NAME] deploy FOLDER [-As APP] [-Install] [-LinkLocal]' }
+    $o = Parse-Args $argv @('install', 'linklocal', 'run', 'service', 'wait', 'vsdbg') @('as', 'exe', 'args')
+    if ($o.Pos.Count -ne 1) { Die 'usage: winvm.ps1 [-Name NAME] deploy FOLDER [-As APP] [-Run | -Service] [-Wait] [-Exe NAME.exe] [-Args "..."] [-Install] [-LinkLocal]' }
+    if ($o['run'] -and $o['service']) { Die '-Run or -Service, not both' }
+    if ($o['wait'] -and -not ($o['run'] -or $o['service'])) { Die '-Wait needs -Run or -Service' }
     if (-not (Test-Path -LiteralPath $o.Pos[0] -PathType Container)) { Die "no folder '$($o.Pos[0])'" }
     $src = (Resolve-Path -LiteralPath $o.Pos[0]).Path.TrimEnd('\')
     $app = if ($o['as']) { $o['as'] } else { Split-Path -Leaf $src }
@@ -758,41 +787,17 @@ function Cmd-Deploy([string]$name, [object[]]$argv) {
         & $tar -cf $tmp -C $src . 2>&1 | ForEach-Object { Write-Host "$_" }
         $code = $LASTEXITCODE; $ErrorActionPreference = $eap
         if ($code -ne 0) { Die "tar could not pack $src" }
-        Copy-ToGuest $vm $p.Ssh @($tmp) "C:/winvm/deploy-$app.tar"
+        Copy-ToGuest $vm $p.Ssh @($tmp, (Join-Path $Repo 'lib\guest\deploy.ps1')) 'C:/winvm/'
     } finally { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue }
-
-    $dest = "C:\deploy\$app"
-    $install = if ($o['install']) { @"
-`$pkg = Get-ChildItem `$dest -Recurse -Include *.msixbundle, *.msix, *.appxbundle, *.appx |
-    Where-Object { `$_.DirectoryName -notmatch '\\Dependencies(\\|$)' } | Select-Object -First 1
-if (-not `$pkg) { throw 'no .msix/.appx package in the folder' }
-Get-ChildItem `$pkg.DirectoryName -Filter *.cer | ForEach-Object {
-    Import-Certificate -FilePath `$_.FullName -CertStoreLocation Cert:\LocalMachine\TrustedPeople | Out-Null
-    Write-Host "trusted certificate `$(`$_.Name)"
-}
-`$deps = @(Get-ChildItem (Join-Path `$pkg.DirectoryName 'Dependencies') -Recurse -Include *.msix, *.appx -ErrorAction SilentlyContinue |
-    Where-Object { `$_.Directory.Name -in 'x64', 'neutral' } | ForEach-Object FullName)
-`$a = @{ Path = `$pkg.FullName; ForceApplicationShutdown = `$true; ForceUpdateFromAnyVersion = `$true }
-if (`$deps) { `$a.DependencyPath = `$deps }
-Add-AppxPackage @a
-Write-Host "installed `$(`$pkg.Name)"
-"@ } else { '' }
-    $code = Guest-Ps $vm $p.Ssh @"
-`$dest = '$dest'
-`$running = @(Get-CimInstance Win32_Process | Where-Object { `$_.ExecutablePath -and `$_.ExecutablePath.StartsWith("`$dest\", [StringComparison]::OrdinalIgnoreCase) })
-foreach (`$r in `$running) { Stop-Process -Id `$r.ProcessId -Force -ErrorAction SilentlyContinue; Write-Host "stopped `$(`$r.Name) (`$(`$r.ProcessId))" }
-for (`$i = 1; Test-Path `$dest; `$i++) {   # files of a just stopped program can stay locked briefly
-    try { Remove-Item -Recurse -Force `$dest } catch { if (`$i -ge 10) { throw }; Start-Sleep 1 }
-}
-New-Item -ItemType Directory -Force `$dest | Out-Null
-tar.exe -xf 'C:\winvm\deploy-$app.tar' -C `$dest
-if (`$LASTEXITCODE -ne 0) { throw "tar -x exit code `$LASTEXITCODE" }
-Remove-Item 'C:\winvm\deploy-$app.tar' -Force
-$install
-"@
+    $g = "& C:\winvm\deploy.ps1 -App '$app' -Tar 'C:\winvm\$(Split-Path -Leaf $tmp)'"
+    if ($o['vsdbg']) { $g = (Vsdbg-SyncCode $vm $p.Ssh) + $g }   # VS Code tasks: C:\vsdbg matching the C# extension first
+    if ($o['exe']) { $g += " -Exe '$($o['exe'] -replace "'", "''")'" }
+    if ($o['args']) { $g += " -ArgsB64 '$([Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($o['args'])))'" }
+    foreach ($f in 'run', 'service', 'install', 'wait') { if ($o[$f]) { $g += " -$f" } }
+    $code = Guest-Ps $vm $p.Ssh $g
     if ($code -ne 0) { Die "deploying into '$name' failed" }
-    Info "deployed $src -> ${name}:$dest"
-    if ($o['linklocal']) { Set-LocalLink $dest $src }
+    Info "deployed $src -> ${name}:C:\deploy\$app"
+    if ($o['linklocal']) { Set-LocalLink "C:\deploy\$app" $src }
 }
 
 # --- vs setup: a solution's app projects deploy into a VM ----------------------
@@ -822,8 +827,9 @@ function Project-Prop([string]$text, [string]$prop) {
 #           unpackaged WinUI 3 or MAUI): copied in after each build
 #   msix    packaged app with launch profiles (WinUI 3, MAUI, UWP on .NET 9+)
 #   uwp     classic UWP or a packaging project (device list "Remote Machine")
-#   console an Exe without a window (console tool, web app, worker service, ...):
-#           only with -Project NAME
+#   console an Exe without a window (console tool, worker or Windows service):
+#           like dotnet; it runs in a console window in the VM
+#   web     ASP.NET Core / Blazor: only with -Project NAME (needs ports, a browser)
 #   ''      nothing to do (library, tests, no Windows target)
 function Project-Kind([string]$proj) {
     if ($proj -like '*.wapproj') { return 'uwp' }
@@ -837,6 +843,7 @@ function Project-Kind([string]$proj) {
         if ($x -notmatch 'net\d+\.\d+-windows') { return '' }
         if ((Project-Prop $x 'WindowsPackageType') -eq 'None') { return 'dotnet' } else { return 'msix' }
     }
+    if ($x -match 'Sdk="Microsoft\.NET\.Sdk\.(Web|Razor|BlazorWebAssembly)') { return 'web' }
     $out = Project-Prop $x 'OutputType'
     if ($out -notin 'WinExe', 'Exe') { return '' }
     $manifest = (Project-Prop $x 'EnableMsixTooling') -eq 'true' -or (Test-Path (Join-Path (Split-Path $proj) 'Package.appxmanifest'))
@@ -1232,9 +1239,11 @@ function Cmd-VsSetup([string]$name, [object[]]$argv) {
         if (-not (Test-Path -LiteralPath $proj)) { Note "skipped $pn (file missing: $proj)"; continue }
         if ($only -and $only -notcontains $pn) { continue }
         $kind = Project-Kind $proj
-        if ($kind -eq 'console') {
-            if ($only -contains $pn) { $kind = 'dotnet' }
-            else { Note "skipped $pn (no window: console app, web app, service, ...; include it with -Project $pn)"; continue }
+        $what = if ($kind -eq 'console') { 'console ' } else { '' }   # console apps, worker and Windows services
+        if ($kind -eq 'console') { $kind = 'dotnet' }
+        if ($kind -eq 'web') {
+            if ($only -contains $pn) { $kind = 'dotnet'; $what = 'web ' }
+            else { Note "skipped $pn (web app: include it with -Project $pn)"; continue }
         }
         if (-not $kind) { Note "skipped $pn (no app for Windows: library, tests, ...)"; continue }
         if ($kind -ne 'uwp') {
@@ -1242,7 +1251,7 @@ function Cmd-VsSetup([string]$name, [object[]]$argv) {
             if ($lp) { Write-Host "winvm: note: skipped ${pn}: $lp"; continue }
         }
         $plans += @{ Proj = $proj; Pn = $pn; Kind = $kind; Groups = @(); Imports = @(); Prev = (Get-WinvmUserProps $proj)
-                     Maui = $(if ((Project-Prop (Get-Content -Raw -LiteralPath $proj) 'UseMaui') -eq 'true') { 'MAUI ' } else { '' }) }
+                     What = $what; Maui = $(if ((Project-Prop (Get-Content -Raw -LiteralPath $proj) 'UseMaui') -eq 'true') { 'MAUI ' } else { '' }) }
     }
     if (-not $plans) { Die "no app projects to set up in $(Split-Path -Leaf $path)" }
 
@@ -1260,7 +1269,7 @@ function Cmd-VsSetup([string]$name, [object[]]$argv) {
             $made = Set-LaunchProfile $proj $profName ([ordered]@{
                 commandName = 'Executable'; executablePath = "C:\deploy\$pn\$asm.exe"; workingDirectory = "C:\deploy\$pn"
                 remoteDebugEnabled = $true; remoteDebugMachine = $addr; authenticationMode = 'None' }) $rec
-            Info "${pn}: $($pl.Maui).NET app, launch profile '$profName': with it, each build copies it to ${name}:C:\deploy\$pn"
+            Info "${pn}: $($pl.Maui).NET $($pl.What)app, launch profile '$profName': with it, each build copies it to ${name}:C:\deploy\$pn"
         } elseif ($pl.Kind -eq 'msix') {
             $made = Set-LaunchProfile $proj $profName ([ordered]@{
                 commandName = 'MsixPackage'; remoteDebugEnabled = $true; remoteDebugMachine = $addr; authenticationMode = 'None' }) $rec
@@ -1332,6 +1341,112 @@ function Cmd-VsSetup([string]$name, [object[]]$argv) {
         else { Note "VirtualBox has no host-only adapter: VirtualBox Manager > Tools > Network > Host-only Networks > Create (or `$Config.HostOnlyAdapter), stop/start the VM, run vs setup again" }
     }
     Note "watch it: .\winvm.ps1 ${nameOpt}rdp    undo: .\winvm.ps1 ${nameOpt}vs setup `"$path`" -Remove"
+}
+
+# --- VS Code and Rider: remote debugging over SSH ----------------------------------
+
+# The ssh arguments that reach this VM (as the VM user, with winvm's key).
+function Vm-SshArgs([string]$vm) {
+    $p = Vm-Ports $vm
+    @('-T', '-i', $SshKey, '-p', "$($p.Ssh)", '-o', 'IdentitiesOnly=yes', '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=accept-new',
+      '-o', "UserKnownHostsFile=$(Join-Path $State "known_hosts-$vm")", '-o', 'LogLevel=ERROR', "$($Config.User)@127.0.0.1")
+}
+
+# The Windows debugger build the newest installed VS Code C# extension expects:
+# @{ Url; Sha256 } from its package.json, or $null. WINVM_VSCODE_EXTENSIONS:
+# another extensions folder (default %USERPROFILE%\.vscode\extensions).
+function CSharp-Debugger {
+    $dir = if ($env:WINVM_VSCODE_EXTENSIONS) { $env:WINVM_VSCODE_EXTENSIONS } else { Join-Path $env:USERPROFILE '.vscode\extensions' }
+    $best = Get-ChildItem -LiteralPath $dir -Directory -Filter 'ms-dotnettools.csharp-*' -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -match '^ms-dotnettools\.csharp-(\d+\.\d+\.\d+)' -and (Test-Path (Join-Path $_.FullName 'package.json')) } |
+        Sort-Object { [version]($_.Name -replace '^ms-dotnettools\.csharp-(\d+\.\d+\.\d+).*', '$1') } | Select-Object -Last 1
+    if (-not $best) { return $null }
+    $r = (Get-Content -Raw (Join-Path $best.FullName 'package.json') | ConvertFrom-Json).runtimeDependencies |
+        Where-Object { $_.id -eq 'Debugger' -and $_.platforms -contains 'win32' -and $_.architectures -contains 'x86_64' } | Select-Object -First 1
+    if ($r) { @{ Url = $r.url; Sha256 = $r.integrity } } else { $null }
+}
+
+# Copies lib\guest\vsdbg.ps1 into the VM and returns the guest code that makes
+# C:\vsdbg match the C# extension ('' without one).
+function Vsdbg-SyncCode([string]$vm, [int]$port) {
+    $d = CSharp-Debugger
+    if (-not $d) { Note 'no VS Code C# extension found: C:\vsdbg stays as the recipe installed it'; return '' }
+    Copy-ToGuest $vm $port @(Join-Path $Repo 'lib\guest\vsdbg.ps1') 'C:/winvm/'
+    "& C:\winvm\vsdbg.ps1 -Url '$($d.Url)' -Sha256 '$($d.Sha256)'; "
+}
+
+function Cmd-VsCode([string]$name, [object[]]$argv) {
+    $o = Parse-Args $argv @('remove') @('project')
+    if ($o.Pos.Count -ne 2 -or $o.Pos[0] -ne 'setup') { Die 'usage: winvm.ps1 [-Name NAME] vscode setup SOLUTION.sln|SOLUTION.slnx|FOLDER [-Project NAME,...] [-Remove]' }
+    Need-Ssh
+    $vm = Need-Vm $name
+    $only = @(if ($o['project']) { $o['project'] -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ } })
+    $buildArgs = @("-p:CustomAfterMicrosoftCommonTargets=$(Join-Path $Root 'vs\Winvm.targets')", '-p:WinvmDeploy=true', '-p:WinvmProfile=', '-p:WinvmVsdbg=true')
+    $extra = @{ Run = '-p:WinvmDeployArgs=-Run'; Service = '-p:WinvmDeployArgs=-Service'; RunWait = '-p:WinvmDeployArgs=-Run -Wait'; ServiceWait = '-p:WinvmDeployArgs=-Service -Wait' }
+    Invoke-VsCodeSetup $o.Pos[1] $name ([bool]$o['remove']) $only $SshExe (Vm-SshArgs $vm) $buildArgs $extra
+    if ((Get-Extra $vm 'recipe') -notmatch 'vs-deploy') { Note "the VM needs the recipe vs-deploy: .\winvm.ps1 $(if ($name -ne 'default') { "-Name $name " })apply vs-deploy -Seal" }
+    # vsdbg matching the installed C# extension (again before each debug build)
+    if (-not $o['remove'] -and (Is-Running $vm)) {
+        $p = Vm-Ports $vm
+        $c = Vsdbg-SyncCode $vm $p.Ssh
+        if ($c -and (Guest-Ps $vm $p.Ssh $c) -ne 0) { Write-Warning "could not update vsdbg in '$name' (it is updated again before each debug build)" }
+    }
+}
+
+function Cmd-SshConfig([string]$name) {
+    $vm = Need-Vm $name; $p = Vm-Ports $vm
+    @"
+Host winvm-$name
+    HostName 127.0.0.1
+    Port $($p.Ssh)
+    User $($Config.User)
+    IdentityFile $($SshKey -replace '\\', '/')
+    IdentitiesOnly yes
+    UserKnownHostsFile $((Join-Path $State "known_hosts-$vm") -replace '\\', '/')
+    StrictHostKeyChecking accept-new
+"@
+}
+
+# Rider's remote debugging sends cmd syntax over SSH; VMs set up before the
+# vs-deploy recipe made cmd.exe the login shell still log in to PowerShell.
+function Set-RiderShell([string]$vm) {
+    $p = Vm-Ports $vm
+    $rc = Guest-Ps $vm $p.Ssh "if ((Get-ItemProperty HKLM:\SOFTWARE\OpenSSH).DefaultShell -notmatch 'cmd\.exe`$') { Set-ItemProperty HKLM:\SOFTWARE\OpenSSH -Name DefaultShell -Value `"`$env:SystemRoot\System32\cmd.exe`"; 'SSH login shell of the VM set to cmd.exe (Rider needs it)' }"
+    if ($rc -ne 0) { Write-Warning "could not check the VM's SSH login shell (Rider needs cmd.exe)" }
+}
+
+function Cmd-Rider([string]$name, [object[]]$argv) {
+    if ($argv.Count -and [string]$argv[0] -eq 'setup') {
+        $o = Parse-Args @($argv | Select-Object -Skip 1) @('remove') @('project')
+        if ($o.Pos.Count -ne 1) { Die 'usage: winvm.ps1 [-Name NAME] rider setup SOLUTION.sln|SOLUTION.slnx|FOLDER [-Project NAME,...] [-Remove]' }
+        $vm = Need-Vm $name
+        $only = @(if ($o['project']) { $o['project'] -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ } })
+        $buildArgs = @("-p:CustomAfterMicrosoftCommonTargets=$(Join-Path $Root 'vs\Winvm.targets')", '-p:WinvmDeploy=true', '-p:WinvmProfile=')
+        $extra = @{ Run = '-p:WinvmDeployArgs=-Run'; Service = '-p:WinvmDeployArgs=-Service'; RunWait = '-p:WinvmDeployArgs=-Run -Wait'; ServiceWait = '-p:WinvmDeployArgs=-Service -Wait' }
+        Invoke-RiderSetup $o.Pos[0] $name ([bool]$o['remove']) $only $buildArgs $extra
+        if (-not $o['remove'] -and (Is-Running $vm)) { Set-RiderShell $vm }
+        return
+    }
+    $vm = Need-Vm $name; $p = Vm-Ports $vm
+    $nameOpt = if ($name -ne 'default') { "-Name $name " } else { '' }
+    if (Is-Running $vm) { Set-RiderShell $vm }
+    @"
+Rider: debug a .NET process in VM '$name' over SSH (Run > Attach to Remote Process...)
+
+1. Start the app in the VM (a build output folder, e.g. bin\Debug\net10.0-windows):
+     .\winvm.ps1 ${nameOpt}deploy FOLDER -As APP -Run        on the VM's desktop (GUI or console app)
+     .\winvm.ps1 ${nameOpt}deploy FOLDER -As APP -Service    as Windows service winvm-APP
+   (Rider: Settings > Tools > External Tools, and add it to a run configuration's
+   "Before launch", to have it run after each build.)
+2. Run > Attach to Remote Process... > SSH > Add Connection... (once):
+     Host 127.0.0.1   Port $($p.Ssh)   Username $($Config.User)
+     Authentication type: Key pair   Private key file: $SshKey
+3. In the host list pick "$($Config.User)@127.0.0.1:$($p.Ssh)" (Rider's .NET debugger), not
+   "127.0.0.1@$($p.Ssh)" (that one only lists processes of Linux/macOS hosts).
+   The first time: "Install tools to remote computer" (Rider copies its debugger
+   to %LOCALAPPDATA%\JetBrains\RiderRemoteDebugger in the VM).
+4. Pick APP (services are listed too) > Attach with .NET Debugger.
+"@
 }
 
 # Checks the VM's side (msvsmon, Developer Mode) and prints the settings for
@@ -1436,14 +1551,24 @@ recipe.env and makes the result the state 'reset' returns to.
 Writing recipes: ..\docs\custom-vms.md
 '@ }
         'deploy' { @'
-winvm.ps1 [-Name NAME] deploy FOLDER [-As APP] [-Install]
+winvm.ps1 [-Name NAME] deploy FOLDER [-As APP] [-Run | -Service] [-Wait] [-Exe NAME.exe] [-Args "..."] [-Install] [-LinkLocal]
 
 Copies FOLDER (a build output, e.g. bin\Debug\net8.0-windows) to C:\deploy\APP
-in the running VM, replacing the previous copy; programs running from there are
-stopped first. APP defaults to the folder's name. vs\Winvm.targets runs this
-after every build of a project with <WinvmDeploy>true</WinvmDeploy>.
+in the VM (started if needed), replacing the previous copy; programs running
+from there and the service winvm-APP are stopped first. APP defaults to the
+folder's name. vs\Winvm.targets runs this after every build of a project with
+<WinvmDeploy>true</WinvmDeploy>.
+  -Run       then start APP.exe (-Exe: another program) on the VM's desktop
+  -Service   then register it as the Windows service winvm-APP (manual start,
+             LocalSystem) and start it
+  -Wait      with -Run / -Service: the app waits for a debugger before its own
+             code runs (attach to debug Main and startup; a service waits 25 s
+             at most: Windows gives it 30 s to start)
+  -Args ".." command line for -Run / -Service
   -Install   FOLDER holds an app package (.msix/.appx, e.g. AppPackages\..._Test):
              trusts its .cer and installs it with its dependencies
+  -LinkLocal C:\deploy\APP on this host becomes a link to FOLDER (Visual Studio
+             checks a launch profile's program path locally)
 '@ }
         'vs' { @'
 winvm.ps1 [-Name NAME] vs [APP]
@@ -1499,7 +1624,16 @@ Manage what runs in the VM
 Visual Studio (set a VM up first: apply vs-deploy -Seal, or new NAME -Recipe vs-deploy)
   vs [APP]               check the VM, print the settings for deploying with F5
   vs setup SOLUTION      configure a solution's apps for F5 into this VM (-Remove: undo)
-  deploy FOLDER [-As APP] [-Install]   build output -> C:\deploy\APP (-Install: MSIX)
+  deploy FOLDER [-As APP] [-Run | -Service] [-Wait] [-Args "..."] [-Install]
+                         build output -> C:\deploy\APP; -Run: start it on the desktop,
+                         -Service: as Windows service winvm-APP, -Wait: until a debugger
+                         attaches, -Install: MSIX
+VS Code and Rider (over SSH; the same from a Linux host with ../winvm)
+  vscode setup SOLUTION  .vscode/launch.json + tasks.json: build, copy, launch, start and
+                         attach, or attach (-Remove: undo); vsdbg kept matching the C# extension
+  rider                  what Rider's "Attach to Remote Process" needs for this VM
+  rider setup SOLUTION   Rider run configurations (.run): build, copy, start (-Remove: undo)
+  ssh-config             a Host entry for ~/.ssh/config (ssh, VS Code, Rider)
 
 Without -Name everything acts on the VM "default". Configuration: config.ps1,
 your changes in config.local.ps1. More: README.md
@@ -1542,6 +1676,9 @@ switch ($script:Command) {
     'reboot'   { Cmd-Reboot $vmName }
     'deploy'   { Cmd-Deploy $vmName $rest }
     'vs'       { Cmd-Vs $vmName $rest }
+    'vscode'   { Cmd-VsCode $vmName $rest }
+    'rider'    { Cmd-Rider $vmName $rest }
+    'ssh-config' { Cmd-SshConfig $vmName }
     { $_ -in 'info', 'ps', 'kill', 'service', 'apps', 'events', 'ports' } { Cmd-Manage $vmName $script:Command $rest }
     default    { Show-Help ''; Die "unknown command '$script:Command'" }
 }

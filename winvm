@@ -256,13 +256,22 @@ bool() { (($1)) && echo '$true' || echo '$false'; }
 
 # Run PowerShell in the guest. Base64 avoids Windows OpenSSH's quote mangling;
 # errors go to stderr as text instead of CLIXML.
+# The guest command line that runs PowerShell CODE, under any login shell
+# (cmd.exe or PowerShell). The code goes base64 (no quoting trouble on the
+# way) inside -Command: -EncodedCommand would send Write-Host, warnings and
+# errors as CLIXML on stderr.
+ps_cmdline() {
+    local enc
+    enc=$(python3 -I -c 'import base64,sys; print(base64.b64encode(sys.argv[1].encode("utf-16-le")).decode())' "$1")
+    printf '%s' "powershell -NoProfile -NonInteractive -Command \"& ([scriptblock]::Create([Text.Encoding]::Unicode.GetString([Convert]::FromBase64String('$enc'))))\""
+}
+
 guest_ps() {
     ssh_opts
-    local script enc
+    local script
     script="\$ProgressPreference='SilentlyContinue'; \$ErrorActionPreference='Stop'; try { $1 } catch { [Console]::Error.WriteLine(\$_.ToString()); exit 1 }"
-    enc=$(python3 -I -c 'import base64,sys; print(base64.b64encode(sys.argv[1].encode("utf-16-le")).decode())' "$script")
     ssh "${SSH_OPTS[@]}" -o BatchMode=yes -o LogLevel=ERROR -p "$P_SSH" "$WIN_USER@127.0.0.1" \
-        "powershell -NoProfile -NonInteractive -EncodedCommand $enc" | tr -d '\r'   # Windows line endings
+        "$(ps_cmdline "$script")" | tr -d '\r'   # Windows line endings
 }
 
 # --- TPM (swtpm) ------------------------------------------------------------
@@ -1274,7 +1283,10 @@ ssh_opts() {
 cmd_ssh() {
     need_vm
     ssh_opts
-    exec ssh "${SSH_OPTS[@]}" -p "$P_SSH" "$WIN_USER@127.0.0.1" "$@"
+    # PowerShell explicitly: the guest's login shell may be cmd.exe (vs-deploy
+    # recipe, for Rider). A command goes encoded, so its quotes arrive as typed.
+    (($#)) || exec ssh -t "${SSH_OPTS[@]}" -p "$P_SSH" "$WIN_USER@127.0.0.1" powershell -NoLogo
+    exec ssh "${SSH_OPTS[@]}" -p "$P_SSH" "$WIN_USER@127.0.0.1" "$(ps_cmdline "\$ProgressPreference='SilentlyContinue'; $*")"
 }
 
 cmd_scp() {  # paths prefixed with vm: refer to the guest
@@ -1286,6 +1298,173 @@ cmd_scp() {  # paths prefixed with vm: refer to the guest
         args+=("$a")
     done
     exec scp "${SSH_OPTS[@]}" -P "$P_SSH" "${args[@]}"
+}
+
+# --- deploy a build; VS Code and Rider over SSH --------------------------------
+
+# Copies a build output folder to C:\deploy\APP; lib/guest/deploy.ps1 does the
+# guest side (stops what runs from there; --run: starts it on the desktop,
+# --service: as the Windows service winvm-APP). Same as winvm.ps1 deploy.
+# The Windows debugger build (URL and SHA-256) the newest installed VS Code C#
+# extension expects; nothing if there is none. WINVM_VSCODE_EXTENSIONS: another
+# extensions folder (default ~/.vscode/extensions).
+csharp_debugger() {
+    python3 -I - "${WINVM_VSCODE_EXTENSIONS:-$HOME/.vscode/extensions}" <<'PYEOF'
+import glob, json, os, re, sys
+best = None
+for d in glob.glob(os.path.join(sys.argv[1], 'ms-dotnettools.csharp-*')):
+    m = re.match(r'ms-dotnettools\.csharp-(\d+)\.(\d+)\.(\d+)', os.path.basename(d))
+    if m and os.path.isfile(os.path.join(d, 'package.json')):
+        v = tuple(map(int, m.groups()))
+        if best is None or v > best[0]:
+            best = (v, d)
+if best:
+    for r in json.load(open(os.path.join(best[1], 'package.json'))).get('runtimeDependencies', []):
+        if r.get('id') == 'Debugger' and 'win32' in r.get('platforms', []) and 'x86_64' in r.get('architectures', []):
+            print(r['url'], r['integrity'])
+            break
+PYEOF
+}
+
+# Copies lib/guest/vsdbg.ps1 into the VM and prints the guest command that makes
+# C:\vsdbg match the C# extension (nothing without one).
+vsdbg_sync_cmd() {
+    local url sha
+    read -r url sha < <(csharp_debugger) || true
+    if [[ -z ${url:-} ]]; then
+        note "no VS Code C# extension found (${WINVM_VSCODE_EXTENSIONS:-~/.vscode/extensions}): C:\\vsdbg stays as the recipe installed it"
+        return 0
+    fi
+    ssh_opts
+    scp -q "${SSH_OPTS[@]}" -o BatchMode=yes -P "$P_SSH" "$ROOT/lib/guest/vsdbg.ps1" "$WIN_USER@127.0.0.1:C:/winvm/vsdbg.ps1" ||
+        die "could not copy into '$VM'"
+    printf "& %s -Url '%s' -Sha256 '%s'; " 'C:\winvm\vsdbg.ps1' "$url" "$sha"
+}
+
+cmd_deploy() {
+    local as="" exe="" args="" flags=() run=0 service=0 wait=0 vsdbg=0 pos=()   # options before or after FOLDER
+    while (($#)); do
+        case $1 in
+            --as) as=${2:?--as needs a name}; shift ;;
+            --exe) exe=${2:?--exe needs a file name}; shift ;;
+            --args) args=${2?--args needs a value}; shift ;;
+            --run) flags+=(-Run); run=1 ;;
+            --service) flags+=(-Service); service=1 ;;
+            --install) flags+=(-Install) ;;
+            --wait) flags+=(-Wait); wait=1 ;;
+            --vsdbg) vsdbg=1 ;;   # VS Code tasks: C:\vsdbg matching the C# extension first
+            -*) die "deploy: unknown option $1 (see winvm deploy --help)" ;;
+            *) pos+=("$1") ;;
+        esac
+        shift
+    done
+    ((${#pos[@]} == 1)) || die 'usage: winvm deploy FOLDER [--as APP] [--run | --service] [--wait] [--exe NAME.exe] [--args "..."] [--install]'
+    ((run && service)) && die "--run or --service, not both"
+    ((wait && !run && !service)) && die "--wait needs --run or --service"
+    local dir=${pos[0]%/}
+    [[ -d $dir ]] || die "no such directory: $dir"
+    local app=${as:-$(basename "$(realpath "$dir")")}
+    [[ $app =~ ^[A-Za-z0-9._-]+$ ]] || die "app name '$app': letters, digits, '.', '-', '_' (--as NAME)"
+    need_vm
+    ensure_running
+    ssh_opts
+    # One archive instead of scp -r: .NET output is many small files.
+    local tmp gtar="winvm-deploy-$app-$$.tar" rc=0
+    tmp=$(mktemp --suffix=.tar)
+    tar -cf "$tmp" -C "$dir" . || { rm -f "$tmp"; die "tar could not pack $dir"; }
+    scp -q "${SSH_OPTS[@]}" -o BatchMode=yes -P "$P_SSH" "$tmp" "$WIN_USER@127.0.0.1:C:/winvm/$gtar" &&
+        scp -q "${SSH_OPTS[@]}" -o BatchMode=yes -P "$P_SSH" "$ROOT/lib/guest/deploy.ps1" "$WIN_USER@127.0.0.1:C:/winvm/deploy.ps1" || rc=$?
+    rm -f "$tmp"
+    ((rc == 0)) || die "could not copy into '$VM'"
+    local g="& C:\\winvm\\deploy.ps1 -App '$app' -Tar 'C:\\winvm\\$gtar'"
+    ((vsdbg)) && g="$(vsdbg_sync_cmd)$g"
+    [[ -n $exe ]] && g+=" -Exe '${exe//\'/\'\'}'"
+    [[ -n $args ]] && g+=" -ArgsB64 '$(printf '%s' "$args" | base64 -w0)'"
+    ((${#flags[@]})) && g+=" ${flags[*]}"
+    guest_ps "$g" || die "deploying into '$VM' failed"
+    info "deployed $dir -> $VM:C:\\deploy\\$app"
+}
+
+# The ssh arguments that reach the VM, for tools that start ssh themselves.
+vm_ssh_args() {
+    ssh_opts
+    printf '%s\n' -T "${SSH_OPTS[@]}" -o BatchMode=yes -o LogLevel=ERROR -p "$P_SSH" "$WIN_USER@127.0.0.1"
+}
+
+# `vscode setup` / `rider setup`: IDE configurations for a solution's apps
+# (lib/ide/ide-setup.ps1 with pwsh). IDE: vscode or rider; then the arguments.
+ide_setup() {
+    local ide=$1; shift
+    local usage="usage: winvm [-n NAME] $ide setup SOLUTION.sln|SOLUTION.slnx|FOLDER [--project NAME,...] [--remove]"
+    local sol="" project="" extra=()
+    while (($#)); do
+        case $1 in
+            --project) project=${2:?--project needs names}; shift ;;
+            --remove) extra+=(-Remove) ;;
+            -*) die "$ide setup: unknown option $1" ;;
+            *) [[ -z $sol ]] || die "$usage"; sol=$1 ;;
+        esac
+        shift
+    done
+    [[ -n $sol ]] || die "$usage"
+    [[ -n $project ]] && extra+=(-Project "$project")
+    need pwsh python3
+    need_vm
+    # The debugger pipe: ssh to vsdbg through lib/ide/dap-pathmap.py, which
+    # turns the Linux source paths into ones vsdbg on Windows accepts.
+    local json
+    json=$( { printf '%s\n' -I "$ROOT/lib/ide/dap-pathmap.py" ssh; vm_ssh_args; } |
+        python3 -I -c 'import json,sys; print(json.dumps(sys.stdin.read().splitlines()))')
+    pwsh -NoProfile -File "$ROOT/lib/ide/ide-setup.ps1" -Ide "$ide" -Solution "$sol" -Vm "$VM" -SshExe python3 -SshArgsJson "$json" \
+        -Targets "$ROOT/windows-host/vs/Winvm.targets" "${extra[@]}" || exit 1
+    if ! grep -qx vs-deploy "$RECIPE_FILE" 2>/dev/null; then
+        note "the VM needs the recipe vs-deploy: winvm${VM_OPT} apply vs-deploy, if it isn't set up yet"
+    fi
+    [[ ${extra[*]} == *-Remove* ]] && return 0
+    if [[ $ide == vscode ]] && is_running; then   # vsdbg matching the C# extension (again before each debug build)
+        local c
+        c=$(vsdbg_sync_cmd)
+        [[ -z $c ]] || guest_ps "$c" || note "warning: could not update vsdbg in '$VM' (it is updated again before each debug build)"
+    fi
+    if [[ $ide == rider ]] && is_running; then rider_shell; fi
+}
+
+cmd_vscode() {
+    [[ ${1:-} == setup ]] || die "usage: winvm [-n NAME] vscode setup SOLUTION.sln|SOLUTION.slnx|FOLDER [--project NAME,...] [--remove]"
+    shift
+    ide_setup vscode "$@"
+}
+
+# Rider's remote debugging sends cmd syntax over SSH; VMs set up before the
+# vs-deploy recipe made cmd.exe the login shell still log in to PowerShell.
+rider_shell() {
+    guest_ps "if ((Get-ItemProperty HKLM:\\SOFTWARE\\OpenSSH).DefaultShell -notmatch 'cmd\\.exe\$') { Set-ItemProperty HKLM:\\SOFTWARE\\OpenSSH -Name DefaultShell -Value \"\$env:SystemRoot\\System32\\cmd.exe\"; 'SSH login shell of the VM set to cmd.exe (Rider needs it)' }" ||
+        note "warning: could not check the VM's SSH login shell (Rider needs cmd.exe)"
+}
+
+cmd_rider() {
+    if [[ ${1:-} == setup ]]; then shift; ide_setup rider "$@"; return; fi
+    need_vm
+    is_running && rider_shell
+    cat <<EOF
+Rider: debug a .NET process in VM '$VM' over SSH (Run > Attach to Remote Process...)
+
+1. Start the app in the VM. Rider on Linux builds Windows apps with
+   -r win-x64 -p:EnableWindowsTargeting=true (WPF/WinForms too), e.g.:
+     dotnet build -r win-x64 -p:EnableWindowsTargeting=true
+     winvm${VM_OPT} deploy bin/Debug/net10.0/win-x64 --as APP --run       on the desktop (GUI or console)
+     winvm${VM_OPT} deploy bin/Debug/net10.0/win-x64 --as APP --service   as Windows service winvm-APP
+   (Rider: Settings > Tools > External Tools, then a run configuration's
+   "Before launch", to have it run after each build.)
+2. Run > Attach to Remote Process... > SSH > Add Connection... (once):
+     Host 127.0.0.1   Port $P_SSH   Username $WIN_USER
+     Authentication type: Key pair   Private key file: $SSH_KEY
+3. In the host list pick "$WIN_USER@127.0.0.1:$P_SSH" (Rider's .NET debugger), not
+   "127.0.0.1@$P_SSH" (that one only lists processes of Linux/macOS hosts).
+   The first time: "Install tools to remote computer" (Rider copies its debugger
+   to %LOCALAPPDATA%\JetBrains\RiderRemoteDebugger in the VM).
+4. Pick APP (services are listed too) > Attach with .NET Debugger.
+EOF
 }
 
 cmd_ssh_config() {
@@ -1553,7 +1732,7 @@ cmd_debug() {
         vs|msvsmon)
             guest_ps 'Start-ScheduledTask winvm-msvsmon' || die "could not start msvsmon (VS remote tools installed? see C:\\winvm\\provision.log)"
             info "Visual Studio remote debugger running in '$VM' (no authentication)"
-            note "Visual Studio: Debug > Attach to Process, Connection type 'Remote (no authentication)',"
+            note "Visual Studio: Debug > Attach to Process, Connection type 'Remote (Windows - No Authentication)',"
             note "target 127.0.0.1:$P_VSDEBUG — see 'winvm${VM_OPT} debug' for reaching it from elsewhere" ;;
         windbg|dbgsrv)
             guest_ps 'Start-ScheduledTask winvm-dbgsrv' || die "could not start dbgsrv (WinDbg installed? see C:\\winvm\\provision.log)"
@@ -1590,7 +1769,7 @@ VS Code (from this Linux host)          -- easiest for user-mode code
   $( [[ $VM == default ]] && echo winvm || echo "winvm-$VM" ) and debug inside the VM with the usual C++/C#/Python debuggers.
 
 Visual Studio remote debugger (msvsmon)  -- winvm${VM_OPT} debug vs
-  Attach to Process > Connection type "Remote (no authentication)" > 127.0.0.1:$P_VSDEBUG
+  Attach to Process > Connection type "Remote (Windows - No Authentication)" > 127.0.0.1:$P_VSDEBUG
 
 WinDbg process server (dbgsrv)           -- winvm${VM_OPT} debug windbg
   WinDbg > File > Connect to process server: tcp:Port=$P_DBGSRV,Server=127.0.0.1
@@ -2056,6 +2235,9 @@ Test and debug apps
                  output and crash analysis back
   crashes        crash dumps in the VM, analyzed with WinDbg
   debug          remote debugging: Visual Studio, WinDbg, kernel, gdb
+  deploy         copy a build to C:\deploy\APP (--run: start it there, --service: as a service)
+  vscode         VS Code: launch/attach configurations for debugging in the VM over SSH
+  rider          Rider: attach settings for this VM; rider setup: run configurations
   uitest         remote UI test automation (WinAppDriver / WebDriver)
 
 Capture
@@ -2265,6 +2447,56 @@ in the VM. Extra arguments go to FreeRDP (e.g. /size:1920x1080).
 EOF
         ;;
         wait) echo "winvm [-n NAME] wait [SECONDS]    block until SSH answers (default 300 s)" ;;
+        deploy) cat <<EOF
+winvm [-n NAME] deploy FOLDER [--as APP] [--run | --service] [--wait] [--exe NAME.exe] [--args "..."] [--install]
+
+Copies a build output folder into the VM as C:\\deploy\\APP (APP: the folder's
+name, or --as), replacing the previous copy; programs running from there and
+the service winvm-APP are stopped first. Starts the VM if needed.
+  --run          then start APP.exe (--exe: another program) on the VM's desktop
+  --service      then register it as the Windows service winvm-APP (manual start,
+                 LocalSystem) and start it; a debugger attaches to it there
+  --wait         with --run / --service: the app waits for a debugger before its
+                 own code runs (attach to debug Main and startup; a service
+                 waits 25 s at most: Windows gives it 30 s to start)
+  --args "..."   command line for --run / --service
+  --install      the folder holds an .msix/.appx package: install it
+Build Windows apps on Linux with: dotnet build -r win-x64 -p:EnableWindowsTargeting=true
+EOF
+        ;;
+        vscode) cat <<EOF
+winvm [-n NAME] vscode setup SOLUTION.sln|SOLUTION.slnx|FOLDER [--project NAME,...] [--remove]
+
+Writes .vscode/launch.json and tasks.json next to the solution, for every
+Windows app, console app and service in it (web apps only with --project).
+Each configuration builds (-r win-x64), copies into the VM and debugs it there
+(vsdbg over SSH):
+  "winvm VM: APP"                   started by the debugger, output in the Debug
+                                    Console (console apps: no desktop window)
+  "winvm VM: APP on the VM desktop" started on the VM's desktop, waiting for the
+                                    debugger, then attached: GUI apps, from Main on
+  "winvm VM: APP as Windows service" (console projects) as service winvm-APP, the same
+  "winvm VM: attach APP"            attach to it running in the VM (no build)
+Only its own entries are added (other configurations, comments and formatting
+stay); --remove takes them out again. vsdbg in the VM is kept matching the
+installed C# extension (now and before each debug build). Needs pwsh (nix
+develop), python3, the C# extension and the recipe vs-deploy in the VM. The same
+works on a Windows host: windows-host/winvm.ps1 vscode setup.
+EOF
+        ;;
+        rider) cat <<EOF
+winvm [-n NAME] rider
+winvm [-n NAME] rider setup SOLUTION.sln|SOLUTION.slnx|FOLDER [--project NAME,...] [--remove]
+
+rider: prints what Rider's "Run > Attach to Remote Process..." needs for this
+VM (SSH host, port, user, key) and makes cmd.exe the VM's SSH login shell (Rider
+needs it; the recipe vs-deploy does that too).
+rider setup: run configurations in the solution's .run folder, per app: build,
+copy into the VM and start it on its desktop or as service winvm-APP, optionally
+waiting for the debugger; then attach with "Attach to Remote Process". Only its
+own files (.run/winvm-VM-*.run.xml); --remove deletes them.
+EOF
+        ;;
         ssh-config) cat <<EOF
 winvm [-n NAME] ssh-config
 
@@ -2516,7 +2748,7 @@ migrate_layout
 migrate_images
 select_vm "$vm_name"
 case $cmd in
-    fetch|build|start|stop|reset|commit|seal|new|apply|recipes|ssh|scp|rdp|wait|status|list|images|destroy|debug|uitest|run|crashes|screenshot|netcap|proxy|trace|usb|info|ps|kill|service|apps|events|ports|windows|key|reboot) "cmd_$cmd" "$@" ;;
+    fetch|build|start|stop|reset|commit|seal|new|apply|recipes|ssh|scp|rdp|wait|status|list|images|destroy|debug|uitest|run|crashes|screenshot|netcap|proxy|trace|usb|info|ps|kill|service|apps|events|ports|windows|key|reboot|deploy|vscode|rider) "cmd_$cmd" "$@" ;;
     ssh-config) cmd_ssh_config "$@" ;;
     completion) cmd_completion "$@" ;;
     snapshot|snap) cmd_snapshot "$@" ;;

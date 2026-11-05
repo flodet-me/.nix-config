@@ -8,7 +8,7 @@
       pkgs = nixpkgs.legacyPackages.x86_64-linux;
     in {
       devShells.x86_64-linux.default = pkgs.mkShell {
-        packages = with pkgs; [ qemu_kvm xorriso python3 openssh curl freerdp swtpm mitmproxy wireshark-cli ];
+        packages = with pkgs; [ qemu_kvm xorriso python3 openssh curl freerdp swtpm mitmproxy wireshark-cli powershell ];   # powershell: winvm vscode setup
         shellHook = ''
           export PATH="$PWD:$PATH"
           # Tab completion for winvm (interactive bash only).

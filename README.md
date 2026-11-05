@@ -39,6 +39,7 @@ files stay in this directory.
 [Online / offline](#online-offline-isolated) ·
 [Capturing](#capturing) ·
 [Debugging](#remote-debugging) ·
+[IDE debugging guide](docs/ide-debugging.md) ·
 [UI testing](#remote-ui-testing) ·
 [Test tools](#test-tools) ·
 [Hardware](#hardware) ·
@@ -204,6 +205,12 @@ Each has `--help`.
 | `proxy start\|stop` | HTTP(S) through mitmproxy |
 | `trace start [--etw] \| stop` | Process Monitor trace |
 | `usb [list \| attach VID:PID \| detach VID:PID]` | USB passthrough |
+
+| Develop ([guide](docs/ide-debugging.md)) | |
+|---|---|
+| `deploy FOLDER [--as APP] [--run\|--service] [--wait] [--args "..."] [--install]` | copy a build to `C:\deploy\APP`, start it on the desktop or as service, optionally waiting for a debugger; `--install`: MSIX |
+| `vscode setup SOLUTION [--project A,B] [--remove]` | VS Code configurations: build, copy, debug in the VM |
+| `rider setup SOLUTION [--project A,B] [--remove]` / `rider` | Rider run configurations / its attach settings |
 
 ---
 
@@ -386,8 +393,10 @@ Results go to `captures/`.
 
 | what | how |
 |---|---|
-| VS Code | `winvm ssh-config >> ~/.ssh/config`, then Remote-SSH to `winvm` |
-| Visual Studio 2026 | `winvm debug vs`, attach to `127.0.0.1:40260` (Remote, no authentication) |
+| VS Code, from this host | `winvm vscode setup SOLUTION` (needs the recipe `vs-deploy`): F5 builds for Windows, copies into the VM and debugs it there over SSH ([guide](docs/ide-debugging.md)) |
+| VS Code, inside the VM | `winvm ssh-config >> ~/.ssh/config`, then Remote-SSH to `winvm` |
+| Rider, from this host | `winvm rider setup SOLUTION` + Attach to Remote Process over SSH ([guide](docs/ide-debugging.md#rider)) |
+| Visual Studio 2026 | `winvm debug vs`, attach to `127.0.0.1:40260` (connection type *Remote (Windows - No Authentication)*) |
 | WinDbg, user mode | `winvm debug windbg`, process server `tcp:Port=50050,Server=127.0.0.1` |
 | WinDbg, kernel | `winvm debug kernel on`, `winvm start --kd`, `windbg -k com:ipport=50150,port=127.0.0.1`. Needs `SECURE_BOOT=0` or `FIRMWARE=bios` |
 | whole VM / firmware | `winvm start --gdb`, `gdb -ex 'target remote 127.0.0.1:12340'` |
@@ -395,6 +404,32 @@ Results go to `captures/`.
 Visual Studio and WinDbg are Windows programs. Run them in a second VM
 (`winvm -n dbg start`, connect to `10.0.2.2:PORT`) or on a Windows PC through
 `ssh -L PORT:127.0.0.1:PORT you@this-host`.
+
+### VS Code and Rider from this host
+
+Build on Linux, run and debug in the VM: WPF, WinForms, console apps and
+services from VS Code or Rider, packaged WinUI 3 / MAUI apps by installing a
+package and attaching. The VM needs the recipe `vs-deploy` once (`winvm apply
+vs-deploy --seal`). **Full guide, incl. Visual Studio on a Windows host and
+troubleshooting: [docs/ide-debugging.md](docs/ide-debugging.md).**
+
+```sh
+winvm vscode setup MySolution.sln     # VS Code: F5 builds, copies, starts in the VM, debugs (--remove: undo)
+winvm rider setup MySolution.sln      # Rider: run configurations, then Attach to Remote Process
+winvm rider                           # the SSH settings for Rider's attach dialog
+winvm deploy bin/Debug/net10.0/win-x64 --as MyApp --run --wait   # by hand: start, wait for a debugger
+```
+
+In VS Code, *Run and Debug* then lists per app: **winvm VM: APP** (console
+apps), **...on the VM desktop** (GUI apps), **...as Windows service** and
+**attach APP**; all of them stop at breakpoints from `Main` on. Rider: run
+*winvm VM: APP on the VM desktop, waiting for the debugger*, then *Attach to
+Remote Process* > `dev@127.0.0.1:PORT` > the app.
+
+Tested 2026-11-05 on this host (NixOS): VS Code 1.140 with C# 2.160 (launch,
+desktop app, service, breakpoints) and Rider 2026.2 (attach, breakpoints in
+`Main` with `--wait`, services); `tests/smoke.sh` covers `deploy`, `--wait`
+and both `setup` commands.
 
 ---
 

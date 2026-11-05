@@ -49,6 +49,28 @@ foreach ($v in $appRuntimes) {
     Write-Host "Windows App SDK $v runtime installed"
 }
 
+# vsdbg, the .NET debugger VS Code uses (over SSH: `vscode setup`), with
+# Microsoft's install script. That script lags behind the C# extension, so
+# `vscode setup` and each VS Code debug build replace it with the extension's
+# own build (lib/guest/vsdbg.ps1). Rider brings its own debugger over SSH.
+$vsdbgScript = "$env:TEMP\GetVsDbg.ps1"
+[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor 3072
+(New-Object Net.WebClient).DownloadFile('https://aka.ms/getvsdbgps1', $vsdbgScript)
+# (RuntimeID win7-x64 is the script's name for 64-bit Windows; its messages on
+# stderr must not end this script, so the result is checked instead.)
+$eap = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
+$log = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $vsdbgScript -Version latest -RuntimeID win7-x64 -InstallPath C:\vsdbg 2>&1 | ForEach-Object { "$_" }
+$ErrorActionPreference = $eap
+if (-not (Test-Path C:\vsdbg\vsdbg.exe)) { throw "vsdbg missing after its install script (C:\vsdbg): $($log -join ' | ')" }
+Remove-Item $vsdbgScript -Force
+Write-Host "vsdbg installed: C:\vsdbg ($((Get-Item C:\vsdbg\vsdbg.exe).VersionInfo.ProductVersion))"
+
+# SSH logins get cmd.exe (Windows' default) instead of PowerShell: Rider's
+# remote debugging sends cmd syntax (echo %LOCALAPPDATA%, if exist ...) and
+# fails silently otherwise. winvm's own commands start PowerShell explicitly.
+Set-ItemProperty HKLM:\SOFTWARE\OpenSSH -Name DefaultShell -Value "$env:SystemRoot\System32\cmd.exe"
+Write-Host 'SSH login shell: cmd.exe (for Rider)'
+
 # The desktop signs in automatically (VirtualBox's unattended install may not
 # set it up for good), so msvsmon is running whenever the VM is.
 $winlogon = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon'

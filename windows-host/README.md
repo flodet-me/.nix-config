@@ -88,7 +88,13 @@ ssh [COMMAND] / scp SRC... DST (vm:PATH = guest) / rdp
 info, ps, kill, service, apps, events, ports, reboot    (as in ../winvm)
 vs [APP]               Visual Studio: check the VM, print the F5 settings
 vs setup SOLUTION [-Remove]           configure a solution's apps for F5 into the VM
-deploy FOLDER [-As APP] [-Install]    build output -> C:\deploy\APP in the VM
+deploy FOLDER [-As APP] [-Run | -Service] [-Wait] [-Args "..."] [-Install]
+                       build output -> C:\deploy\APP; -Run: start it on the desktop,
+                       -Service: as Windows service winvm-APP; -Install: MSIX
+vscode setup SOLUTION [-Remove]       VS Code: build, copy and debug in the VM over SSH
+rider setup SOLUTION [-Remove]        Rider: run configurations (build, copy, start)
+rider                  what Rider's "Attach to Remote Process" needs
+ssh-config             Host entry for ~/.ssh/config
 ```
 
 ## Custom VMs and recipes
@@ -134,7 +140,8 @@ project, or a folder with one solution) and configures each app by type:
 | Windows GUI exe (`WinExe`): WPF, WinForms, unpackaged WinUI 3; unpackaged MAUI (`WindowsPackageType` None; only the Windows target framework is copied); C#, VB, F# | `PROJECT.csproj.user`: copy the build to `C:\deploy\PROJECT` in the VM after builds **while the profile *winvm dev* is selected** (`vs\Winvm.targets`; builds for other profiles leave the VM alone), and make `C:\deploy\PROJECT` on this PC a junction to the build output (VS checks the path exists locally); launch profile *winvm dev* (`Executable`, remote) | builds, copies, starts it in the VM under the debugger; boots a stopped VM |
 | packaged WinUI 3 or MAUI (the default for MAUI), UWP on .NET 9+ (MSIX) | launch profile *winvm dev* (`MsixPackage`, remote); *Deploy* ticked in the solution | VS installs the package in the VM, starts and debugs it |
 | classic UWP, packaging project (`.wapproj`) | `PROJECT.csproj.user`: remote machine `127.0.0.1:PORT`, authentication None, for every configuration; *Deploy* ticked in the solution | start button shows *Remote Machine*; VS installs the package in the VM, starts and debugs it |
-| console apps, web apps, worker services (`Exe` without a window) | nothing, unless named: `vs setup ... -Project Tool,Api` treats them like a GUI exe | |
+| console apps, worker and Windows services (`Exe`) | like a GUI exe: it runs in a console window in the VM (services as a console app; as a real service see below) | builds, copies, starts it in the VM under the debugger |
+| web apps (ASP.NET Core, Blazor) | nothing, unless named: `vs setup ... -Project Api` treats them like the above | |
 | libraries, test projects, MAUI projects without a Windows target, C++/WiX/SQL/shared projects | nothing | |
 | old-style .NET Framework projects (non-SDK `.csproj`) | not supported yet: their remote settings live in the `.user` file (Debug page: *Use remote machine*), which `vs setup` doesn't write; the copy step works (`Winvm.targets`), set the remote machine by hand | |
 
@@ -262,6 +269,56 @@ before this gets the card when it's next started from the powered-off state.
 | UWP: hangs at "Deploy started..." | Address is `127.0.0.1:PORT`; use the host-only `IP:4026` (`vs setup` does, once the VM has the address). |
 | UWP: "Cannot resolve 'Windows.metadata'" right after installing the UWP tools | Visual Studio's cache: `devenv /updateconfiguration`, or restart Visual Studio. |
 
+### Services and console apps in Visual Studio
+
+Console apps and worker services get the launch profile *winvm dev* like a
+GUI app: F5 copies and starts them in the VM (a service then runs as a console
+app). To debug a **real Windows service**:
+
+```powershell
+.\winvm.ps1 -Name dev deploy MyService\bin\Debug\net10.0 -As MyService -Service
+```
+
+installs it as the service `winvm-MyService` (manual start, LocalSystem) and
+starts it; deploying again stops it, replaces the files and starts it again.
+Then in Visual Studio: Debug > Attach to Process, connection type
+**Remote (Windows - No Authentication)**, target `127.0.0.1:40260` (the VM's
+port, `status` shows it), *Show processes from all users*, pick
+`MyService.exe`. `-Run` instead starts any program on the VM's desktop, to
+attach to it the same way; `-Args "..."` gives it a command line.
+
+## VS Code and Rider
+
+Both debug over SSH; the same works from a Linux host with `../winvm`. The VM
+needs the recipe `vs-deploy`. **Full guide with all app types, packaged apps
+and troubleshooting: [../docs/ide-debugging.md](../docs/ide-debugging.md).**
+
+```powershell
+.\winvm.ps1 -Name dev vscode setup C:\src\MyApp\MyApp.sln     # VS Code (-Remove: undo)
+.\winvm.ps1 -Name dev rider setup C:\src\MyApp\MyApp.sln      # Rider run configurations (-Remove: undo)
+.\winvm.ps1 -Name dev rider                                    # SSH settings for Rider's attach dialog
+.\winvm.ps1 -Name dev deploy bin\Debug\net10.0 -As MyApp -Run -Wait   # by hand: start, wait for a debugger
+```
+
+**VS Code** (C# extension): *Run and Debug* lists per app **winvm dev: MyApp**
+(console apps, started by the debugger), **...on the VM desktop** (GUI apps:
+started on the desktop waiting for the debugger, then attached), **...as Windows
+service** and **attach MyApp**; packaged (MSIX) projects get only *attach*.
+vsdbg in the VM is kept matching the extension (a mismatch breaks
+breakpoints). The same text-only editing as `vs setup`: only entries named
+*winvm dev: ...* are added or removed.
+
+**Rider**: run *winvm dev: MyApp on the VM desktop, waiting for the debugger*
+(from `rider setup`), then *Run > Attach to Remote Process*: connection
+`dev@127.0.0.1:PORT` (not `127.0.0.1@PORT`, the generic one that only lists
+Linux and macOS processes), the app, *Attach with .NET Debugger*. The first
+time: add the SSH connection (host, port, user, key as `rider` prints them)
+and *Install tools to remote computer*. Rider needs cmd.exe as the VM's SSH
+login shell; the recipe and `rider` set it.
+
+`.\winvm.ps1 -Name dev ssh-config >> $HOME\.ssh\config` gives a host entry
+`winvm-dev` for plain `ssh` and other tools.
+
 ## Differences from the Linux version
 
 | | Linux (`../winvm`) | Windows host (`winvm.ps1`) |
@@ -333,5 +390,24 @@ Notes:
   every file byte for byte. In Visual Studio (profile picked in the start
   button's dropdown): with *winvm dev* F5 copies and runs in the VM; with the
   local profile builds don't touch the VM and F5 runs on this PC. F5 into the
-  VM again for WPF, WinUI 3, classic UWP and packaged MAUI. Not tested: UWP on
-  .NET 9+ (`UseUwp`), `.wapproj`, `deploy -Install`.
+  VM again for WPF, WinUI 3, classic UWP and packaged MAUI. Then (same day):
+  `deploy -Run` (console app on the VM desktop, with arguments) and `-Service`
+  (worker service as a real Windows service, LocalSystem; redeploy stops and
+  restarts it); Visual Studio F5 for a console app; Visual Studio attached to
+  the running service (Remote (Windows - No Authentication), debugger attached,
+  detached, service kept running); VS Code 1.119 with C# 2.160 (started through
+  its command palette): launch of a console app in the VM under vsdbg over SSH,
+  and attach to the running Windows service; `vscode setup` round trip on files
+  with comments, foreign entries, BOM, CRLF (byte-identical after -Remove);
+  SSH and SFTP with the key as Rider uses them.
+- 2026-11-05 (same setup): recipe `vs-deploy` again (SSH login shell cmd.exe,
+  `ssh` with quotes, warnings, errors as text, exit code 3), `vscode setup`
+  (updated vsdbg in the VM to the C# extension's 18.12), `rider setup`, the VS
+  Code task "start on the VM desktop and wait" (built, copied, started
+  waiting), `deploy -Service -Wait`, VS Code F5 with a breakpoint hit (console
+  app), a packaged WinUI 3 app built as MSIX with symbols: `deploy -Install
+  -Run` (replacing Visual Studio's loose-file registration and a same-version
+  install), VS Code attached, breakpoint hit; `vs setup` + F5-like build with
+  and without the winvm profile, `-Remove` byte-identical. Rider 2026.2 was
+  tested from a Linux host (same SSH path as from here). Not tested: Rider on a
+  Windows host, UWP on .NET 9+ (`UseUwp`), `.wapproj`.
