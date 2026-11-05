@@ -9,6 +9,9 @@
     # https://support.yubico.com/hc/en-us/articles/4819584884124-Resolving-GPG-s-CCID-conflicts
     scdaemonSettings = {
       disable-ccid = true;
+      # Don't take exclusive access to the card, otherwise other PC/SC users
+      # (e.g. Yubico Authenticator) leave scdaemon unable to reach the key.
+      pcsc-shared = true;
     };
 
     # https://github.com/drduh/config/blob/master/gpg.conf
@@ -42,9 +45,12 @@
     enableSshSupport = true;
     defaultCacheTtl = 60;
     maxCacheTtl = 120;
-    pinentry.package = pkgs.pinentry-curses;
-    extraConfig = ''
-      ttyname $GPG_TTY
-    '';
+    # GUI prompt that doesn't depend on whichever terminal last ran
+    # `updatestartuptty`; falls back to curses when there is no display.
+    pinentry.package = pkgs.pinentry-gnome3;
   };
+
+  # Shells get SSH_AUTH_SOCK from the gpg-agent module; this also covers
+  # GUI apps (editors, git clients) started outside a shell.
+  systemd.user.sessionVariables.SSH_AUTH_SOCK = "\${XDG_RUNTIME_DIR}/gnupg/S.gpg-agent.ssh";
 }
