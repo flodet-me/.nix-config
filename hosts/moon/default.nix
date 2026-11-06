@@ -53,5 +53,5 @@
   # This value determines the NixOS release from which the default
   # settings for stateful data, like file locations and database versions
   # on your system were taken. Leave it at the first install's release.
-  system.stateVersion = "24.11";
+  system.stateVersion = "26.11"; # first install of the reinstalled system
 }

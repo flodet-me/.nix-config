@@ -134,6 +134,15 @@ else
 fi
 chown -R 1000:100 "$home" 2>/dev/null || true
 
+# Tear down what disko set up: an active swapfile keeps btrfs busy, and the
+# live system's shutdown then loops on unmounting /mnt and closing LUKS.
+sync
+swapoff -a || true
+umount -R /mnt || echo "warning: /mnt still mounted (check: findmnt -R /mnt)" >&2
+if [[ -e /dev/mapper/crypted ]]; then
+  cryptsetup close crypted || echo "warning: could not close LUKS device 'crypted'" >&2
+fi
+
 cat <<EOF
 
 Done. Reboot, remove the stick, log in, plug in the YubiKey.

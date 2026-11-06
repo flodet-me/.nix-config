@@ -27,6 +27,8 @@
     ../_shared/components/gnome.nix
     ../_shared/components/cli-defaults.nix
     ../_shared/components/yubikey-gpg.nix
+    ../_shared/components/firmware-updates.nix
+    ../_shared/components/libvirt.nix
     ../_shared/components/claude-code.nix
     ../_shared/components/gaming.nix
     ../_shared/components/vpn-fernuni-hagen.nix
@@ -76,9 +78,6 @@
     enable = true;
   };
 
-  virtualisation.libvirtd.enable = true;
-  programs.virt-manager.enable = true;
-
   # List packages installed in system profile. To search, run:
   # $ nix search wget
   environment.systemPackages = with pkgs; [
@@ -114,5 +113,5 @@
   # this value at the release version of the first install of this system.
   # Before changing this value read the documentation for this option
   # (e.g. man configuration.nix or on https://nixos.org/nixos/options.html).
-  system.stateVersion = "24.11";
+  system.stateVersion = "26.11"; # first install of the reinstalled system
 }

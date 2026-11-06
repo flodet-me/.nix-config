@@ -304,6 +304,26 @@
         "type": "github"
       }
     },
+    "nix-index-database": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1793543282,
+        "narHash": "sha256-PHtGxKYM99f8WhGR5YD7iiCiwemKa2wUD4yVI2oALFg=",
+        "owner": "nix-community",
+        "repo": "nix-index-database",
+        "rev": "cee0f879d338cf08f814210fa6c2b280594ade0a",
+        "type": "github"
+      },
+      "original": {
+        "owner": "nix-community",
+        "repo": "nix-index-database",
+        "type": "github"
+      }
+    },
     "nix-vscode-extensions": {
       "inputs": {
         "nixpkgs": "nixpkgs_2"
@@ -432,6 +452,7 @@
         "home-manager": "home-manager",
         "hyprpanel": "hyprpanel",
         "impermanence": "impermanence",
+        "nix-index-database": "nix-index-database",
         "nix-vscode-extensions": "nix-vscode-extensions",
         "nixpkgs": "nixpkgs_3",
         "nixpkgs-stable": "nixpkgs-stable",

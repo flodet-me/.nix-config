@@ -133,6 +133,7 @@ in
           "/var/lib/boltd"
         ]
         ++ lib.optional config.hardware.bluetooth.enable "/var/lib/bluetooth"
+        ++ lib.optional config.services.fwupd.enable "/var/lib/fwupd"
         ++ lib.optional config.services.printing.enable "/var/lib/cups"
         ++ lib.optional config.virtualisation.docker.enable "/var/lib/docker"
         ++ lib.optional config.virtualisation.podman.enable "/var/lib/containers"

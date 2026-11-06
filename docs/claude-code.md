@@ -21,7 +21,7 @@ The dev shell also has `claude-code`, but not the plugins.
 - **Activation** (first boot after an install and every `nixos-rebuild switch`)
   merges the Nix-owned settings into `~/.claude/settings.json` with `jq`:
   `home/flodet/_shared/components/claude-code/settings.json` (model
-  `sonnet`, advisor `opus`, effort, theme, permissions, ...) plus the declared
+  `sonnet`, advisor `opus`, effort, theme, Remote Control on every session, fullscreen TUI with compact (focus) view, permissions, ...) plus the declared
   `extraKnownMarketplaces`, `enabledPlugins` and `pluginConfigs`. Nix owns
   those keys: changing them in Claude Code (`/model`, `/permissions`, ...)
   works until the next switch, then the repo wins. To keep a change, edit
