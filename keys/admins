@@ -1,0 +1,7 @@
+# Recipients of EVERY secrets file (can edit secrets and add hosts).
+# One per line: `pgp <fingerprint>` or `age <public key>`. Read by sops-sync.
+#
+# YubiKey OpenPGP encryption subkey (keys/flodet.asc)
+pgp EA6BC2582018ACD653426615532B59762527E7DF
+# Offline backup key (paper / password manager) for when the YubiKey is lost:
+# age age1...

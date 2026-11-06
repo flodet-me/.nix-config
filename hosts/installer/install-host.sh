@@ -1,11 +1,12 @@
 # shellcheck shell=bash
-# Installs one of this flake's impermanent hosts onto a blank machine:
-# disko (LUKS + btrfs) -> sops host key -> register it with the YubiKey ->
+# Installs one of this flake's hosts (any with a disko layout) onto a blank
+# machine: disko -> sops host key -> register it with the YubiKey ->
 # nixos-install. See docs/installer.md.
 #
-# usage: sudo install-host <desktop|laptop> [--disk /dev/XXX]
+# usage: sudo install-host <host> [--disk /dev/XXX]
 
 repo_src="@repo@"
+installable="@hosts@"
 work=/tmp/nix-config
 
 die() {
@@ -21,7 +22,8 @@ ask() {
 
 [[ $EUID -eq 0 ]] || die "run as root: sudo install-host $*"
 host="${1:-}"
-[[ $host == desktop || $host == laptop ]] || die "usage: install-host <desktop|laptop> [--disk /dev/XXX]"
+[[ " $installable " == *" $host "* && -n $host ]] ||
+  die "usage: install-host <host> [--disk /dev/XXX]   (hosts on this stick: $installable)"
 shift
 disk=""
 while [[ $# -gt 0 ]]; do
@@ -70,6 +72,8 @@ else
 fi
 pubkey=$(age-keygen -y "$keyfile")
 echo "public key: $pubkey"
+# Always recorded, also if registering fails below: sops-sync can do it later
+echo "$pubkey" >"$work/keys/hosts/$host.age"
 
 mapfile -t secret_files < <(cd "$work" && find hosts home -name '*secrets.yaml' | sort)
 
@@ -105,28 +109,39 @@ system=$(nix --extra-experimental-features "nix-command flakes" build --no-link 
 step "Installing NixOS ($host)"
 nixos-install --system "$system" --no-root-passwd --no-channel-copy
 
-step "Saving the updated config for committing"
-save="/mnt/home/flodet/sops-registration-$host-$(date +%Y%m%d-%H%M)"
-mkdir -p "$save"
-(cd "$work" && cp --parents .sops.yaml "${secret_files[@]}" "$save/")
-if [[ ! -e /mnt/home/flodet/.nix-config ]]; then
-  cp -r "$work" /mnt/home/flodet/.nix-config
-  chown -R 1000:100 /mnt/home/flodet/.nix-config
+step "Putting the config into ~/.nix-config"
+home=/mnt/home/flodet
+checkout="$home/.nix-config"
+# What this install adds to the repo: only the host's key (and the disk, if
+# --disk was given). Everything else comes from GitHub's current state, so a
+# stick that is older than the repo never overwrites newer secrets.
+keep=("keys/hosts/$host.age")
+[[ -n $disk ]] && keep+=("hosts/$host/default.nix")
+# shellcheck disable=SC2088 # the ~ in the messages is meant literally
+if [[ -d $checkout/.git ]]; then
+  # restored backup with a checkout: put the files there
+  (cd "$work" && cp --parents "${keep[@]}" "$checkout/")
+  how="In your restored ~/.nix-config (YubiKey plugged in): sops-sync && git add -A && git commit -m \"$host: register sops key\" && git push"
+elif [[ ! -e $checkout ]]; then
+  # becomes a git checkout on the first login (user service nix-config-checkout)
+  cp -r "$work" "$checkout"
+  printf '%s\n' "${keep[@]}" >"$checkout/.install-keep"
+  how="Automatic on the first login with network and the YubiKey plugged in: ~/.nix-config becomes a checkout of GitHub's main plus this host's key, re-encrypted (PIN prompt) and committed. Then just: cd ~/.nix-config && git push"
+else
+  mkdir -p "$home/install-$host"
+  (cd "$work" && cp --parents "${keep[@]}" "$home/install-$host/")
+  how="~/.nix-config exists but isn't a git checkout: copy ~/install-$host/* into your checkout, run sops-sync, commit and push"
 fi
-chown -R 1000:100 "$save"
+chown -R 1000:100 "$home" 2>/dev/null || true
 
 cat <<EOF
 
-Done. Next steps:
-  * reboot (remove the stick)
-  * copy the files in ~/$(basename "$save") into your checkout of the repo
-    (.sops.yaml and the secrets files), commit and push
+Done. Reboot, remove the stick, log in, plug in the YubiKey.
+$how
 EOF
 if [[ $registered == no ]]; then
   cat <<EOF
-  * secrets are NOT available yet. On a machine with the YubiKey, in the repo:
-      sops-register-host $host $pubkey
-    then commit, push and run
-      sudo nixos-rebuild switch --flake .#$host   (on $host)
+Note: the secrets were NOT re-encrypted for $host yet, so they are missing until
+that step has run and you rebuilt: sudo nixos-rebuild switch --flake ~/.nix-config#$host
 EOF
 fi

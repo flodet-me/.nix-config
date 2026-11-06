@@ -22,6 +22,7 @@
     ../_shared/components/wireshark.nix
     ../_shared/components/gnome.nix
     ../_shared/components/yubikey-gpg.nix
+    ../_shared/components/claude-code.nix
     ../_shared/components/cli-defaults.nix
     ../_shared/components/vpn-fernuni-hagen.nix
     ../_shared/components/mullvad-vpn.nix
@@ -55,12 +56,6 @@
 
   virtualisation.libvirtd.enable = true;
   programs.virt-manager.enable = true;
-
-  # List packages installed in system profile. To search, run:
-  # $ nix search wget
-  environment.systemPackages = with pkgs; [
-    claude-code
-  ];
 
   # This value determines the NixOS release from which the default
   # settings for stateful data, like file locations and database versions

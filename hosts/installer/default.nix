@@ -16,10 +16,17 @@ let
       lib.attrValues (flake.inputs or { })
     );
 
-  hosts = [
-    "desktop"
-    "laptop"
-  ];
+  # Every host with a disko layout for this architecture can be installed
+  # from the stick (docs/installer.md: "Making a host installable").
+  hosts = lib.filter (
+    name:
+    let
+      cfg = outputs.nixosConfigurations.${name}.config;
+    in
+    name != "installer"
+    && cfg.nixpkgs.hostPlatform.system == pkgs.stdenv.hostPlatform.system
+    && (cfg.disko.devices.disk or { }) != { }
+  ) (lib.attrNames outputs.nixosConfigurations);
   hostCfg = host: outputs.nixosConfigurations.${host}.config;
 
   install-host = pkgs.writeShellApplication {
@@ -36,7 +43,7 @@ let
       gnugrep
       findutils
     ];
-    text = builtins.replaceStrings [ "@repo@" ] [ "${inputs.self}" ] (
+    text = builtins.replaceStrings [ "@repo@" "@hosts@" ] [ "${inputs.self}" (toString hosts) ] (
       builtins.readFile ./install-host.sh
     );
   };

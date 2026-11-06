@@ -11,13 +11,21 @@ let
   pinned = lib.filterAttrs (name: _: builtins.pathExists (hostKey name)) servers;
 in
 {
-  programs.ssh.knownHosts = lib.mapAttrs (name: server: {
-    hostNames = [
-      name
-      server.address
-    ];
-    publicKeyFile = hostKey name;
-  }) pinned;
+  programs.ssh.knownHosts =
+    lib.mapAttrs (name: server: {
+      hostNames = [
+        name
+        server.address
+      ];
+      publicKeyFile = hostKey name;
+    }) pinned
+    // {
+      # From https://api.github.com/meta, so git over SSH works on a fresh install
+      github = {
+        hostNames = [ "github.com" ];
+        publicKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl";
+      };
+    };
 
   programs.ssh.extraConfig = lib.concatStrings (
     lib.mapAttrsToList (name: server: ''

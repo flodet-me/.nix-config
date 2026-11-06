@@ -1,10 +1,20 @@
 {
+  config,
   pkgs,
   ...
 }:
 {
   programs.gpg = {
     enable = true;
+
+    # My public key (on the YubiKey), imported and fully trusted on every
+    # install, so signing, SSH and sops work without manual setup.
+    publicKeys = [
+      {
+        source = ../../../../keys/flodet.asc;
+        trust = 5;
+      }
+    ];
 
     # https://support.yubico.com/hc/en-us/articles/4819584884124-Resolving-GPG-s-CCID-conflicts
     scdaemonSettings = {
@@ -54,4 +64,17 @@
   # Shells get SSH_AUTH_SOCK from the gpg-agent module; this also covers
   # GUI apps (editors, git clients) started outside a shell.
   systemd.user.sessionVariables.SSH_AUTH_SOCK = "\${XDG_RUNTIME_DIR}/gnupg/S.gpg-agent.ssh";
+
+  # gpg only uses the keys on the YubiKey after it has seen the card once
+  # (`gpg --card-status` creates the key stubs). Run that at login and whenever
+  # the YubiKey is plugged in (udev rule in hosts/_shared/components/yubikey-gpg.nix).
+  systemd.user.services.yubikey-learn = {
+    Unit.Description = "Make gpg learn the keys on the YubiKey";
+    Service = {
+      Type = "oneshot";
+      # no card plugged in is fine
+      ExecStart = "-${config.programs.gpg.package}/bin/gpg --card-status";
+    };
+    Install.WantedBy = [ "default.target" ];
+  };
 }

@@ -19,6 +19,8 @@
   # without having to list it. The rest of the root is still wiped.
   impermanence.persistVarLib = true;
 
+  host.role = "server"; # own secrets file only (sops-sync)
+
   # --- Access -------------------------------------------------------------
   # Only flodet, only with the YubiKey's SSH key (gpg auth subkey). No
   # passwords anywhere, no root login. sudo needs no password: the only way

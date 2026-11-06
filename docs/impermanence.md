@@ -77,7 +77,7 @@ run `nixos-rebuild switch` on a host that hasn't been reinstalled.
    sudo mkdir -p /mnt/persist/var/lib/sops-nix
    sudo nix --extra-experimental-features "nix-command flakes" shell nixpkgs#age \
      -c age-keygen -o /mnt/persist/var/lib/sops-nix/key.txt   # prints the public key
-   # add it to .sops.yaml, `sops updatekeys -y` each secrets file, commit + push
+   # sops-register-host <host> <pubkey> (docs/secrets.md); install-host does all of this
    ```
    Skipping this still boots, but secrets (e.g. Mullvad login) stay missing
    until the key is registered and you switch again.

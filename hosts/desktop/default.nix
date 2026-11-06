@@ -27,6 +27,7 @@
     ../_shared/components/gnome.nix
     ../_shared/components/cli-defaults.nix
     ../_shared/components/yubikey-gpg.nix
+    ../_shared/components/claude-code.nix
     ../_shared/components/gaming.nix
     ../_shared/components/vpn-fernuni-hagen.nix
     ../_shared/components/mullvad-vpn.nix
@@ -83,7 +84,6 @@
   environment.systemPackages = with pkgs; [
     android-studio
     stremio-linux-shell
-    claude-code
   ];
 
   systemd.services.nvidia-power-limit = {

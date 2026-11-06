@@ -60,7 +60,7 @@ workstation, after building locally (and CI building it too).
    key (own secrets rule), pins the host key, then installs with
    nixos-anywhere (wipes the disk) and copies the keys over. Private keys
    never touch the repo.
-4. Commit `.sops.yaml` and `hosts/<name>/`, rebuild your workstation
+4. Commit `keys/hosts/<name>.age`, `.sops.yaml` and `hosts/<name>/`, rebuild your workstation
    (`sudo nixos-rebuild switch --flake .#desktop`), then `ssh <name>`.
 
 ## Day to day

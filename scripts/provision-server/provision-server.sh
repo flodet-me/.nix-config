@@ -40,8 +40,8 @@ sops_key="$extra/persist/var/lib/sops-nix/key.txt"
 (umask 077 && age-keygen -o "$sops_key" 2>/dev/null)
 ssh-keygen -q -t ed25519 -N "" -C "root@$host" -f "$extra/persist/etc/ssh/ssh_host_ed25519_key"
 
-echo "==> Registering the sops key (only hosts/$host/secrets.yaml)"
-sops-register-host --server --verify-key "$sops_key" "$host" "$(age-keygen -y "$sops_key")"
+echo "==> Registering the sops key (keys/hosts/$host.age, role from its config)"
+sops-register-host --verify-key "$sops_key" "$host" "$(age-keygen -y "$sops_key")"
 
 echo "==> Pinning the SSH host key"
 cp "$extra/persist/etc/ssh/ssh_host_ed25519_key.pub" "hosts/$host/ssh_host_ed25519_key.pub"
@@ -67,7 +67,7 @@ cat <<EOF
 
 Done. Next steps:
   * set the address of $host in hosts/_shared/components/server-access.nix
-  * commit .sops.yaml, hosts/$host/ (incl. ssh_host_ed25519_key.pub), push
+  * commit keys/hosts/$host.age, .sops.yaml, hosts/$host/ (incl. ssh_host_ed25519_key.pub), push
   * rebuild your workstation, then: ssh $host
   * updates later: nixos-rebuild switch --flake .#$host --target-host $host --sudo
 EOF

@@ -6,31 +6,32 @@ on each host by [sops-nix](https://github.com/Mic92/sops-nix).
 ## How it works
 
 - Each value in a `*secrets.yaml` is encrypted with a random data key. That
-  data key is stored in the file once per recipient (`.sops.yaml`), encrypted
-  to that recipient's public key. Any **one** recipient can decrypt.
-- Recipients:
-  - **YubiKey (PGP)**: admin key, on every file. Used to edit secrets and add hosts.
-  - **Workstations** (desktop, laptop) read the shared files under
-    `hosts/_shared` and `home`.
-  - **Servers** each read only their own `hosts/<server>/secrets.yaml`
-    (own rule in `.sops.yaml`), never the workstation secrets.
-  - **One age key per host**, at `/persist/var/lib/sops-nix/key.txt`
-    (`/var/lib/sops-nix/key.txt` on hosts without impermanence), root-only.
-    Created during install (`install-host` on the machine itself,
-    `provision-server` locally, then copied over and deleted locally), or on
-    first activation if missing (`sops.age.generateKey`). Never in the repo.
-- On activation sops-nix decrypts into `/run/secrets/<name>` (RAM only) with
-  the declared owner/mode. Config only ever references the path, so nothing
-  ends up in `/nix/store`.
+  data key is stored in the file once per recipient, encrypted to that
+  recipient's public key. Any **one** recipient can decrypt.
+- Recipients, one source of truth per kind:
+  - `keys/admins`: on **every** file (YubiKey PGP key; optionally an offline
+    backup age key). Used to edit secrets and to add hosts.
+  - `keys/hosts/<host>.age`: one public age key per host, **by host name**.
+    Reinstalling a host overwrites its file; deleting it removes the host.
+  - Which files a host may read follows its `host.role` (set in its config):
+    `workstation` reads `hosts/_shared/**` and `home/**`, `server` reads only
+    `hosts/<host>/secrets.yaml`.
+- **`sops-sync`** generates `.sops.yaml` from those (never edit it by hand) and
+  re-encrypts every secrets file to exactly those recipients (YubiKey). Running
+  it again changes nothing, so recipients never accumulate.
+- The private host key lives on the host at `/persist/var/lib/sops-nix/key.txt`
+  (`/var/lib/sops-nix/key.txt` without impermanence), root-only, never in the
+  repo. sops-nix decrypts into `/run/secrets/<name>` (RAM only); config only
+  references the path, so nothing ends up in `/nix/store`.
 - `nix flake check` / CI fail if a secrets file contains plaintext.
 
 Files:
 
-| File                                        | Contents                               |
-| ------------------------------------------- | -------------------------------------- |
-| `hosts/_shared/users/flodet/secrets.yaml`      | `flodet-password` (needed for users)   |
+| File                                           | Contents                                                  |
+| ---------------------------------------------- | --------------------------------------------------------- |
+| `hosts/_shared/users/flodet/secrets.yaml`      | `flodet-password` (needed for users)                      |
 | `hosts/_shared/users/flodet/user-secrets.yaml` | `mullvad-account-key`, `home-location`, `weather-api-key` |
-| `hosts/<server>/secrets.yaml`                  | that server's secrets (`docs/cloud.md`)               |
+| `hosts/<server>/secrets.yaml`                  | that server's secrets (`docs/cloud.md`)                   |
 
 ## Everyday use
 
@@ -50,82 +51,40 @@ sops.secrets.my-token = {
 ```
 
 From home-manager modules use `osConfig.sops.secrets.<name>.path`. Prefer
-passing the file path to programs (or reading it in a script) over putting the
-value in environment variables.
+passing the file path to programs over putting the value in environment
+variables.
 
-## Adding a host (or reinstalling one)
+## Hosts: add, reinstall, remove
 
-During the install, before `nixos-install` (see `docs/impermanence.md`):
+Normally automatic:
 
-```sh
-sudo mkdir -p /mnt/persist/var/lib/sops-nix
-sudo nix --extra-experimental-features "nix-command flakes" shell nixpkgs#age \
-  -c age-keygen -o /mnt/persist/var/lib/sops-nix/key.txt   # prints the public key
-```
+- **Installed from the stick** (`docs/installer.md`): `install-host` creates
+  the key and re-encrypts on the stick, so the system has its secrets from the
+  first boot. The repo only receives `keys/hosts/<host>.age`: on the first
+  login `~/.nix-config` becomes a checkout of GitHub's main with that file,
+  `sops-sync` runs (YubiKey) and the result is committed; you `git push`.
+- **Servers**: `provision-server` (`docs/cloud.md`).
 
-Usually this is automated:
-
-- workstations: `install-host` on the installer stick (`docs/installer.md`)
-- servers: `provision-server` (`docs/cloud.md`)
-
-Manually, on any machine with the YubiKey (dev shell):
+By hand (dev shell, YubiKey plugged in):
 
 ```sh
-sops-register-host <host> <age-pubkey>            # workstation
-sops-register-host --server <host> <age-pubkey>   # server: own secrets file only
+sops-register-host <host> <age-pubkey>   # writes keys/hosts/<host>.age, runs sops-sync
+sops-sync                                # after editing keys/admins or deleting a key file
 ```
 
-It adds the key to `.sops.yaml`, re-encrypts the files the host may read and
-makes the PIN prompt appear in your terminal. Then commit, push, install/rebuild.
+then commit `keys/`, `.sops.yaml` and the secrets files, push, rebuild the host.
+On a running host the key is `sudo age-keygen -y /persist/var/lib/sops-nix/key.txt`.
 
-The secrets are then decrypted from the very first boot (early in boot, from
-`/persist`). Tested in a VM on 2026-11-06 with a fresh key registered via the
-YubiKey only.
+Removing a host: delete `keys/hosts/<host>.age`, `sops-sync`, and change any
+secret it could read (it may have kept a copy). `sops rotate -i <file>` also
+gives the file a new data key.
 
-On a host that is already running, the key is generated on the first switch
-instead: `sudo age-keygen -y /var/lib/sops-nix/key.txt` prints the public key;
-register it as above and switch again.
-
-Removing a host: delete its key from `.sops.yaml`, `sops updatekeys`, and
-`sops rotate -i <file>` (new data key), then change any secret it could read.
-
-### Using the YubiKey in the NixOS installer
-
-Needed when no other machine with the YubiKey setup is available (e.g.
-reinstalling the desktop first). The public key is in `keys/flodet.asc`.
-Not tested on a real installer yet.
-
-```sh
-sudo systemctl start pcscd
-nix --extra-experimental-features "nix-command flakes" \
-  shell nixpkgs#gnupg nixpkgs#pinentry-curses nixpkgs#sops
-mkdir -p ~/.gnupg
-echo "pinentry-program $(command -v pinentry-curses)" > ~/.gnupg/gpg-agent.conf
-echo "disable-ccid" > ~/.gnupg/scdaemon.conf
-gpg --import keys/flodet.asc
-gpg --card-status          # creates the stubs pointing at the card
-export GPG_TTY=$(tty)
-sops updatekeys -y hosts/_shared/users/flodet/secrets.yaml   # asks for the PIN
-```
-
-### PIN prompt doesn't show up / "Invalid ID"
+## PIN prompt doesn't show up / "Invalid ID"
 
 gpg reports a missing PIN prompt (timed out) as `public key decryption failed:
-Invalid ID`. The prompt goes to the terminal/display gpg-agent last saw. Fix:
-run `gpg-connect-agent updatestartuptty /bye` in the terminal you are using,
-then retry. Files encrypted with gpg's `throw-keyids` (removed from the config
-on 2026-11-06) additionally need `--try-secret-key 0x532B59762527E7DF`.
-
-## Migration status
-
-Both secrets files were re-encrypted to the single-group format on
-2026-11-06 (YubiKey or desktop age key, each alone, can decrypt).
-
-When reinstalling the desktop either move the old key
-(`~/.config/sops/age/keys.txt`) to `/persist/var/lib/sops-nix/key.txt`, or
-(better, it has been copied around) generate a new one as above, replace
-`&desktop` and `sops updatekeys`. Afterwards delete
-`~/.config/sops/age/keys.txt` on both machines.
+Invalid ID`. The prompt goes to the terminal/display gpg-agent last saw.
+`sops-sync` points it at its own terminal; elsewhere run
+`gpg-connect-agent updatestartuptty /bye` in the terminal you are using.
 
 ## Further hardening (not done yet)
 
@@ -133,13 +92,10 @@ When reinstalling the desktop either move the old key
   but `hashedPasswordFile` needs a hash. Run `mkpasswd -m yescrypt`, store the
   output with `sops hosts/_shared/users/flodet/secrets.yaml`, then enable
   `hashedPasswordFile` and remove `password` in
-  `hosts/_shared/users/flodet/default.nix`. Test in the VM first: with
+  `hosts/_shared/users/flodet/default.nix`. Test in a VM first: with
   `mutableUsers = false` a broken secret means no login.
 - **Backup recipient.** Losing the YubiKey means no one can edit secrets or add
   hosts. Create an offline key (`age-keygen`), keep the private part on paper or
-  in a password manager, add the public key as `&backup`, `sops updatekeys`.
-- **Rotate the old desktop key** (see migration above).
+  in a password manager, add `age <public key>` to `keys/admins`, `sops-sync`.
 - **Private secrets repo** only if the secret *names* should be hidden; values
-  are already safe in a public repo. Costs: git+ssh flake input, rebuilds need
-  `--sudo` and the YubiKey for fetching, and `nix flake update secrets` after
-  every edit.
+  are already safe in a public repo.

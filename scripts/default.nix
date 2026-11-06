@@ -16,14 +16,21 @@ in
 rec {
   # Workflow scripts (in the dev shell and `nix run .#<name>`), see
   # docs/installer.md, docs/secrets.md, docs/cloud.md
-  sops-register-host = script "sops-register-host" (with pkgs; [
+  # nix itself comes from the system (same version as the store)
+  sops-sync = script "sops-sync" (with pkgs; [
     sops
     gnupg
     git
-    gnused
-    gnugrep
+    jq
+    gawk
     findutils
+    gnugrep
   ]) { };
+
+  sops-register-host = script "sops-register-host" [
+    pkgs.git
+    sops-sync
+  ] { };
 
   make-installer-stick = script "make-installer-stick" (with pkgs; [
     util-linux

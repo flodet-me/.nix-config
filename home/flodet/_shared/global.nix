@@ -16,6 +16,7 @@
     ./components/direnv.nix
     ./components/fzf.nix
     ./components/git
+    ./components/nix-config-checkout.nix
   ];
 
   home.packages = with pkgs; [
