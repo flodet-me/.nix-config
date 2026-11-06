@@ -1,21 +1,16 @@
 # flodet
 
-This is the [home manager](https://github.com/nix-community/home-manager) configuration for [`flodet`](https://github.com/flodet-me).
+[home-manager](https://github.com/nix-community/home-manager) configuration
+for [`flodet`](https://github.com/flodet-me), applied together with the system
+by `nixos-rebuild` (home-manager runs as a NixOS module).
 
-Public GPG Key: [Reference](./3AA38E98CA2AE31F.asc)
-
-## Structure
-
-The following structure is used for organizing the home-manager configuration per host.
+Public GPG key: [keys/flodet.asc](../../keys/flodet.asc)
 
 ```
 .
-├── _shared     | Configuration files shared and / or optional for different hosts
-└── <<HOST>>    | Host specific configuration for home-manager
+├── _shared     | Modules shared by or optional for the machines
+└── <host>      | Per-machine entry point (imported by flake.nix)
 ```
 
-## Secrets
-
-Secrets for home-manager can be found [here](./_shared/secrets/secrets.yaml).
-
-Documentation for usage and configuration of secrets can be found [here](./../../docs/secrets.md).
+Secrets are system-level (`hosts/_shared/users/flodet`), read here via
+`osConfig.sops.secrets.<name>.path`. See [docs/secrets.md](../../docs/secrets.md).

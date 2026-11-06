@@ -12,7 +12,7 @@ nix develop            # on a configured system with flakes enabled
 nix-shell              # on a blank NixOS install (bootstraps the same tooling)
 # direnv (.envrc: `use flake`) enters the shell automatically on cd.
 
-# Apply a NixOS host config (host = desktop | laptop | moon | portal | vps)
+# Apply a NixOS host config (host = desktop | laptop | moon | vps)
 nixos-rebuild switch --flake .#<HOST>
 # Build without switching (nom = nix-output-monitor, in the dev shell):
 nixos-rebuild build --flake .#<HOST> |& nom
@@ -41,9 +41,11 @@ nix flake lock --update-input nixpkgs   # single input
 ## Architecture
 
 **Entry point is `flake.nix`.** It defines `nixosConfigurations`:
-`desktop`, `laptop` (full graphical workstations), `moon`, `portal` (headless
-home servers), `vps` (cloud server template, `docs/cloud.md`) and `installer`
-(offline installer ISO, `docs/installer.md`). `inputs` and `outputs` (`self`) are threaded to every module via
+`desktop`, `laptop` (full graphical workstations), `moon` (home server: DNS
+with ad blocking, containers) and `vps` (cloud server template, `docs/cloud.md`), all built by
+the `mkHost` helper (`user = true` adds home-manager). The offline installer
+lives in `installer/` and is only exposed as `packages.x86_64-linux.installer-iso`
+(`docs/installer.md`); it is not a host. `inputs` and `outputs` (`self`) are threaded to every module via
 `specialArgs`/`extraSpecialArgs`, so modules can reference `inputs.<flake>` and
 `outputs.overlays` directly.
 
@@ -51,8 +53,8 @@ home servers), `vps` (cloud server template, `docs/cloud.md`) and `installer`
 attached as a NixOS module (`home-manager.nixosModules.home-manager`) in
 `flake.nix`, so a single `nixos-rebuild switch` applies both system and user
 config together (there is no separate `home-manager switch` step). `moon` and
-`portal` are system-only with no home-manager. `portal` is a Raspberry Pi that is
-still mostly commented-out boilerplate and doesn't even import the shared globals.
+`vps` are system-only servers (no home-manager), built on
+`hosts/_shared/components/server`.
 
 **Two parallel trees, both using the same `_shared` + per-host layering pattern:**
 

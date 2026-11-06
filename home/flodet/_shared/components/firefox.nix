@@ -12,6 +12,35 @@
   programs.firefox = {
     enable = true;
     configPath = ".mozilla/firefox";
+    # Enterprise policies: enforced, can't be switched back on in the UI
+    policies = {
+      DisableTelemetry = true;
+      DisableFirefoxStudies = true;
+      DisablePocket = true;
+      DisableFeedbackCommands = true;
+      DisableFirefoxAccounts = false; # keep Firefox Sync usable
+      DontCheckDefaultBrowser = true;
+      FirefoxHome = {
+        SponsoredTopSites = false;
+        SponsoredPocket = false;
+        Pocket = false;
+        Locked = true;
+      };
+      FirefoxSuggest = {
+        SponsoredSuggestions = false;
+        ImproveSuggest = false;
+        WebSuggestions = false;
+        Locked = true;
+      };
+      UserMessaging = {
+        ExtensionRecommendations = false;
+        FeatureRecommendations = false;
+        SkipOnboarding = true;
+        MoreFromMozilla = false;
+        Locked = true;
+      };
+      GenerativeAI.Enabled = false;
+    };
     profiles.flodet = {
 
       extensions.packages =
@@ -112,6 +141,14 @@
         "toolkit.telemetry.unified" = false;
         "toolkit.telemetry.unifiedIsOptIn" = false;
         "toolkit.telemetry.updatePing.enabled" = false;
+        # Studies, crash reports, ad measurement, Mozilla attribution
+        "app.normandy.enabled" = false;
+        "app.normandy.api_url" = "";
+        "breakpad.reportURL" = "";
+        "browser.tabs.crashReporting.sendReport" = false;
+        "browser.crashReports.unsubmittedCheck.autoSubmit2" = false;
+        "dom.private-attribution.submission.enabled" = false;
+        "network.connectivity-service.enabled" = false;
 
         # Harden
         "privacy.trackingprotection.enabled" = true;

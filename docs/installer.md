@@ -1,9 +1,9 @@
 # Installer stick
 
 An offline NixOS installer for every host with a disko disk layout (currently
-`desktop`, `laptop`, `vps`). It contains this repo, all flake inputs and the
+`desktop`, `laptop`, `moon`, `vps`). It contains this repo, all flake inputs and the
 hosts' complete closures, so installing needs no network. Config:
-`hosts/installer/`.
+`installer/`.
 
 ## Build, try, write (dev shell)
 
@@ -71,7 +71,7 @@ files there instead: run `sops-sync`, commit, push.
 ## Making a host installable
 
 The stick includes every host of this architecture whose config has a disko
-layout. For an existing host such as `moon`:
+layout. For a new or existing host:
 
 1. Import the disk layout and, for an impermanent root, the impermanence
    module (see `hosts/laptop/default.nix`, `hosts/vps/default.nix`):

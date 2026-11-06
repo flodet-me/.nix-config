@@ -18,11 +18,15 @@ The dev shell also has `claude-code`, but not the plugins.
 
 ## How it works
 
-- **Activation** (every `nixos-rebuild switch`) merges the declared
-  `extraKnownMarketplaces`, `enabledPlugins` and `pluginConfigs` into
-  `~/.claude/settings.json` with `jq`. The file stays a normal writable file,
-  so `/config`, `/model`, permission edits etc. keep working and are kept.
-  Declared keys win over local edits to the same keys.
+- **Activation** (first boot after an install and every `nixos-rebuild switch`)
+  merges the Nix-owned settings into `~/.claude/settings.json` with `jq`:
+  `home/flodet/_shared/components/claude-code/settings.json` (model
+  `sonnet`, advisor `opus`, effort, theme, permissions, ...) plus the declared
+  `extraKnownMarketplaces`, `enabledPlugins` and `pluginConfigs`. Nix owns
+  those keys: changing them in Claude Code (`/model`, `/permissions`, ...)
+  works until the next switch, then the repo wins. To keep a change, edit
+  `settings.json` in the repo. Keys not declared there (e.g. `autoMode`) stay
+  Claude's.
 - **`claude-plugins-sync`** downloads and installs everything:
   marketplaces and plugins (`claude plugin …`), the user-scope MCP servers
   (`claude mcp add-json -s user`), and graphify (`uv tool install graphifyy`,
@@ -250,6 +254,15 @@ use Playwright for the same job.
 From Anthropic's official marketplace. Gives Claude Code rust-analyzer
 diagnostics/navigation in Rust projects; `rust-analyzer` must be on `PATH`
 (e.g. from the project's dev shell).
+
+### ECC (`ecc@ecc`, github.com/affaan-m/ecc)
+
+Large collection: ~300 skills, ~70 agents, ~100 commands, plus Node hooks on
+`SessionStart`, `PreToolUse`, `PostToolUse`, `Stop`, `SessionEnd` and more
+(memory persistence, checks). Costs: every tool call runs extra Node
+processes, and the skill/agent lists take context. It overlaps with
+agent-skills and ponytail. If sessions get slow or noisy, remove it again
+from `plugins` (and its marketplace) in the module.
 
 ## References
 

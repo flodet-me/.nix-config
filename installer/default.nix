@@ -1,4 +1,4 @@
-# Offline installer ISO for the impermanent hosts (desktop, laptop).
+# Offline installer ISO for every host with a disko layout (not a host itself).
 # Build:  nix build .#installer-iso   — see docs/installer.md
 {
   inputs,
@@ -23,8 +23,7 @@ let
     let
       cfg = outputs.nixosConfigurations.${name}.config;
     in
-    name != "installer"
-    && cfg.nixpkgs.hostPlatform.system == pkgs.stdenv.hostPlatform.system
+    cfg.nixpkgs.hostPlatform.system == pkgs.stdenv.hostPlatform.system
     && (cfg.disko.devices.disk or { }) != { }
   ) (lib.attrNames outputs.nixosConfigurations);
   hostCfg = host: outputs.nixosConfigurations.${host}.config;
@@ -33,7 +32,7 @@ let
     name = "install-host";
     runtimeInputs = with pkgs; [
       inputs.disko.packages.${pkgs.stdenv.hostPlatform.system}.disko
-      (import ../../scripts { inherit pkgs; }).sops-register-host
+      (import ../scripts { inherit pkgs; }).sops-register-host
       age
       sops
       gnupg

@@ -9,6 +9,7 @@
   imports = [
     inputs.sops-nix.nixosModules.sops
     ./components/host-role.nix
+    ./components/privacy.nix
     ./components/zsh.nix
     ./components/locale.nix
     ./components/nix.nix

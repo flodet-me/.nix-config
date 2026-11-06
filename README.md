@@ -1,96 +1,41 @@
 # My Nix configurations
 
-This repository contains relevant configuration and definitions for my nix-including systems.
-It is based on the experimental [flake feature](https://nixos.wiki/wiki/Flakes).
+NixOS and home-manager configuration for my machines, as a flake.
 
-**Current state**: Under development
+![Hyprland](./.assets/2025-02-02_hyprland.png)
 
 ## Structure
 
 ```
 .
-├── home            | Home-Manager configuration
-├── hosts           | NixOS configuration
-├── overlays        | Patches and version overrides for some packages.
-├── pkgs            | Custom packages.
-└── flake.nix       | Entry point and central point of configuration.
+├── flake.nix      | Entry point: hosts, packages, dev shell, checks
+├── hosts/         | NixOS config per machine (+ _shared modules and components)
+├── home/          | home-manager config per user and machine (+ _shared)
+├── installer/     | Offline installer ISO (not a host)
+├── scripts/       | Workflow scripts (dev shell / `nix run .#<name>`)
+├── keys/          | Public keys only: admins, per-host sops keys, GPG/SSH
+├── security/      | CVE scan whitelist
+├── overlays/      | pkgs.stable, pkgs.inputs.*, patches
+├── pkgs/          | Custom packages
+└── docs/          | How-tos (see below)
 ```
 
-## NixOS
-
-This repository contains configuration for [NixOS](https://nixos.org/).
-They are stored under [./hosts](./hosts/).
-
-Applying the configuration execute the following command:
+## Usage
 
 ```sh
-nixos-rebuild switch --flake .#<<HOST>>
+nix develop                               # tooling (or `nix-shell` on a fresh install)
+sudo nixos-rebuild switch --flake .#<host>  # applies system and home-manager
 ```
 
-## Home Manager
+## Docs
 
-This repository contains configuration for [home-manager](https://github.com/nix-community/home-manager).
-They are stored under [./home](./home/).
-
-Applying the configuration execute the following command:
-
-```sh
-home-manager switch --flake .#<<USER>>.<<HOST>>
-```
-
-## Development
-
-This repository has a configuration with the necessary tooling to adjust and build the configuration.
-It is configured under [./shell.nix](./shell.nix).
-
-To start on a blank NixOS installation just run:
-
-```sh
-nix-shell
-```
-
-On an already configured system with nix, git and enabled flakes feature you can just run:
-
-```sh
-nix develop
-```
-
-After that you have all necessary tools to your disposal.
-For example `sops`, `git`, `nix`, `home-manager`, or `nixfmt`.
-
-## Secrets
-
-This repository supports storing and providing secrets based on [SOPS](https://getsops.io/).
-Integrated into nix by using [sops-nix](https://github.com/Mic92/sops-nix).
-
-Currently the age key generated of my SSH-Key is used.
-
-Further information about how to access and add secrets can be found in subdirectories.
-
-
-## Preview
-
-Following a picture of the current hyprland setup with `flodet@desktop` (as of (01/2025))
-
-![Hyprland preview](./.assets/2025-02-02_hyprland.png)
-
-## TODO
-
-- [ ] Separate config from secrets in depth
-- [ ] Start using hardware token for authentication
-- [ ] Add dual requirement for secrets of system and user
-- [ ] Using [disko](https://github.com/nix-community/disko)
-- [ ] Using [impermanence](https://github.com/nix-community/impermanence)
-- [ ] Enhance ricing for more consitency and adjust for theme
-- [ ] Add individual nvim config (TBD Tooling)
-
-
-## Acknowledgment & References
-
-The following resources were immensely helpful in setting up this repository:
-
-- https://github.com/Misterio77/nix-config
-- https://www.youtube.com/@vimjoyer
-- https://github.com/drduh/YubiKey-Guide
-
-Also thank you to all the package maintainers, tool developer, and other resources I did not mention.
+| Topic | |
+| --- | --- |
+| Installing a machine (USB stick) | [docs/installer.md](docs/installer.md) |
+| Wiped root, what persists | [docs/impermanence.md](docs/impermanence.md) |
+| Secrets (sops) | [docs/secrets.md](docs/secrets.md) |
+| YubiKey | [docs/yubikey.md](docs/yubikey.md) |
+| Cloud servers | [docs/cloud.md](docs/cloud.md) |
+| Security updates, CVEs | [docs/security-updates.md](docs/security-updates.md) |
+| Claude Code | [docs/claude-code.md](docs/claude-code.md) |
+| Privacy, telemetry | [docs/privacy.md](docs/privacy.md) |

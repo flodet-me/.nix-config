@@ -1,10 +1,11 @@
+# Home server: DNS resolver with ad blocking (./dns.nix) and containers for
+# home services. Server base: YubiKey-only SSH, hardening, impermanent btrfs
+# root, backups (docs/cloud.md applies here as well). Install from the stick:
+# `sudo install-host moon` (docs/installer.md).
 {
-  config,
   inputs,
-  pkgs,
   ...
 }:
-
 {
   imports = [
     inputs.hardware.nixosModules.common-cpu-intel
@@ -12,40 +13,45 @@
 
     ./hardware-configuration.nix
     ../_shared/global.nix
-    ../_shared/components/cli-defaults.nix
+    ../_shared/components/server
+    # Unencrypted: an unattended home server must come back after a power cut
+    # without someone typing a passphrase (TPM2 unlock: docs/cloud.md).
+    (import ../_shared/components/impermanence/disko.nix {
+      # TODO: check with `ls -l /dev/disk/by-id` on moon, or pass --disk to install-host
+      device = "/dev/sda";
+      swapSize = "4G";
+      encrypt = false;
+    })
+    ./dns.nix
   ];
 
-  # Bootloader
+  networking.hostName = "moon";
+
   boot.loader.systemd-boot.enable = true;
   boot.loader.systemd-boot.configurationLimit = 10;
-
   boot.loader.efi.canTouchEfiVariables = true;
 
-  programs.zsh.enable = true;
+  # DHCP; give moon a fixed lease in the router, it is the network's DNS server
+  networking.useDHCP = true;
 
-  networking.hostName = "moon"; # Define your hostname.
-
-  # Enable networking
-  networking.networkmanager.enable = true;
-
-  services.openssh.enable = true;
-
+  # Home services as containers (state in /var/lib/containers: kept, backed up)
   virtualisation = {
     containers.enable = true;
     podman = {
       enable = true;
       dockerCompat = true;
-      defaultNetwork.settings.dns_enabled = true; # Required for containers under podman-compose to be able to talk to each other.
+      defaultNetwork.settings.dns_enabled = true; # containers under podman-compose can talk to each other
     };
   };
 
-  environment.pathsToLink = [ "/share/zsh-vi-mode" ];
+  # Backups: add the restic-* keys to hosts/moon/secrets.yaml first (docs/cloud.md)
+  backup = {
+    enable = false;
+    secretsFile = ./secrets.yaml;
+  };
 
   # This value determines the NixOS release from which the default
   # settings for stateful data, like file locations and database versions
-  # on your system were taken. It‘s perfectly fine and recommended to leave
-  # this value at the release version of the first install of this system.
-  # Before changing this value read the documentation for this option
-  # (e.g. man configuration.nix or on https://nixos.org/nixos/options.html).
+  # on your system were taken. Leave it at the first install's release.
   system.stateVersion = "24.11";
 }

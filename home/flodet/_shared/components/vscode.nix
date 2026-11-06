@@ -55,6 +55,20 @@
           "vim.useSystemClipboard" = true;
           "vim.useCtrlKeys" = false;
           "git.enableSmartCommit" = true;
+
+          # No telemetry, experiments or online lookups to Microsoft; updates come from Nix
+          "telemetry.telemetryLevel" = "off";
+          "telemetry.feedback.enabled" = false;
+          "workbench.enableExperiments" = false;
+          "workbench.settings.enableNaturalLanguageSearch" = false;
+          "workbench.cloudChanges.continueOn" = "off";
+          "update.mode" = "none";
+          "update.showReleaseNotes" = false;
+          "extensions.autoCheckUpdates" = false;
+          "extensions.autoUpdate" = false;
+          "npm.fetchOnlinePackageInfo" = false;
+          "redhat.telemetry.enabled" = false;
+          "chat.disableAIFeatures" = true;
         };
       };
     };

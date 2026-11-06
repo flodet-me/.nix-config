@@ -1,6 +1,6 @@
 # Cloud servers
 
-Template: `hosts/vps/` (Hetzner Cloud), base module:
+Template: `hosts/vps/` (Hetzner Cloud); `hosts/moon/` uses the same base at home. Base module:
 `hosts/_shared/components/server/`. Workstation side:
 `hosts/_shared/components/server-access.nix`.
 
@@ -24,6 +24,10 @@ every reboot would need a manual unlock. What matters is that data *leaving*
 the server is encrypted: backups are encrypted client-side by restic.
 If you want LUKS anyway: `encrypt = true` in the host's disko import, plus
 `boot.initrd.network.ssh` to unlock remotely after reboots.
+For a server at home (moon) where theft of the machine matters: LUKS with
+automatic TPM2 unlock (`systemd-cryptenroll --tpm2-device=auto` after the
+install, `boot.initrd.luks.devices.crypted.crypttabExtraOpts = [ "tpm2-device=auto" ]`)
+boots unattended and still protects a stolen disk.
 
 **Access: one hardware key, no passwords.**
 

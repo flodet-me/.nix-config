@@ -47,6 +47,34 @@
     let
       inherit (self) outputs;
       lib = nixpkgs.lib // home-manager.lib;
+
+      mkHost =
+        {
+          host,
+          user ? false,
+        }:
+        nixpkgs.lib.nixosSystem {
+          specialArgs = { inherit inputs outputs; };
+          modules = [
+            ./hosts/${host}
+          ]
+          ++ lib.optionals user [
+            home-manager.nixosModules.home-manager
+            {
+              home-manager.useGlobalPkgs = true;
+              home-manager.useUserPackages = true;
+              home-manager.extraSpecialArgs = { inherit inputs outputs; };
+              home-manager.users.flodet = import ./home/flodet/${host};
+            }
+          ];
+        };
+
+      # Offline installer ISO (installer/, docs/installer.md). Not a host.
+      installer = nixpkgs.lib.nixosSystem {
+        system = "x86_64-linux";
+        specialArgs = { inherit inputs outputs; };
+        modules = [ ./installer ];
+      };
       forEachSystem = f: lib.genAttrs (import systems) (system: f pkgsFor.${system});
       pkgsFor = lib.genAttrs (import systems) (
         system:
@@ -64,10 +92,10 @@
         lib.recursiveUpdate
           (forEachSystem (pkgs: import ./pkgs { inherit pkgs; } // import ./scripts { inherit pkgs; }))
           {
-            x86_64-linux.installer-iso = self.nixosConfigurations.installer.config.system.build.isoImage;
+            x86_64-linux.installer-iso = installer.config.system.build.isoImage;
           };
       devShells = forEachSystem (pkgs: import ./shell.nix { inherit pkgs; });
-      formatter = forEachSystem (pkgs: pkgs.nixfmt-rfc-style);
+      formatter = forEachSystem (pkgs: pkgs.nixfmt);
       checks = forEachSystem (pkgs: {
         # Fail if a secrets file was committed (partly) unencrypted.
         sops-encrypted = pkgs.runCommand "sops-encrypted" { } ''
@@ -84,60 +112,18 @@
           exit $status
         '';
       });
+      # Machines. `user` adds home-manager for flodet (home/flodet/<host>).
       nixosConfigurations = {
-        desktop = nixpkgs.lib.nixosSystem {
-          specialArgs = { inherit inputs outputs; };
-          modules = [
-            home-manager.nixosModules.home-manager
-            {
-              home-manager.useGlobalPkgs = true;
-              home-manager.useUserPackages = true;
-              home-manager.extraSpecialArgs = { inherit inputs outputs; };
-              home-manager.users.flodet = import ./home/flodet/desktop;
-            }
-            ./hosts/desktop
-          ];
+        desktop = mkHost {
+          host = "desktop";
+          user = true;
         };
-        laptop = nixpkgs.lib.nixosSystem {
-          specialArgs = { inherit inputs outputs; };
-          modules = [
-            home-manager.nixosModules.home-manager
-            {
-              home-manager.useGlobalPkgs = true;
-              home-manager.useUserPackages = true;
-              home-manager.extraSpecialArgs = { inherit inputs outputs; };
-              home-manager.users.flodet = import ./home/flodet/laptop;
-            }
-            ./hosts/laptop
-          ];
+        laptop = mkHost {
+          host = "laptop";
+          user = true;
         };
-        moon = nixpkgs.lib.nixosSystem {
-          specialArgs = { inherit inputs outputs; };
-          modules = [
-            ./hosts/moon
-          ];
-        };
-        portal = nixpkgs.lib.nixosSystem {
-          specialArgs = { inherit inputs outputs; };
-          modules = [
-            ./hosts/portal
-          ];
-        };
-        # Cloud server template (docs/cloud.md)
-        vps = nixpkgs.lib.nixosSystem {
-          specialArgs = { inherit inputs outputs; };
-          modules = [
-            ./hosts/vps
-          ];
-        };
-        # Offline installer for desktop/laptop: nix build .#installer-iso
-        installer = nixpkgs.lib.nixosSystem {
-          system = "x86_64-linux";
-          specialArgs = { inherit inputs outputs; };
-          modules = [
-            ./hosts/installer
-          ];
-        };
+        moon = mkHost { host = "moon"; };
+        vps = mkHost { host = "vps"; }; # cloud server template (docs/cloud.md)
       };
     };
 }

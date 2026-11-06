@@ -10,7 +10,7 @@
   stylix = with pkgs; {
     enable = true;
     targets.qt.platform = lib.mkForce "qtct";
-    image = ../../../home/flodet/_shared/components/stylix/planets-3440x1440.png;
+    image = ../../../home/flodet/_shared/assets/share/backgrounds/planets-3440x1440.png;
     base16Scheme = "${pkgs.base16-schemes}/share/themes/dracula.yaml";
     polarity = "dark";
     fonts = {

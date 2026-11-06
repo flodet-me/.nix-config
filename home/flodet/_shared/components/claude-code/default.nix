@@ -6,7 +6,10 @@
 }:
 # Declarative Claude Code plugins, skills and MCP servers, see
 # docs/claude-code.md. ~/.claude/settings.json stays a normal writable file
-# (Claude Code writes to it); activation only merges the keys below into it.
+# (Claude Code writes to it); every activation (install, switch) merges
+# ./settings.json and the plugin keys below into it, so those keys are owned
+# by Nix: changes made in Claude Code (/model, /permissions) to them are
+# reverted on the next switch. Other keys stay Claude's.
 # The system half (claude-code itself, nix-ld libs for npm-downloaded
 # browsers) is hosts/_shared/components/claude-code.nix.
 let
@@ -16,6 +19,7 @@ let
     ponytail = "DietrichGebert/ponytail";
     addy-agent-skills = "addyosmani/agent-skills";
     frontend-slides = "zarazhangrui/frontend-slides";
+    ecc = "affaan-m/ecc";
   };
 
   # Plugins as <plugin>@<marketplace>. `claude-plugins-official` is built in.
@@ -25,6 +29,7 @@ let
     "mattpocock-skills@claude-plugins-official" # grill-me & co.
     "frontend-slides@frontend-slides"
     "rust-analyzer-lsp@claude-plugins-official"
+    "ecc@ecc" # large: ~300 skills, ~70 agents, Node hooks on every tool call
   ];
 
   # Non-sensitive plugin options (what /plugin configure stores).
@@ -49,16 +54,19 @@ let
   python = pkgs.python3.withPackages (ps: [ ps.python-pptx ]); # frontend-slides PPTX import
 
   managedSettings = pkgs.writeText "claude-managed-settings.json" (
-    builtins.toJSON {
-      extraKnownMarketplaces = lib.mapAttrs (_: repo: {
-        source = {
-          source = "github";
-          inherit repo;
-        };
-      }) marketplaces;
-      enabledPlugins = lib.genAttrs plugins (_: true);
-      inherit pluginConfigs;
-    }
+    builtins.toJSON (
+      lib.importJSON ./settings.json
+      // {
+        extraKnownMarketplaces = lib.mapAttrs (_: repo: {
+          source = {
+            source = "github";
+            inherit repo;
+          };
+        }) marketplaces;
+        enabledPlugins = lib.genAttrs plugins (_: true);
+        inherit pluginConfigs;
+      }
+    )
   );
 
   # Downloads/installs everything declared above; every step is idempotent.

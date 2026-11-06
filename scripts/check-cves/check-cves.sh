@@ -4,7 +4,7 @@
 # Exits 1 if anything at or above --min-cvss is found that isn't listed in
 # security/vulnix-whitelist.toml. Used locally and by .github/workflows/security.yml.
 #
-# usage: check-cves [--min-cvss 7] [--markdown] [host...]   (default: all x86_64 hosts)
+# usage: check-cves [--min-cvss 7] [--markdown] [host...]   (default: all hosts of this architecture)
 
 min_cvss=7
 markdown=no
@@ -37,7 +37,7 @@ system=$(nix eval --impure --raw --expr builtins.currentSystem)
 
 if [[ ${#hosts[@]} -eq 0 ]]; then
   mapfile -t hosts < <(nix eval --json .#nixosConfigurations --apply \
-    "cs: builtins.filter (n: n != \"installer\" && cs.\${n}.pkgs.stdenv.hostPlatform.system == \"$system\") (builtins.attrNames cs)" |
+    "cs: builtins.filter (n: cs.\${n}.pkgs.stdenv.hostPlatform.system == \"$system\") (builtins.attrNames cs)" |
     jq -r '.[]')
 fi
 

@@ -46,22 +46,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - host: desktop
-          - host: laptop
-          - host: moon
-          - host: vps
-          # portal targets aarch64-linux (Raspberry Pi 3); GitHub runners are
-          # x86_64, so it is evaluated (dry-run) rather than built under QEMU.
-          # To build it for real: add a QEMU step (docker/setup-qemu-action),
-          # set `extra-platforms = aarch64-linux` in extra-conf, and drop the
-          # dry-run flag below.
-          - host: portal
-            dry-run: true
+        host: [desktop, laptop, moon, vps]
     steps:
       - name: Free disk space
         # The x86 workstation closures are large; reclaim runner space first.
-        if: ${{ !matrix.dry-run }}
         uses: jlumbroso/free-disk-space@main
         with:
           tool-cache: true
@@ -76,10 +64,4 @@ jobs:
 
       - name: Build ${{ matrix.host }}
         run: |
-          attr=".#nixosConfigurations.${{ matrix.host }}.config.system.build.toplevel"
-          if [ -n "${{ matrix.dry-run }}" ]; then
-            echo "::notice::${{ matrix.host }} is aarch64-linux — evaluating (dry-run) instead of building under emulation"
-            nix build --dry-run "$attr"
-          else
-            nix build --print-build-logs "$attr"
-          fi
+          nix build --print-build-logs ".#nixosConfigurations.${{ matrix.host }}.config.system.build.toplevel"
