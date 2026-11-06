@@ -13,6 +13,12 @@
 
     ./hardware-configuration.nix
     ../_shared/global.nix
+    ../_shared/users/flodet/workstation.nix
+    (import ../_shared/components/impermanence/disko.nix {
+      device = "/dev/disk/by-id/nvme-Samsung_SSD_980_PRO_1TB_S5GXNF0R540542W";
+      swapSize = "32G";
+    })
+    ../_shared/components/impermanence
     ../_shared/components/silentboot.nix
     ../_shared/components/nvidia-graphics-driver.nix
     ../_shared/components/nvidia-cuda.nix
@@ -23,6 +29,8 @@
     ../_shared/components/yubikey-gpg.nix
     ../_shared/components/gaming.nix
     ../_shared/components/vpn-fernuni-hagen.nix
+    ../_shared/components/mullvad-vpn.nix
+    ../_shared/components/server-access.nix
     ../_shared/components/stylix.nix
   ];
 
@@ -32,8 +40,9 @@
 
   boot.loader.efi.canTouchEfiVariables = true;
 
-  boot.initrd.luks.devices."luks-685d8ba3-23e2-4cad-af5a-33f9ce9bae50".device =
-    "/dev/disk/by-uuid/684d8ba3-23e2-4cad-af5a-33f9ce9bae50";
+  # qemu-vm replaces videoDrivers, hiding the nvidia driver (VM tests only)
+  virtualisation.vmVariantWithDisko.hardware.nvidia-container-toolkit.suppressNvidiaDriverAssertion =
+    true;
 
   hardware.keyboard.qmk.enable = true;
   services.udev.packages = [
@@ -61,11 +70,6 @@
 
   # Enable CUPS to print documents.
   services.printing.enable = true;
-
-  services.mullvad-vpn = {
-    enable = true;
-    gui.enable = true;
-  };
 
   virtualisation.docker = {
     enable = true;

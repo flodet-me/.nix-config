@@ -12,13 +12,25 @@ nix develop            # on a configured system with flakes enabled
 nix-shell              # on a blank NixOS install (bootstraps the same tooling)
 # direnv (.envrc: `use flake`) enters the shell automatically on cd.
 
-# Apply a NixOS host config (host = desktop | laptop | moon | portal)
+# Apply a NixOS host config (host = desktop | laptop | moon | portal | vps)
 nixos-rebuild switch --flake .#<HOST>
 # Build without switching (nom = nix-output-monitor, in the dev shell):
 nixos-rebuild build --flake .#<HOST> |& nom
 
 # Format all Nix files (RFC style, this repo's `formatter`)
 nixfmt **/*.nix        # or: nix fmt
+
+# Workflow scripts (dev shell, sources in scripts/):
+make-installer-stick                       # build offline installer ISO, write+verify USB stick
+installer-vm [--boot]                      # try the installer in QEMU
+sops-register-host [--server] <host> <age-pubkey>   # add a host key, re-encrypt
+provision-server <host> root@<ip>          # first install of a cloud server
+check-cves [host...]                       # known CVEs in what the hosts run (docs/security-updates.md)
+claude-plugins-sync                        # (desktop/laptop user profile) install declared Claude Code plugins
+# Deploy to a server
+nixos-rebuild switch --flake .#<server> --target-host <server> --sudo
+# Boot any impermanent host in a VM (LUKS passphrase: disko)
+nix run .#nixosConfigurations.<HOST>.config.system.build.vmWithDisko
 
 # Update flake inputs
 nix flake update       # all inputs
@@ -27,9 +39,10 @@ nix flake lock --update-input nixpkgs   # single input
 
 ## Architecture
 
-**Entry point is `flake.nix`.** It defines four `nixosConfigurations`:
-`desktop`, `laptop` (full graphical workstations) and `moon`, `portal` (headless
-servers). `inputs` and `outputs` (`self`) are threaded to every module via
+**Entry point is `flake.nix`.** It defines `nixosConfigurations`:
+`desktop`, `laptop` (full graphical workstations), `moon`, `portal` (headless
+home servers), `vps` (cloud server template, `docs/cloud.md`) and `installer`
+(offline installer ISO, `docs/installer.md`). `inputs` and `outputs` (`self`) are threaded to every module via
 `specialArgs`/`extraSpecialArgs`, so modules can reference `inputs.<flake>` and
 `outputs.overlays` directly.
 
@@ -67,18 +80,40 @@ unstable default), plus `additions` (custom packages from `pkgs/`, currently
 empty) and `modifications` (patched packages). All overlays are applied in
 `hosts/_shared/global.nix`.
 
+## Impermanence
+
+`desktop` and `laptop` use btrfs on LUKS (layout declared with disko) and replace
+the root subvolume with an empty one on every boot. Only `/nix`, `/home`, `/boot`
+and paths declared in `hosts/_shared/components/impermanence/default.nix`
+(stored in `/persist`) survive. When enabling a NixOS service that keeps state
+under `/var/lib` or `/etc`, add that path to the persist list. See
+`docs/impermanence.md`.
+
 ## Secrets (sops-nix)
 
-Secrets are SOPS-encrypted and decrypted at activation time via sops-nix.
-`.sops.yaml` defines the encryption rules:
+Secrets are SOPS-encrypted and decrypted at activation time via sops-nix,
+**system-level only** (no home-manager sops). `.sops.yaml` has a single key
+group per file, so any one recipient decrypts: flodet's **PGP** key (YubiKey,
+admin) plus one **age** key per host, stored at
+`/persist/var/lib/sops-nix/key.txt` (impermanent hosts) or
+`/var/lib/sops-nix/key.txt`. Workstation secrets are declared in
+`hosts/_shared/users/flodet/workstation.nix` (user-session ones with `owner = "flodet"`)
+and and read from
+home-manager via `osConfig.sops.secrets.<name>.path`. Never reference a secret's
+value in Nix, only its path. Servers get their own rule and only read
+`hosts/<server>/secrets.yaml` (add hosts with `sops-register-host [--server]`). `checks.<system>.sops-encrypted` (also in CI)
+fails on plaintext in `*secrets.yaml`.
 
-- `home/**/secrets.{yaml,json,env,ini}` → encrypted to flodet's **PGP** key + the desktop **age** key.
-- `hosts/_shared/**/secrets.{yaml,json,env,ini}` → encrypted to the desktop **age** key only.
+Edit secrets with `sops <path/to/secrets.yaml>` from inside the dev shell. See
+`docs/secrets.md` (incl. adding a host) and `docs/yubikey.md`. YubiKey/GPG is
+used for auth (`yubikey-gpg.nix` exists in both trees).
 
-Host age keys are derived from the machine's SSH host key (`ssh-to-age`). Edit
-secrets with `sops <path/to/secrets.yaml>` from inside the dev shell. See
-`docs/secrets.md` and `docs/yubikey.md`. YubiKey/GPG is used for auth
-(`yubikey-gpg.nix` exists in both trees).
+## Claude Code plugins
+
+Plugins/skills are declared in `home/flodet/_shared/components/claude-code/default.nix`;
+activation merges them into the (writable) `~/.claude/settings.json`, and
+`claude-plugins-sync` downloads them. When adding one, also document it in
+`docs/claude-code.md`.
 
 ## Conventions
 

@@ -1,18 +1,24 @@
 keys:
-  - &users:
-    - &flodet EA6BC2582018ACD653426615532B59762527E7DF
-  - &hosts:
-    - &desktop age1kpsvx5463u959skkzu4apzlpwr9pjafmczwh3xx8uc90nqpj6cgslv7d34
+  # Admin: OpenPGP key on the YubiKey. Can decrypt every file, so it is used to
+  # edit secrets and to re-encrypt them for new hosts (`sops updatekeys`).
+  - &flodet EA6BC2582018ACD653426615532B59762527E7DF
+  # Hosts: age key at /persist/var/lib/sops-nix/key.txt (or
+  # /var/lib/sops-nix/key.txt without impermanence), generated on that host.
+  # Print it with `sudo age-keygen -y <keyfile>`. See docs/secrets.md.
+  - &desktop age1kpsvx5463u959skkzu4apzlpwr9pjafmczwh3xx8uc90nqpj6cgslv7d34
+  # - &laptop age1...
+  # Offline backup key (paper / password manager), for when the YubiKey is lost.
+  # - &backup age1...
 
 creation_rules:
-  - path_regex:  home/.*/secrets.(yaml|json|env|ini)$
-    key_groups:
-    - pgp:
-      - *flodet
-    - age:
-      - *desktop
+  # Server rules (hosts/<server>/secrets.yaml, readable by that server only)
+  # are inserted here by `sops-register-host --server`.
 
-  - path_regex:  hosts/_shared/.*/secrets.(yaml|json|env|ini)$
+  # Workstations (and flodet) read the shared secrets. A single key group:
+  # any ONE of these keys can decrypt.
+  - path_regex: (hosts/_shared|home)/.*secrets\.(yaml|json|env|ini)$
     key_groups:
-    - age:
-      - *desktop
+      - pgp:
+          - *flodet
+        age:
+          - *desktop

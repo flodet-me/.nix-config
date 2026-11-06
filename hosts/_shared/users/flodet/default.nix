@@ -26,18 +26,10 @@ in
       "podman"
       "vboxusers"
     ];
+    # TODO: flodet-password currently holds a plaintext password, but this
+    # needs a hash (`mkpasswd -m yescrypt`). Replace the secret first, see
+    # docs/secrets.md, or the user ends up without a usable password.
     # hashedPasswordFile = config.sops.secrets.flodet-password.path;
     password = "123456789";
   };
-
-  sops = {
-    age.keyFile = "/home/flodet/.config/sops/age/keys.txt";
-    defaultSopsFile = ./secrets.yaml;
-    secrets.flodet-password = {
-      sopsFile = ./secrets.yaml;
-      neededForUsers = true;
-    };
-
-  };
-
 }

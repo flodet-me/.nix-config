@@ -1,6 +1,7 @@
 {
   pkgs,
   config,
+  osConfig,
   inputs,
   ...
 }:
@@ -15,12 +16,10 @@
     BROWSER = "firefox";
     TERMINAL = "foot";
     NIXOS_OZONE_WL = "1";
-    HOME_LOCATION = "$(cat ${config.sops.secrets.home-location.path})";
-    WEATHER_API_KEY = "$(cat ${config.sops.secrets.weather-api-key.path})";
+    # Secrets are declared system-wide in hosts/_shared/users/flodet
+    HOME_LOCATION = "$(cat ${osConfig.sops.secrets.home-location.path})";
+    WEATHER_API_KEY = "$(cat ${osConfig.sops.secrets.weather-api-key.path})";
   };
-
-  sops.secrets.home-location.path = "${config.sops.defaultSymlinkPath}/home-location";
-  sops.secrets.weather-api-key.path = "${config.sops.defaultSymlinkPath}/weather-api-key";
 
   home.file.".config/hypr/hyprland.conf".source = ./hyprland.conf;
   home.file.".config/hypr/tab.sh".source = ./tab.sh;

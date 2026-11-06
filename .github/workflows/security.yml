@@ -1,0 +1,64 @@
+name: security
+
+# Weekly: open a PR with updated flake inputs (security fixes arrive through
+# nixpkgs updates) and scan what the hosts run for known CVEs. A failed run
+# means there are CVEs with CVSS >= 7 that aren't whitelisted: GitHub notifies
+# you. See docs/security-updates.md.
+on:
+  schedule:
+    - cron: "17 5 * * 1" # Monday 05:17 UTC
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: true
+
+jobs:
+  update:
+    name: flake.lock update PR
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: DeterminateSystems/nix-installer-action@main
+
+      - uses: DeterminateSystems/update-flake-lock@main
+        with:
+          pr-title: "flake.lock: weekly update"
+          pr-labels: dependencies
+          # PRs opened with the default token don't trigger the build workflow.
+          # A fine-grained token (contents + pull requests: write) in the
+          # FLAKE_UPDATE_TOKEN secret makes CI build the update PR.
+          token: ${{ secrets.FLAKE_UPDATE_TOKEN || github.token }}
+
+  cves:
+    name: CVEs in ${{ matrix.host }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        host: [desktop, laptop, moon, vps]
+    steps:
+      - name: Free disk space
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: true
+
+      - uses: actions/checkout@v4
+
+      - uses: DeterminateSystems/nix-installer-action@main
+        with:
+          extra-conf: |
+            extra-substituters = https://nix-community.cachix.org
+            extra-trusted-public-keys = nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCYg3Fs=
+
+      - name: Scan ${{ matrix.host }}
+        run: |
+          echo "### ${{ matrix.host }}: CVEs with CVSS >= 7" >> "$GITHUB_STEP_SUMMARY"
+          set -o pipefail
+          nix run .#check-cves -- --markdown ${{ matrix.host }} | tee -a "$GITHUB_STEP_SUMMARY"

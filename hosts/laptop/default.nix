@@ -10,6 +10,13 @@
     inputs.hardware.nixosModules.lenovo-thinkpad-t480
     ./hardware-configuration.nix
     ../_shared/global.nix
+    ../_shared/users/flodet/workstation.nix
+    # Device is only used when formatting; check `lsblk` on the laptop first.
+    (import ../_shared/components/impermanence/disko.nix {
+      device = "/dev/nvme0n1";
+      swapSize = "16G";
+    })
+    ../_shared/components/impermanence
     ../_shared/components/silentboot.nix
     ../_shared/components/pipewire.nix
     ../_shared/components/wireshark.nix
@@ -17,6 +24,8 @@
     ../_shared/components/yubikey-gpg.nix
     ../_shared/components/cli-defaults.nix
     ../_shared/components/vpn-fernuni-hagen.nix
+    ../_shared/components/mullvad-vpn.nix
+    ../_shared/components/server-access.nix
     ../_shared/components/stylix.nix
   ];
 
@@ -32,9 +41,6 @@
 
   boot.loader.efi.canTouchEfiVariables = true;
 
-  boot.initrd.luks.devices."luks-d097a819-f605-4012-9aa0-88c17e095ed0".device =
-    "/dev/disk/by-uuid/d097a819-f605-4012-9aa0-88c17e095ed0";
-
   networking.hostName = "laptop"; # Define your hostname.
 
   # Enable networking
@@ -42,11 +48,6 @@
 
   # Enable CUPS to print documents.
   services.printing.enable = true;
-
-  services.mullvad-vpn = {
-    enable = true;
-    gui.enable = true;
-  };
 
   virtualisation.docker = {
     enable = true;

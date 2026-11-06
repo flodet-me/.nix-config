@@ -35,6 +35,11 @@ jobs:
           fmt="$(nix build ".#formatter.$sys" --no-link --print-out-paths)"
           git ls-files '*.nix' | xargs "$fmt/bin/nixfmt" --check
 
+      - name: Check secrets are encrypted
+        run: |
+          sys="$(nix eval --impure --raw --expr builtins.currentSystem)"
+          nix build --print-build-logs ".#checks.$sys.sops-encrypted"
+
   build:
     name: build ${{ matrix.host }}
     runs-on: ubuntu-latest
@@ -45,6 +50,7 @@ jobs:
           - host: desktop
           - host: laptop
           - host: moon
+          - host: vps
           # portal targets aarch64-linux (Raspberry Pi 3); GitHub runners are
           # x86_64, so it is evaluated (dry-run) rather than built under QEMU.
           # To build it for real: add a QEMU step (docker/setup-qemu-action),

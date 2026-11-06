@@ -7,7 +7,6 @@
   imports = [
     ./components/firefox.nix
     ./components/vscode.nix
-    ./components/mullvad-vpn
     ./assets
   ];
 

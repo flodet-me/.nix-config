@@ -2,6 +2,7 @@
 {
   inputs,
   outputs,
+  lib,
   ...
 }:
 {
@@ -13,6 +14,15 @@
     ./components/nix-ld.nix
     ./users/flodet
   ];
+
+  # Each host decrypts with its own age key, generated on first activation if
+  # missing; its public key must then be added to .sops.yaml (docs/secrets.md).
+  sops.age = {
+    keyFile = lib.mkDefault "/var/lib/sops-nix/key.txt";
+    generateKey = true;
+    sshKeyPaths = [ ];
+  };
+  sops.gnupg.sshKeyPaths = [ ];
 
   nixpkgs = {
     overlays = builtins.attrValues outputs.overlays;

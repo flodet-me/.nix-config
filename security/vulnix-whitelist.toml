@@ -1,0 +1,14 @@
+# CVEs that `check-cves` should not report, each with a reason. Only add
+# entries after checking them (docs/security-updates.md). vulnix matches by
+# package name, so false positives for unrelated software with the same name
+# are common.
+#
+# Format (https://github.com/nix-community/vulnix#whitelisting):
+#
+# ["git"]
+# cve = ["CVE-2021-21684"]
+# comment = "Jenkins git plugin, not git itself"
+#
+# ["somepkg-1.2"]            # version-specific; remove after upgrading
+# until = "2026-12-31"       # re-check after this date
+# comment = "not exploitable here: feature X is not used"

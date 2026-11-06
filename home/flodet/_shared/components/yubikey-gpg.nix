@@ -34,7 +34,8 @@
       require-cross-certification = true;
       no-symkey-cache = true;
       use-agent = true;
-      throw-keyids = true;
+      # No `throw-keyids`: anonymous recipients make the YubiKey fail to decrypt
+      # sops files ("Invalid ID"), and sops stores the key fingerprint anyway.
     };
   };
 
