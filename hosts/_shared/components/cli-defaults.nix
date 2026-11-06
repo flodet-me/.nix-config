@@ -1,6 +1,17 @@
-{ config, pkgs, ... }:
+{
+  inputs,
+  pkgs,
+  ...
+}:
 
 {
+  imports = [ inputs.nix-index-database.nixosModules.nix-index ];
+
+  # Prebuilt package index: `nix-locate bin/foo`, `, foo` runs foo once
+  # without installing it, and a missing command says which package has it.
+  # Workstations only: the index is ~190 MB.
+  programs.nix-index-database.comma.enable = true;
+
   environment.systemPackages = with pkgs; [
     # CLI Tools and more
     fastfetch

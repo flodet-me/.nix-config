@@ -23,6 +23,7 @@
     ../_shared/components/gnome.nix
     ../_shared/components/yubikey-gpg.nix
     ../_shared/components/firmware-updates.nix
+    ../_shared/components/workstation-health.nix
     ../_shared/components/libvirt.nix
     ../_shared/components/claude-code.nix
     ../_shared/components/cli-defaults.nix

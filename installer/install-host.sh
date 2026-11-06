@@ -62,6 +62,18 @@ step "Partitioning and formatting (you will be asked for the new LUKS passphrase
 disko --mode destroy,format,mount --yes-wipe-all-disks --flake "$work#$host"
 mountpoint -q /mnt/persist || die "/mnt/persist is not mounted after disko"
 
+if [[ -e /dev/mapper/crypted ]]; then
+  step "Optional: unlock the disk with a YubiKey (FIDO2 + PIN)"
+  echo "The passphrase you just set stays valid as a fallback. The key needs a FIDO2 PIN"
+  echo "(set one first if missing: ykman fido access change-pin)."
+  luks_dev=$(cryptsetup status crypted | awk '/device:/ {print $2}')
+  while ask "Enroll a YubiKey now? (passphrase, then PIN, then touch)"; do
+    systemd-cryptenroll --fido2-device=auto --fido2-with-client-pin=yes \
+      --fido2-with-user-presence=yes "$luks_dev" ||
+      echo "WARNING: enrolling failed (see above); the passphrase still works"
+  done
+fi
+
 step "Generating the sops host key"
 keyfile=/mnt/persist/var/lib/sops-nix/key.txt
 install -d -m 700 "$(dirname "$keyfile")"

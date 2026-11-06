@@ -32,7 +32,11 @@ Config: `hosts/_shared/components/impermanence/` (`disko.nix` = disk layout,
 
 - btrbk snapshots `/home` hourly into `/.snapshots` (kept: all for 2 days, then
   48 hourly, 14 daily, 4 weekly). Restore by copying out of
-  `/.snapshots/home.<timestamp>/`. These are not backups: same disk.
+  `/.snapshots/home.<timestamp>/`. These are not backups: same disk. To also
+  send them to another disk or machine (btrfs send/receive, incremental), set
+  `impermanence.sendSnapshotsTo = "/run/media/.../backup";` or
+  `"ssh://moon/mnt/backup/laptop";` in the host (off by default; the target
+  needs btrfs and, for ssh, a btrbk-capable key).
 - Deleted files in `/home` only free space once the last snapshot holding them
   expires (up to ~4 weeks).
 - `btrfs scrub` runs monthly (`btrfs-scrub@-.timer`); check results with

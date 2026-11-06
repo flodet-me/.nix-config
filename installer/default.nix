@@ -38,6 +38,9 @@ let
       gnupg
       git
       util-linux
+      cryptsetup
+      systemd
+      gawk
       gnused
       gnugrep
       findutils

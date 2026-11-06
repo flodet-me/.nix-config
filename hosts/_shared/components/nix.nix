@@ -7,8 +7,6 @@ let
   flakeInputs = lib.filterAttrs (_: lib.isType "flake") inputs;
 in
 {
-  imports = [ inputs.nix-index-database.nixosModules.nix-index ];
-
   nix = {
     settings = {
       trusted-users = [
@@ -44,8 +42,4 @@ in
       extraArgs = "--keep 5 --keep-since 30d";
     };
   };
-
-  # Prebuilt package index: `nix-locate bin/foo`, `, foo` runs foo once
-  # without installing it, and a missing command says which package has it.
-  programs.nix-index-database.comma.enable = true;
 }

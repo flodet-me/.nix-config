@@ -34,6 +34,13 @@ in
   # server/backup.nix) without listing it here.
   options.impermanence.persistVarLib = lib.mkEnableOption "persisting all of /var/lib instead of a curated list";
 
+  options.impermanence.sendSnapshotsTo = lib.mkOption {
+    type = lib.types.nullOr lib.types.str;
+    default = null;
+    example = "ssh://moon/mnt/backup/laptop";
+    description = "btrbk target (a mounted path or ssh://host/path) that /home snapshots are sent to with btrfs send/receive. Off by default; fails (and logs) while the target is unavailable.";
+  };
+
   config = {
 
     # Read directly from /persist: secrets are decrypted during activation,
@@ -60,6 +67,11 @@ in
         volume."/" = {
           subvolume = "home";
           snapshot_dir = ".snapshots";
+        }
+        // lib.optionalAttrs (config.impermanence.sendSnapshotsTo != null) {
+          target = config.impermanence.sendSnapshotsTo;
+          target_preserve_min = "2d";
+          target_preserve = "14d 8w 12m";
         };
       };
     };
