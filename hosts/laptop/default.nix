@@ -10,6 +10,7 @@
     (import ../_shared/components/impermanence/disko.nix {
       device = "/dev/nvme0n1";
       swapSize = "16G";
+      cacheSubvolume = true;
     })
   ];
 

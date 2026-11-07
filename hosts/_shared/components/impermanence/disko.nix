@@ -5,13 +5,20 @@
 # Usage: (import ../_shared/components/impermanence/disko.nix { device = "/dev/nvme0n1"; swapSize = "32G"; })
 #   encrypt = false   plain btrfs (cloud VMs, see docs/cloud.md)
 #   biosBoot = true   extra BIOS boot partition for GRUB on legacy-BIOS VMs (Hetzner Cloud)
+#   cacheSubvolume = true   ~/.cache on its own subvolume, outside the /home snapshots
 {
   device,
   swapSize, # whole GiB, e.g. "16G"
   encrypt ? true,
   biosBoot ? false,
+  cacheSubvolume ? false,
 }:
-{ inputs, lib, ... }:
+{
+  inputs,
+  lib,
+  config,
+  ...
+}:
 let
   names = import ./names.nix;
   mountOptions = [
@@ -48,11 +55,25 @@ let
         mountpoint = "/swap";
         swap.swapfile.size = swapSize;
       };
+    }
+    // lib.optionalAttrs cacheSubvolume {
+      # ~/.cache on its own subvolume: caches (browsers, JetBrains, npm, NuGet,
+      # ...) churn a lot and can always be rebuilt, so they must not end up in
+      # the /home snapshots (a subvolume mounted inside /home is not part of
+      # the snapshot of /home). Kept across reboots like /home itself.
+      "/cache" = {
+        mountpoint = "/home/${config.host.user}/.cache";
+        inherit mountOptions;
+      };
     };
   };
 in
 {
   imports = [ inputs.disko.nixosModules.disko ];
+
+  # A fresh subvolume belongs to root. The mount is part of local-fs, so this
+  # runs after it, and the change stays on the disk.
+  systemd.tmpfiles.rules = lib.optional cacheSubvolume "d /home/${config.host.user}/.cache 0700 ${config.host.user} users -";
 
   disko.devices.disk.main = {
     type = "disk";

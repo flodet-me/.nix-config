@@ -105,6 +105,13 @@ service that keeps state under `/var/lib` or `/etc` on a workstation, add that
 path to the persist list. Names shared with the installer (LUKS mapper, sops
 key path) live in `impermanence/names.nix`. See `docs/impermanence.md`.
 
+Big, re-creatable data stays out of the `/home` snapshots: `~/.cache` is its own
+subvolume (`cacheSubvolume` in `impermanence/disko.nix`, workstations), and the
+desktop bind-mounts `~/Projects` and `~/Games` from its encrypted second disk
+(`components/data-disk.nix`, `homeBinds`; erased on every install, so projects
+there must be in git). A caller of `data-disk.nix` creates the folders through
+its `directories`/`homeBinds` arguments.
+
 Workstation upkeep (zram, earlyoom, journal and coredump caps, SMART alerts,
 hibernate delay) is in `components/workstation-health.nix`; libvirt, with the
 repair of its secrets key after a reinstall, in `components/libvirt.nix`.

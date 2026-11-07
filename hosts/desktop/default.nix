@@ -17,16 +17,19 @@
     (import ../_shared/components/impermanence/disko.nix {
       device = "/dev/disk/by-id/nvme-Samsung_SSD_980_PRO_1TB_S5GXNF0R540542W";
       swapSize = "32G";
+      cacheSubvolume = true;
     })
-    # Samsung 860 EVO 1 TB (SATA): games and bulk data, erased on every install.
-    # steam: the Steam library (add it once in Steam: Settings > Storage);
-    # games: Lutris/Heroic/Wine games (~/Games points here, home/flodet/desktop).
+    # Samsung 860 EVO 1 TB (SATA), erased on every install: games, projects and
+    # their build output, all re-creatable bulk that stays out of the /home
+    # snapshots. steam: the Steam library (add /data/steam once in Steam:
+    # Settings > Storage). ~/Projects and ~/Games are bind-mounted from here.
     (import ../_shared/components/data-disk.nix {
       disk = "/dev/disk/by-id/ata-Samsung_SSD_860_EVO_1TB_S3Z9NBRK603979F";
-      directories = [
-        "steam"
-        "games"
-      ];
+      directories = [ "steam" ];
+      homeBinds = {
+        Projects = "projects";
+        Games = "games";
+      };
     })
     ../_shared/components/nvidia-graphics-driver.nix
     ../_shared/components/nvidia-cuda.nix

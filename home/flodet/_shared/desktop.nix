@@ -1,4 +1,14 @@
-{ pkgs, ... }:
+{ config, pkgs, ... }:
+let
+  # Caches that default to a dot-directory of their own. ~/.cache is its own
+  # subvolume (impermanence/disko.nix, cacheSubvolume), outside the /home
+  # snapshots, so everything that is only a cache belongs inside it. Set for
+  # shells and, through the systemd user environment, for GNOME apps (Rider).
+  cacheVariables = {
+    NUGET_PACKAGES = "${config.xdg.cacheHome}/nuget"; # dotnet packages, re-downloadable
+    NPM_CONFIG_CACHE = "${config.xdg.cacheHome}/npm";
+  };
+in
 {
   imports = [
     ./components/firefox.nix
@@ -10,6 +20,9 @@
     ./components/easyeffects
     ./desktop-environments/gnome
   ];
+
+  home.sessionVariables = cacheVariables;
+  systemd.user.sessionVariables = cacheVariables;
 
   fonts.fontconfig.enable = true;
 

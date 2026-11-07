@@ -39,7 +39,7 @@ in
 
   options.impermanence.oldRootRetentionDays = lib.mkOption {
     type = lib.types.ints.positive;
-    default = 30;
+    default = 7;
     description = "How many days wiped root subvolumes are kept under /old_roots.";
   };
 

@@ -25,7 +25,7 @@ Config: `hosts/_shared/components/impermanence/` (`disko.nix` = disk layout,
   `impermanence/default.nix`, rebuild, and copy the current contents into
   `/persist/<path>` **before** rebooting.
 - Forgot something? The previous roots are kept for
-  `impermanence.oldRootRetentionDays` (30) days. That includes `/tmp` and
+  `impermanence.oldRootRetentionDays` (7) days. That includes `/tmp` and
   `/root`, so a big temporary file (a VM image, a build) stays on disk for
   that long after a reboot; delete it before rebooting.
   ```sh

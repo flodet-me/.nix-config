@@ -13,14 +13,23 @@
 # The argument is `disk`, not `device`, so that `install-host --disk` only ever
 # changes the system disk.
 # `directories` are created below the mount point, owned by the user.
+# `homeBinds` maps a path in the user's home to a directory on the disk, which
+# is bind-mounted there (and created): { Projects = "projects"; } puts
+# ~/Projects on the data disk. A bind mount instead of a symlink, because a
+# restored backup that contains a real ~/Projects would make a home-manager
+# link fail at activation, while a mount simply covers it. It is `nofail`: with
+# the disk absent, ~/Projects is just an empty directory. The /home snapshots do
+# not contain what is behind a mount.
 # Usage: (import ../_shared/components/data-disk.nix {
 #   disk = "/dev/disk/by-id/...";
-#   directories = [ "steam" "games" ];
+#   directories = [ "steam" ];
+#   homeBinds = { Projects = "projects"; Games = "games"; };
 # })
 {
   disk,
   mountpoint ? "/data",
   directories ? [ ],
+  homeBinds ? { },
 }:
 {
   config,
@@ -32,6 +41,20 @@ let
   names = import ./impermanence/names.nix;
   partlabel = "/dev/disk/by-partlabel/disk-data-luks";
   bootOptions = "nofail,x-systemd.device-timeout=10s";
+  user = config.host.user;
+  allDirectories = lib.unique (directories ++ lib.attrValues homeBinds);
+  binds = lib.mapAttrs' (
+    name: dir:
+    lib.nameValuePair "/home/${user}/${name}" {
+      device = "${mountpoint}/${dir}";
+      fsType = "none";
+      options = [
+        "bind"
+        "nofail"
+        "x-systemd.requires-mounts-for=${mountpoint}"
+      ];
+    }
+  ) homeBinds;
 in
 {
   disko.devices.disk.data = {
@@ -57,6 +80,10 @@ in
               "nofail"
               "x-systemd.device-timeout=10s"
             ];
+            # The folders must exist before the first boot mounts them
+            postMountHook = lib.concatMapStrings (
+              d: "mkdir -p '${config.disko.rootMountPoint}${mountpoint}/${d}'\n"
+            ) allDirectories;
           };
         };
       };
@@ -66,6 +93,8 @@ in
   environment.etc.crypttab.text = ''
     ${names.dataLuks} ${partlabel} ${names.dataKey} luks,discard,${bootOptions}
   '';
+
+  fileSystems = binds;
 
   # The top directory of a fresh filesystem belongs to root. This cannot be a
   # tmpfiles rule: those run early at boot, before this disk is unlocked and
@@ -84,7 +113,7 @@ in
       ]
       ++ map (
         d: "${pkgs.coreutils}/bin/install -d -m 0755 -o ${config.host.user} -g users ${mountpoint}/${d}"
-      ) directories;
+      ) allDirectories;
     };
   };
 
@@ -92,6 +121,8 @@ in
   # install-host to place a key file: unlock with a key file holding that
   # password. Test only; the key lands in the store.
   virtualisation.vmVariantWithDisko = {
+    # the VM replaces `fileSystems` with the disko ones: pass the binds on
+    virtualisation.fileSystems = binds;
     disko.devices.disk.data.content.partitions.luks.content.passwordFile = lib.mkForce null;
     environment.etc."data-disk-vm.key" = {
       text = "disko";

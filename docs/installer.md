@@ -156,15 +156,28 @@ With that, `sudo cryptsetup open /dev/disk/by-partlabel/disk-data-luks data-cryp
 the passphrase open it by hand on any machine. In a `vmWithDisko` VM the disk
 uses the password `disko` (test only).
 
-**Games on the desktop:** `/data/steam` is the Steam library (add it once in Steam:
-Settings → Storage → add drive/folder; Steam stores that choice in its config in
-`/home`) and `/data/games` holds Lutris, Heroic and Wine games (`~/Games` is a
-link to it, so Lutris's default folder just works). Big and re-downloadable
-things belong on `/data`, not in `/home`: the `/home` snapshots (and
-`impermanence.sendSnapshotsTo`) then stay small. The `~/Games` link itself is in
-the snapshots (a few bytes), the games behind it are not, because `/data` is a
-separate filesystem and links are not followed. Remember that `install-host`
-erases `/data`: a reinstall means downloading the games again.
+**What lives where on the desktop:**
+
+- `/data/steam` is the Steam library. Add it once in Steam: Settings → Storage →
+  add folder (Steam keeps that choice in its config in `/home`).
+- `~/Projects` and `~/Games` are bind mounts of `/data/projects` and `/data/games`
+  (`homeBinds` in `hosts/desktop/default.nix`), so source trees, their build output
+  (Rust `target`, .NET `bin`/`obj`) and Lutris/Heroic/Wine games are on the data
+  disk. A bind mount, not a symlink: a restored backup containing a real
+  `~/Projects` would make a home-manager link fail at activation, while a mount
+  just covers it.
+- `~/.cache` is its own btrfs subvolume (`cacheSubvolume` in the disko layout, on
+  desktop and laptop). NuGet (`NUGET_PACKAGES`) and npm (`NPM_CONFIG_CACHE`) caches
+  are pointed into it.
+- Snapshots: a snapshot of `/home` does not contain what is behind a mount or in
+  another subvolume. So `~/.cache`, the games and all projects are not in the
+  `/home` snapshots (nor in `impermanence.sendSnapshotsTo`); only empty directories
+  are. **Your source code on `/data/projects` is therefore not backed up by
+  anything here**: keep it in git and push, or back `/data` up yourself.
+- `install-host` erases `/data` (everything on it, projects included) and
+  re-creates the empty folders. Restore a backup of your projects into
+  `/mnt/data/projects` during the install pause, not into `/mnt/home/…/Projects`
+  (which would be covered by the mount and invisible).
 
 Like for the desktop: don't `nixos-rebuild switch` a running host onto a disko
 layout; reinstall it.

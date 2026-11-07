@@ -174,7 +174,7 @@ if ask "Register the new key and re-encrypt the secrets now? Needs the YubiKey p
   fi
 fi
 
-if ask "Pause to restore data into /mnt (e.g. rsync a backup into /mnt/home) from another terminal?"; then
+if ask "Pause to restore data into /mnt (e.g. rsync a backup into /mnt/home; a host with a data disk keeps its projects under /mnt/data) from another terminal?"; then
   read -r -p "Press Enter when done. "
 fi
 
