@@ -6,5 +6,5 @@ creation_rules:
       - pgp:
           - EA6BC2582018ACD653426615532B59762527E7DF
         age:
-          - age1kpsvx5463u959skkzu4apzlpwr9pjafmczwh3xx8uc90nqpj6cgslv7d34 # desktop
+          - age1gqkaw44ju8t0g9ad3zrpy7mw9vx3024yqlgac7qkpq0ahnflkfys6hr7gn # desktop
           - age1v9j0sd7vw8upvrq08r3ew5lgu9gjh0mqj00cjuret6u6qz5pgcfshg6w8u # laptop
