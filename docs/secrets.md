@@ -29,7 +29,6 @@ Files:
 
 | File                                           | Contents                                                  |
 | ---------------------------------------------- | --------------------------------------------------------- |
-| `hosts/_shared/users/flodet/secrets.yaml`      | `flodet-password` (needed for users)                      |
 | `hosts/_shared/users/flodet/user-secrets.yaml` | `mullvad-account-key`, `home-location`, `weather-api-key` |
 | `hosts/<server>/secrets.yaml`                  | that server's secrets (`docs/cloud.md`)                   |
 
@@ -88,12 +87,6 @@ Invalid ID`. The prompt goes to the terminal/display gpg-agent last saw.
 
 ## Further hardening (not done yet)
 
-- **Login password from sops.** `flodet-password` holds a plaintext password,
-  but `hashedPasswordFile` needs a hash. Run `mkpasswd -m yescrypt`, store the
-  output with `sops hosts/_shared/users/flodet/secrets.yaml`, then enable
-  `hashedPasswordFile` and remove `password` in
-  `hosts/_shared/users/flodet/default.nix`. Test in a VM first: with
-  `mutableUsers = false` a broken secret means no login.
 - **Backup recipient.** Losing the YubiKey means no one can edit secrets or add
   hosts. Create an offline key (`age-keygen`), keep the private part on paper or
   in a password manager, add `age <public key>` to `keys/admins`, `sops-sync`.

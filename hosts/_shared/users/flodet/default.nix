@@ -26,10 +26,10 @@ in
       "podman"
       "vboxusers"
     ];
-    # TODO: flodet-password currently holds a plaintext password, but this
-    # needs a hash (`mkpasswd -m yescrypt`). Replace the secret first, see
-    # docs/secrets.md, or the user ends up without a usable password.
-    # hashedPasswordFile = config.sops.secrets.flodet-password.path;
+    # Deliberately simple: the login password only protects the screen lock and
+    # sudo at the keyboard (sshd is off on the workstations, and servers have no
+    # password at all, see server/default.nix). What protects the data is the
+    # LUKS disk encryption (passphrase or YubiKey FIDO2, docs/installer.md).
     password = "123456789";
   };
 }

@@ -25,6 +25,11 @@ in
         "nixos-test"
       ];
       flake-registry = ""; # Disable global flake registry
+
+      # Garbage-collect during a build when the disk runs low, instead of failing
+      # with "No space left on device" half way.
+      min-free = 5 * 1024 * 1024 * 1024;
+      max-free = 20 * 1024 * 1024 * 1024;
     };
     # Add each flake input as a registry and nix_path
     registry = lib.mapAttrs (_: flake: { inherit flake; }) flakeInputs;

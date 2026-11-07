@@ -10,6 +10,10 @@
     ./assets
   ];
 
+  # rofi is not used; the stylix target still sets the renamed
+  # programs.rofi.font (evaluation warning)
+  stylix.targets.rofi.enable = false;
+
   home.packages = with pkgs; [
     spotify
     vlc
@@ -40,5 +44,8 @@
     veracrypt
 
     jetbrains.rider
+
+    # API client (HTTP, gRPC); collections are plain files that go in git
+    bruno
   ];
 }
