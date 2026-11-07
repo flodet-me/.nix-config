@@ -114,9 +114,6 @@ in
                   type = "luks";
                   name = names.luks;
                   settings.allowDiscards = true;
-                  # YubiKey (FIDO2) unlock if one was enrolled by install-host; with
-                  # none enrolled or plugged in, systemd falls back to the passphrase.
-                  settings.crypttabExtraOpts = [ "fido2-device=auto" ];
                   content = btrfs;
                 };
               };

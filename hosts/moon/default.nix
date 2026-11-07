@@ -15,7 +15,7 @@
     ../_shared/global.nix
     ../_shared/components/server
     # Unencrypted: an unattended home server must come back after a power cut
-    # without someone typing a passphrase (TPM2 unlock: docs/cloud.md).
+    # without someone typing a passphrase.
     (import ../_shared/components/impermanence/disko.nix {
       # TODO: check with `ls -l /dev/disk/by-id` on moon, or pass --disk to install-host
       device = "/dev/sda";

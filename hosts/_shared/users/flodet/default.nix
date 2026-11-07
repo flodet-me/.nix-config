@@ -30,7 +30,7 @@ in
     # Deliberately simple: the login password only protects the screen lock and
     # sudo at the keyboard (sshd is off on the workstations, and servers have no
     # password at all, see server/default.nix). What protects the data is the
-    # LUKS disk encryption (passphrase or YubiKey FIDO2, docs/installer.md).
+    # LUKS disk encryption (passphrase at boot, docs/installer.md).
     password = "123456789";
   };
 }

@@ -225,9 +225,9 @@ cannot hibernate; use a store image instead (`virtualisation.useNixStoreImage`,
    `/persist/etc/data-disk.key` and `cryptsetup open --test-passphrase` the data disk.
 3. Drive it with `expect`: wait for `nixos@nixos:~]$`, run
    `sudo install-host <host> [--disk /dev/nvme0n1]`, then answer in order: the
-   host name, the LUKS passphrase (encrypted hosts only), `Enroll a YubiKey now`
-   (`n`), `Register the new key` (`n`: there is no YubiKey in a VM), `Pause to
-   restore` (`n`), wait for `Done. Reboot`. Afterwards `findmnt -R /mnt` and
+   host name, the LUKS passphrase (encrypted hosts only), `Register the new key`
+   (`n`: there is no YubiKey in a VM), `Pause to restore` (`n`), wait for
+   `Done. Reboot`. Afterwards `findmnt -R /mnt` and
    `ls /dev/mapper` must show nothing mounted and no open LUKS device.
    Write every `expect { ... }` block over several lines: a one-line
    `expect { "text" { send "x\r" } }` is taken as a single pattern and the
@@ -279,7 +279,8 @@ normal: stop after the "abort after" time and debug the script, not the repo.
 verify every claim they make before acting on it; two of them were wrong about
 `programs.xwayland` and `nvidia-drm.modeset` here, which the closure diff showed.
 
-**Cannot be tested here:** YubiKey and FIDO2 unlock, real hardware (SMART,
+**Cannot be tested here:** anything that needs the YubiKey (signing, SSH,
+sops registration), real hardware (SMART,
 hibernate resume, the laptop's NVMe), the `update` workflow job, and anything
 that needs `sudo`.
 

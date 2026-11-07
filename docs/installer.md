@@ -38,7 +38,6 @@ changes; for secrets it doesn't matter (see "After the install").
    before erasing them, then:
    - formats them (encrypted hosts, desktop and laptop, ask for the new disk
      passphrase; moon and vps are unencrypted),
-   - offers to enroll a YubiKey for disk unlock (see below),
    - generates the host's sops key in `/persist/var/lib/sops-nix/key.txt`,
    - asks `Register the new key ...? [y/N]`: Enter means no, and the secrets
      are then missing until you run `sops-sync` later. With `y`: registers it
@@ -50,19 +49,9 @@ changes; for secrets it doesn't matter (see "After the install").
 4. The script unmounts `/mnt`, turns the swap file off and closes the disk, so
    the live system can restart cleanly. Reboot, remove the stick.
 
-### YubiKey disk unlock (desktop, laptop)
-
-After formatting, `install-host` asks `Enroll a YubiKey now?`. With `y` you
-enter the passphrase you just set, then the key's **FIDO2 PIN** (set one first
-with `ykman fido access change-pin`; it is not the OpenPGP PIN), then touch it.
-It asks again, so a second key can be added as a spare. At boot the disk then
-asks for the PIN and a touch. The passphrase stays valid as a fallback, and
-without an enrolled or plugged-in key the prompt is the plain passphrase.
-Later, enroll by hand:
-`sudo systemd-cryptenroll --fido2-device=auto --fido2-with-client-pin=yes /dev/<luks-partition>`.
-The boot side (`crypttabExtraOpts = [ "fido2-device=auto" ]`) is in
-`hosts/_shared/components/impermanence/disko.nix`. Not testable in a VM (no
-YubiKey): try it once with the key unplugged (passphrase prompt), then plugged in.
+The encrypted disks of the workstations are unlocked with the passphrase you
+choose during the install, typed at every boot. The YubiKey is not used for disk
+unlock (it is for signing, SSH and secrets only, docs/yubikey.md).
 
 ## If the install fails
 

@@ -130,18 +130,6 @@ if [[ $has_data == yes ]]; then
   echo "Data disk key stored in @dataKey@ on the encrypted system disk."
 fi
 
-if [[ -e /dev/mapper/@luks@ ]]; then
-  step "Optional: unlock the disk with a YubiKey (FIDO2 + PIN)"
-  echo "The passphrase you just set stays valid as a fallback. The key needs a FIDO2 PIN"
-  echo "(set one first if missing: ykman fido access change-pin)."
-  luks_dev=$(cryptsetup status @luks@ | awk '/device:/ {print $2}')
-  while ask "Enroll a YubiKey now? (passphrase, then PIN, then touch)"; do
-    systemd-cryptenroll --fido2-device=auto --fido2-with-client-pin=yes \
-      --fido2-with-user-presence=yes "$luks_dev" ||
-      echo "WARNING: enrolling failed (see above); the passphrase still works"
-  done
-fi
-
 step "Generating the sops host key"
 keyfile=/mnt@sopsKey@
 install -d -m 700 "$(dirname "$keyfile")"
