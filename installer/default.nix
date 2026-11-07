@@ -123,6 +123,11 @@ in
     "flakes"
   ];
 
+  # No RAID on the target disks. The installer profile enables swraid, whose
+  # mdadm.shutdown hook runs udevadm after the store is gone and fails at
+  # shutdown ("exit status 126", missing libsystemd-shared).
+  boot.swraid.enable = lib.mkForce false;
+
   # nmtui for Wi-Fi instead of wpa_supplicant
   networking.wireless.enable = lib.mkForce false;
   networking.networkmanager.enable = true;
