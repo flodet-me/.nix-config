@@ -26,40 +26,57 @@ nix eval --raw ".#nixosConfigurations.$host.config.networking.hostName" >/dev/nu
   exit 1
 }
 
-tmp=$(mktemp -d)
-cleanup() {
-  find "$tmp" -type f -exec shred -u {} + 2>/dev/null || true
-  rm -rf "$tmp"
-}
-trap cleanup EXIT
-extra="$tmp/extra"
-install -d -m 700 "$extra/persist/var/lib/sops-nix" "$extra/persist/etc/ssh"
-
-echo "==> Generating the server's keys locally"
-sops_key="$extra/persist/var/lib/sops-nix/key.txt"
-(umask 077 && age-keygen -o "$sops_key" 2>/dev/null)
-ssh-keygen -q -t ed25519 -N "" -C "root@$host" -f "$extra/persist/etc/ssh/ssh_host_ed25519_key"
-
-echo "==> Registering the sops key (keys/hosts/$host.age, role from its config)"
-sops-register-host --verify-key "$sops_key" "$host" "$(age-keygen -y "$sops_key")"
-
-echo "==> Pinning the SSH host key"
-cp "$extra/persist/etc/ssh/ssh_host_ed25519_key.pub" "hosts/$host/ssh_host_ed25519_key.pub"
-git add --intent-to-add "hosts/$host/ssh_host_ed25519_key.pub"
-
-echo
+# Ask first: nothing (keys, repo files) is created for a run that is aborted
 echo "The disk of $target will be WIPED and $host installed."
 read -r -p "Type the host name ($host) to continue: " confirm
 [[ $confirm == "$host" ]] || {
-  echo "aborted (keys are registered; rerun to provision with new ones)" >&2
+  echo "aborted, nothing was changed" >&2
   exit 1
 }
 
+phase="starting"
+step() {
+  phase="$1"
+  echo "==> $1"
+}
+
+tmp=$(mktemp -d)
+cleanup() {
+  local rc=$?
+  find "$tmp" -type f -exec shred -u {} + 2>/dev/null || true
+  rm -rf "$tmp"
+  if ((rc != 0)); then
+    echo >&2
+    echo "provision-server FAILED (exit $rc) during: $phase" >&2
+    echo "The generated private keys are gone with the temp dir. The repo may already hold" >&2
+    echo "their public halves (keys/hosts/$host.age, .sops.yaml, hosts/$host/ssh_host_ed25519_key.pub)." >&2
+    echo "Run provision-server again (new keys replace them), or undo: git checkout .sops.yaml keys hosts/$host" >&2
+  fi
+}
+trap cleanup EXIT
+extra="$tmp/extra"
+sops_key_path=@sopsKey@ # where the host reads its age key (impermanence/names.nix)
+sops_dir=$(dirname "$sops_key_path")
+install -d -m 700 "$extra$sops_dir" "$extra/persist/etc/ssh"
+
+step "Generating the server's keys locally"
+sops_key="$extra$sops_key_path"
+(umask 077 && age-keygen -o "$sops_key" 2>/dev/null)
+ssh-keygen -q -t ed25519 -N "" -C "root@$host" -f "$extra/persist/etc/ssh/ssh_host_ed25519_key"
+
+step "Registering the sops key (keys/hosts/$host.age, role from its config)"
+sops-register-host --verify-key "$sops_key" "$host" "$(age-keygen -y "$sops_key")"
+
+step "Pinning the SSH host key"
+cp "$extra/persist/etc/ssh/ssh_host_ed25519_key.pub" "hosts/$host/ssh_host_ed25519_key.pub"
+git add --intent-to-add "hosts/$host/ssh_host_ed25519_key.pub"
+
+step "Installing $host with nixos-anywhere (wipes the disk)"
 nixos-anywhere \
   --flake ".#$host" \
   --target-host "$target" \
   --extra-files "$extra" \
-  --chown /persist/var/lib/sops-nix 0:0 \
+  --chown "$sops_dir" 0:0 \
   --chown /persist/etc/ssh 0:0 \
   "$@"
 

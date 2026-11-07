@@ -42,6 +42,8 @@ pubkey="$2"
   echo "not an age public key: $pubkey" >&2
   exit 1
 }
+# before the cd below: the key path is relative to where it was started from
+[[ -z $verify_key ]] || verify_key=$(realpath "$verify_key")
 cd "${repo:-$(git rev-parse --show-toplevel)}" || exit 1
 
 echo "$pubkey" >"keys/hosts/$host.age"

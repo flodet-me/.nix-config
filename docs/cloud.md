@@ -54,8 +54,11 @@ workstation, after building locally (and CI building it too).
 
 1. Create the VM (Hetzner: any x86 image, e.g. Ubuntu; add `keys/flodet-ssh.pub`
    as SSH key so you can log in as root once). Note IPv4 and the IPv6 subnet.
-2. Copy `hosts/vps` to `hosts/<name>`, adjust hostname, IPv6, disk, services.
-   Add it to `flake.nix` and to `servers` in `server-access.nix`.
+2. Copy `hosts/vps` to `hosts/<name>`, adjust hostname, IPv6, disk, services,
+   and set `stateVersion` to the current release (the template keeps the one
+   it was written with). Add it to `flake.nix` and to `servers` in
+   `server-access.nix`, then `git add hosts/<name>`: flakes ignore files git
+   does not know, which shows up as a confusing "path does not exist" error.
 3. With the YubiKey plugged in:
    ```sh
    provision-server <name> root@<ipv4>

@@ -33,7 +33,6 @@ in
     "net.core.bpf_jit_harden" = 2;
     "kernel.yama.ptrace_scope" = 1;
     "vm.unprivileged_userfaultfd" = 0;
-    "kernel.kexec_load_disabled" = 1; # no replacing the running kernel
     "kernel.sysrq" = 0;
     # files
     "fs.suid_dumpable" = 0;

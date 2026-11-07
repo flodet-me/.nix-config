@@ -2,7 +2,7 @@
 # NixOS service instead of portal's docker container). Upstream queries are
 # encrypted (DNS-over-TLS/HTTPS to Mullvad), nothing about clients is logged
 # or forwarded. Point the router's DHCP DNS option at moon's address.
-{ lib, ... }:
+{ config, lib, ... }:
 let
   # Home network ranges that may query this resolver (not the internet)
   lan = {
@@ -99,6 +99,15 @@ in
   # Port 53 is otherwise taken by systemd-resolved's stub; moon resolves via blocky
   services.resolved.settings.Resolve.DNSStubListener = false;
   networking.nameservers = [ "127.0.0.1" ];
+
+  # extraInputRules only exist with nftables; without it the LAN rules below
+  # would silently vanish and moon would stop answering.
+  assertions = [
+    {
+      assertion = config.networking.nftables.enable;
+      message = "hosts/moon/dns.nix needs networking.nftables (firewall rules for the LAN).";
+    }
+  ];
 
   # Only the home network may use the resolver
   networking.firewall.extraInputRules = lib.mkAfter ''

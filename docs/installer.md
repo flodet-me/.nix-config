@@ -25,21 +25,55 @@ changes; for secrets it doesn't matter (see "After the install").
 
 1. Back up `/home/flodet` if the machine had data.
 2. Boot the stick (UEFI; on ThinkPads F12, Secure Boot off). You are logged in
-   as `nixos`.
+   as `nixos`. The stick is for `desktop`, `laptop` and `moon`; `vps` is a
+   legacy-BIOS cloud template and is installed over the network instead
+   (`provision-server`, docs/cloud.md).
 3. Plug in the YubiKey and run:
    ```sh
    sudo install-host laptop                       # without argument: lists the hosts on the stick
    sudo install-host laptop --disk /dev/nvme0n1   # if the configured disk differs
    ```
-   It shows the target disk and asks for the host name before erasing it, then:
-   - formats it (asks for the new disk passphrase),
+   It shows every disk of the host that will be erased (the desktop has two: the
+   system SSD and the 860 EVO mounted at `/data`) and asks for the host name
+   before erasing them, then:
+   - formats them (encrypted hosts, desktop and laptop, ask for the new disk
+     passphrase; moon and vps are unencrypted),
+   - offers to enroll a YubiKey for disk unlock (see below),
    - generates the host's sops key in `/persist/var/lib/sops-nix/key.txt`,
-   - registers it (`sops-register-host`: `keys/hosts/<host>.age` + `sops-sync`,
-     YubiKey PIN) and checks the new key can decrypt the host's secrets,
+   - asks `Register the new key ...? [y/N]`: Enter means no, and the secrets
+     are then missing until you run `sops-sync` later. With `y`: registers it
+     (`sops-register-host`: `keys/hosts/<host>.age` + `sops-sync`, YubiKey
+     PIN) and checks the new key can decrypt the host's secrets,
    - optionally pauses so you can restore data into `/mnt` (e.g.
      `rsync -aHAX /path/to/backup/home/ /mnt/home/`),
    - builds and installs the system, offline.
-4. Reboot, remove the stick.
+4. The script unmounts `/mnt`, turns the swap file off and closes the disk, so
+   the live system can restart cleanly. Reboot, remove the stick.
+
+### YubiKey disk unlock (desktop, laptop)
+
+After formatting, `install-host` asks `Enroll a YubiKey now?`. With `y` you
+enter the passphrase you just set, then the key's **FIDO2 PIN** (set one first
+with `ykman fido access change-pin`; it is not the OpenPGP PIN), then touch it.
+It asks again, so a second key can be added as a spare. At boot the disk then
+asks for the PIN and a touch. The passphrase stays valid as a fallback, and
+without an enrolled or plugged-in key the prompt is the plain passphrase.
+Later, enroll by hand:
+`sudo systemd-cryptenroll --fido2-device=auto --fido2-with-client-pin=yes /dev/<luks-partition>`.
+The boot side (`crypttabExtraOpts = [ "fido2-device=auto" ]`) is in
+`hosts/_shared/components/impermanence/disko.nix`. Not testable in a VM (no
+YubiKey): try it once with the key unplugged (passphrase prompt), then plugged in.
+
+## If the install fails
+
+`install-host` says which step failed, releases `/mnt` and the encrypted disk
+and tells you to run it again: a second run wipes the disk again and starts
+clean, so there is nothing to undo by hand. The error itself is above
+(Shift+PageUp). Typical causes: a disk too small for the swap file
+(`swapSize` in the host), a wrong LUKS passphrase typed twice differently, or a
+YubiKey that is not plugged in when asked (answer `n` to registration and run
+`sops-sync` later). `provision-server` (cloud servers) likewise names the step;
+the keys it generated are shredded, so run it again.
 
 ## After the install
 
@@ -65,6 +99,11 @@ is automatic:
 
 What is left for you: logging in to accounts (browser, ...).
 
+Servers (`moon`) have no home-manager, so there is no automatic checkout: the
+copy of the repo in `~/.nix-config` is only a record of what was installed.
+Register the key from your workstation (`sops-sync`, commit, push) and deploy,
+see docs/cloud.md.
+
 If you restored a backup that contained a checkout, the installer puts the
 files there instead: run `sops-sync`, commit, push.
 
@@ -83,13 +122,49 @@ layout. For a new or existing host:
    })
    ../_shared/components/impermanence   # or ../_shared/components/server
    ```
-   and remove `fileSystems`, `swapDevices` and LUKS devices from its
+   (the LUKS mapper name, the sops key path and the disk are read from the
+   evaluated config, so no script needs editing) and remove `fileSystems`,
+   `swapDevices` and LUKS devices from its
    `hardware-configuration.nix` (disko defines them now).
 2. Check it in a VM:
    `nix run .#nixosConfigurations.<host>.config.system.build.vmWithDisko`.
 3. Rebuild the stick. `install-host <host>` now offers it. Its role
    (`host.role`, `server` via the server module) decides which secrets it
    gets.
+
+**Extra data disks:** `hosts/_shared/components/data-disk.nix` adds one (LUKS,
+then btrfs with zstd, mounted at `/data`, owned by the user), as the desktop does
+with its 860 EVO. It is part of the disko layout, so every `install-host` run
+erases it too; keep anything you need elsewhere. `--disk` only changes the
+system disk.
+
+How it is unlocked: `install-host` makes a random key, formats the disk with it
+and stores it on the encrypted system disk (`/persist/etc/data-disk.key`, mode
+400); the temporary copy is shredded, also when the install fails. After boot,
+once the system disk is open, `/etc/crypttab` unlocks the data disk with that
+key, so there is only the one passphrase (or YubiKey) at boot. The disk is
+`nofail`: if it is missing or cannot be opened, the machine still boots and
+`/data` is simply absent. **The key lives only on the system disk**, so if that
+is lost, the data disk is unreadable. Add a passphrase as a second way in, once,
+after the first boot (choose one you will remember):
+
+```sh
+sudo cryptsetup luksAddKey /dev/disk/by-partlabel/disk-data-luks --key-file /persist/etc/data-disk.key
+```
+
+With that, `sudo cryptsetup open /dev/disk/by-partlabel/disk-data-luks data-crypt` and
+the passphrase open it by hand on any machine. In a `vmWithDisko` VM the disk
+uses the password `disko` (test only).
+
+**Games on the desktop:** `/data/steam` is the Steam library (add it once in Steam:
+Settings → Storage → add drive/folder; Steam stores that choice in its config in
+`/home`) and `/data/games` holds Lutris, Heroic and Wine games (`~/Games` is a
+link to it, so Lutris's default folder just works). Big and re-downloadable
+things belong on `/data`, not in `/home`: the `/home` snapshots (and
+`impermanence.sendSnapshotsTo`) then stay small. The `~/Games` link itself is in
+the snapshots (a few bytes), the games behind it are not, because `/data` is a
+separate filesystem and links are not followed. Remember that `install-host`
+erases `/data`: a reinstall means downloading the games again.
 
 Like for the desktop: don't `nixos-rebuild switch` a running host onto a disko
 layout; reinstall it.

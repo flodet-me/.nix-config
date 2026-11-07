@@ -80,8 +80,8 @@ in
     systemd.services.caddy.serviceConfig = {
       ProtectSystem = "strict";
       ReadWritePaths = [
-        "/var/lib/caddy"
-        "/var/log/caddy"
+        config.services.caddy.dataDir
+        config.services.caddy.logDir
       ];
       PrivateTmp = true;
       ProtectKernelTunables = true;

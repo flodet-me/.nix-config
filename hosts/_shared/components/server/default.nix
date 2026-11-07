@@ -25,10 +25,13 @@
   # Only flodet, only with the YubiKey's SSH key (gpg auth subkey). No
   # passwords anywhere, no root login. sudo needs no password: the only way
   # in is already the hardware key (enable touch-to-use, docs/cloud.md).
-  users.users.flodet = {
-    password = lib.mkForce null;
+  users.mutableUsers = false;
+  users.users.${config.host.user} = {
+    isNormalUser = true;
+    description = config.host.user;
+    shell = pkgs.zsh;
+    extraGroups = [ "wheel" ]; # nothing a server doesn't need
     hashedPassword = "!";
-    extraGroups = lib.mkForce [ "wheel" ]; # nothing a server doesn't need
     openssh.authorizedKeys.keyFiles = [ ../../../../keys/flodet-ssh.pub ];
   };
   users.users.root.hashedPassword = "!";
@@ -41,7 +44,7 @@
       PasswordAuthentication = false;
       KbdInteractiveAuthentication = false;
       AuthenticationMethods = "publickey";
-      AllowUsers = [ "flodet" ];
+      AllowUsers = [ config.host.user ];
       X11Forwarding = false;
       AllowAgentForwarding = false;
       AllowStreamLocalForwarding = false;
@@ -95,14 +98,13 @@
   };
   # No desktop bits
   documentation.enable = false;
-  programs.nix-ld.enable = lib.mkForce false;
   programs.command-not-found.enable = false;
   fonts.fontconfig.enable = false;
   xdg.icons.enable = false;
   xdg.mime.enable = false;
   xdg.sounds.enable = false;
   nix.channel.enable = false; # flakes only
-  time.timeZone = lib.mkForce "UTC";
+  time.timeZone = "UTC";
 
   # Small admin toolset on purpose: no workstation extras (media libraries,
   # nmap, strace, ...) that only add CVEs and help an intruder.

@@ -1,6 +1,5 @@
 {
   pkgs,
-  config,
   ...
 }:
 {
@@ -12,7 +11,7 @@
 
     shellAliases = {
       ll = "ls -l";
-      update = "sudo nixos-rebuild switch";
+      update = "nh os switch"; # builds and switches this host from ~/.nix-config
     };
     history.size = 10000;
     history.ignoreAllDups = true;

@@ -1,11 +1,14 @@
 # Workstation side of server access: `ssh <server>` just works, and the
 # server's host key is pinned from the repo (no trust-on-first-use).
 # Add an entry per server; provision-server writes the host key file.
-{ lib, ... }:
+{ config, lib, ... }:
 let
   servers = {
     # TODO: the server's public IPv4 (or DNS name) once it exists
     vps.address = "203.0.113.10";
+    # Home server (DNS); a fixed lease in the router makes the name stable.
+    # Its host key file is written by install-host.
+    moon.address = "moon"; # resolved by the router/DNS, set a fixed IP if not
   };
   hostKey = name: ../../${name}/ssh_host_ed25519_key.pub;
   pinned = lib.filterAttrs (name: _: builtins.pathExists (hostKey name)) servers;
@@ -31,7 +34,7 @@ in
     lib.mapAttrsToList (name: server: ''
       Host ${name}
         HostName ${server.address}
-        User flodet
+        User ${config.host.user}
         StrictHostKeyChecking ${if pinned ? ${name} then "yes" else "ask"}
     '') servers
   );

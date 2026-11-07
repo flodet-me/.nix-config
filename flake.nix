@@ -13,8 +13,10 @@
       url = "github:nix-community/home-manager";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    nix-vscode-extensions.url = "github:nix-community/nix-vscode-extensions";
-    stylix.url = "github:danth/stylix";
+    stylix = {
+      url = "github:danth/stylix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     firefox-addons = {
       url = "gitlab:rycee/nur-expressions?dir=pkgs/firefox-addons";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -32,35 +34,31 @@
       url = "github:nix-community/nix-index-database";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    hyprpanel = {
-      url = "github:Jas-SinghFSU/HyprPanel";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
   };
   outputs =
     {
       self,
       nixpkgs,
-      nixpkgs-stable,
-      nix-vscode-extensions,
       home-manager,
-      stylix,
       systems,
       ...
     }@inputs:
     let
       inherit (self) outputs;
-      lib = nixpkgs.lib // home-manager.lib;
+      inherit (nixpkgs) lib;
+      # The one user of all machines (home/<username>/<host>, host.user)
+      username = "flodet";
 
       mkHost =
         {
           host,
           user ? false,
         }:
-        nixpkgs.lib.nixosSystem {
+        lib.nixosSystem {
           specialArgs = { inherit inputs outputs; };
           modules = [
             ./hosts/${host}
+            { host.user = username; }
           ]
           ++ lib.optionals user [
             home-manager.nixosModules.home-manager
@@ -68,35 +66,34 @@
               home-manager.useGlobalPkgs = true;
               home-manager.useUserPackages = true;
               home-manager.extraSpecialArgs = { inherit inputs outputs; };
-              home-manager.users.flodet = import ./home/flodet/${host};
+              home-manager.users.${username} = import ./home/${username}/${host};
             }
           ];
         };
 
       # Offline installer ISO (installer/, docs/installer.md). Not a host.
-      installer = nixpkgs.lib.nixosSystem {
+      installer = lib.nixosSystem {
         system = "x86_64-linux";
         specialArgs = { inherit inputs outputs; };
         modules = [ ./installer ];
       };
-      forEachSystem = f: lib.genAttrs (import systems) (system: f pkgsFor.${system});
       pkgsFor = lib.genAttrs (import systems) (
         system:
         import nixpkgs {
           inherit system;
           config.allowUnfree = true;
-          overlays = [ ];
         }
       );
+      forEachSystem = f: lib.genAttrs (import systems) (system: f pkgsFor.${system});
     in
     {
-      inherit lib;
-      overlays = import ./overlays { inherit inputs outputs; };
+      overlays = import ./overlays { inherit inputs; };
       packages =
         lib.recursiveUpdate
           (forEachSystem (pkgs: import ./pkgs { inherit pkgs; } // import ./scripts { inherit pkgs; }))
           {
             x86_64-linux.installer-iso = installer.config.system.build.isoImage;
+            x86_64-linux.install-host = installer.config.system.build.installHost;
           };
       devShells = forEachSystem (pkgs: import ./shell.nix { inherit pkgs; });
       formatter = forEachSystem (pkgs: pkgs.nixfmt);
@@ -116,7 +113,7 @@
           exit $status
         '';
       });
-      # Machines. `user` adds home-manager for flodet (home/flodet/<host>).
+      # Machines. `user` adds home-manager (home/<username>/<host>).
       nixosConfigurations = {
         desktop = mkHost {
           host = "desktop";

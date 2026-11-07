@@ -1,14 +1,7 @@
-# This file (and the global directory) holds config that i use on all home manager
+# Config of every home-manager user on every machine. Username and home
+# directory come from the NixOS user (flake.nix: host.user).
+{ ... }:
 {
-  inputs,
-  outputs,
-  pkgs,
-  ...
-}:
-{
-  home.username = "flodet";
-  home.homeDirectory = "/home/flodet";
-
   imports = [
     ./components/zsh.nix
     ./components/bash.nix
@@ -19,9 +12,12 @@
     ./components/nix-config-checkout.nix
   ];
 
-  home.packages = with pkgs; [
-    neovim
-  ];
+  # nvim is what gitconfig and the shells call; defaultEditor sets EDITOR/VISUAL
+  programs.neovim = {
+    enable = true;
+    defaultEditor = true;
+    viAlias = true;
+  };
 
   programs.home-manager.enable = true;
 }

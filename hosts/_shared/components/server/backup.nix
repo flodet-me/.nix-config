@@ -21,6 +21,9 @@
 let
   cfg = config.backup;
   snapshot = "/.snapshots/backup";
+  # The service's own restic calls get this through extraOptions; the
+  # verification below runs restic by hand and needs the same key.
+  sftpArgs = "-i ${config.sops.secrets.restic-ssh-key.path} -o IdentitiesOnly=yes";
 in
 {
   options.backup = {
@@ -61,6 +64,18 @@ in
   };
 
   config = lib.mkIf cfg.enable {
+    assertions = [
+      {
+        assertion = !cfg.sftpKey || cfg.sshKnownHosts != "";
+        message = "backup.sftpKey needs backup.sshKnownHosts: the unattended ssh cannot confirm an unknown host key.";
+      }
+      {
+        assertion =
+          config.fileSystems."/persist".fsType == "btrfs" && config.fileSystems."/home".fsType == "btrfs";
+        message = "backup takes btrfs snapshots of /persist and /home: both must be btrfs subvolumes (impermanence/disko.nix).";
+      }
+    ];
+
     sops.secrets = {
       restic-repository.sopsFile = cfg.secretsFile;
       restic-password.sopsFile = cfg.secretsFile;
@@ -86,7 +101,11 @@ in
       # A read-only btrfs snapshot gives a consistent view while services run
       # (crash-consistent, which databases like PostgreSQL handle).
       backupPrepareCommand = ''
-        ${pkgs.btrfs-progs}/bin/btrfs subvolume delete ${snapshot}/persist ${snapshot}/home 2>/dev/null || true
+        set -euo pipefail
+        # Leftovers of a run that was killed half way
+        for s in persist home; do
+          if [ -e ${snapshot}/$s ]; then ${pkgs.btrfs-progs}/bin/btrfs subvolume delete ${snapshot}/$s; fi
+        done
         mkdir -p ${snapshot}
         ${pkgs.btrfs-progs}/bin/btrfs subvolume snapshot -r /persist ${snapshot}/persist
         ${pkgs.btrfs-progs}/bin/btrfs subvolume snapshot -r /home ${snapshot}/home
@@ -99,7 +118,7 @@ in
       # No --one-file-system: the snapshots are separate btrfs subvolumes, restic
       # would skip their contents.
       extraBackupArgs = [ "--exclude-caches" ];
-      extraOptions = lib.optional cfg.sftpKey "sftp.args='-i ${config.sops.secrets.restic-ssh-key.path} -o IdentitiesOnly=yes'";
+      extraOptions = lib.optional cfg.sftpKey "sftp.args='${sftpArgs}'";
 
       timerConfig = {
         OnCalendar = "*-*-* 02:00:00";
@@ -134,9 +153,11 @@ in
         # Refuse to call an empty snapshot a backup (fails the unit -> alert)
         restic-backups-main.serviceConfig.ExecStartPost = [
           (pkgs.writeShellScript "restic-verify-not-empty" ''
+            set -euo pipefail
             # --no-lock and grep -c (reads everything): an early-exiting grep -q
             # would kill restic and leave a stale lock in the repository.
-            files=$(${pkgs.restic}/bin/restic --no-lock ls latest | ${pkgs.gnugrep}/bin/grep -c "^${snapshot}/persist/var/" || true)
+            listing=$(${pkgs.restic}/bin/restic ${lib.optionalString cfg.sftpKey "-o sftp.args='${sftpArgs}'"} --no-lock ls latest) || { echo "restic could not list the latest snapshot" >&2; exit 1; }
+            files=$(printf '%s\n' "$listing" | ${pkgs.gnugrep}/bin/grep -c "^${snapshot}/persist/var/" || true)
             if [ "$files" -eq 0 ]; then
               echo "latest snapshot contains nothing under /persist/var" >&2
               exit 1
@@ -162,9 +183,11 @@ in
             LoadCredential = "url:${config.sops.secrets.ntfy-url.path}";
           };
           script = ''
-            ${pkgs.curl}/bin/curl -fsS --retry 3 \
+            # The topic URL is a secret: give it to curl on stdin, not as an
+            # argument (visible in /proc)
+            printf 'url = "%s"\n' "$(cat "$CREDENTIALS_DIRECTORY/url")" | ${pkgs.curl}/bin/curl -fsS --retry 3 -K - \
               -H "Title: ${config.networking.hostName}: $1 failed" -H "Priority: high" -H "Tags: warning" \
-              -d "Check: journalctl -u $1" "$(cat "$CREDENTIALS_DIRECTORY/url")"
+              -d "Check: journalctl -u $1"
           '';
         };
         restic-backups-main.onFailure = [ "notify-failure@%n.service" ];

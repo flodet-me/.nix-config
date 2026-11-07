@@ -3,6 +3,9 @@
   ...
 }:
 let
+  # Names shared with the NixOS config (sops key path, ...)
+  names = import ../hosts/_shared/components/impermanence/names.nix;
+
   # A script from ./<name>/<name>.sh; `subst` replaces @placeholders@.
   script =
     name: runtimeInputs: subst:
@@ -25,6 +28,7 @@ rec {
     gawk
     findutils
     gnugrep
+    coreutils
   ]) { };
 
   sops-register-host = script "sops-register-host" [
@@ -38,6 +42,8 @@ rec {
     gawk
     diffutils
     git
+    coreutils
+    gnugrep
   ]) { };
 
   provision-server = script "provision-server" (with pkgs; [
@@ -48,7 +54,7 @@ rec {
     coreutils
     findutils
     sops-register-host
-  ]) { };
+  ]) { "@sopsKey@" = names.sopsAgeKey; };
 
   check-cves = script "check-cves" (with pkgs; [
     vulnix

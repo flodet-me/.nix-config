@@ -26,7 +26,19 @@ The dev shell also has `claude-code`, but not the plugins.
   those keys: changing them in Claude Code (`/model`, `/permissions`, ...)
   works until the next switch, then the repo wins. To keep a change, edit
   `settings.json` in the repo. Keys not declared there (e.g. `autoMode`) stay
-  Claude's.
+  Claude's. The merge replaces arrays as a whole, so a `permissions.allow`
+  rule added by hand is dropped at the next switch. If `~/.claude/settings.json`
+  is not valid JSON the merge leaves it unchanged and says so.
+- **Session behavior** set there: `remoteControlAtStartup` (every session is
+  remote controllable through Anthropic's servers: the one place that contradicts
+  the telemetry opt-out, on purpose), `tui: fullscreen` and `viewMode: focus`
+  (the compact view, which needs the fullscreen renderer).
+- **Permissions:** `Bash`, `Edit` and `Write` are allowed in general, with a long
+  deny list (secrets and sops files, gpg/ykman, privilege escalation, disk
+  tools, force pushes, `gh auth`, `nixos-rebuild`) and `disableBypassPermissionsMode`.
+  The Bash denies match command names, so `cat <secret>` is denied but
+  `less`/`grep` of the same file is not: the `Read(...)` denies are the real
+  protection of the secret paths.
 - **`claude-plugins-sync`** downloads and installs everything:
   marketplaces and plugins (`claude plugin …`), the user-scope MCP servers
   (`claude mcp add-json -s user`), and graphify (`uv tool install graphifyy`,
@@ -78,6 +90,7 @@ system keychain by Claude Code; never put them into `pluginConfigs`.
   `ldd <binary> | grep "not found"` shows what is missing.
 - Prefer a nixpkgs package over an `npx …@latest` MCP server when one
   exists, as done for Playwright.
+
 ## Maintenance
 
 ```sh
@@ -160,33 +173,31 @@ Best use:
   agent-skills gives the process, ponytail keeps each step small. Pick one
   reviewer per change rather than running both.
 
-### mattpocock-skills (`mattpocock-skills@claude-plugins-official`) — grill-me
+### mattpocock-skills (`mattpocock-skills@claude-plugins-official`) — grilling
 
 Source: <https://github.com/mattpocock/skills> · docs: its `README.md`,
 `GLOSSARY.md`.
 
 Small, composable engineering skills. The plugin ships all of them, but
-`grill-me` is the reason it's here.
+`grilling` (called `grill-me` in older versions of this doc) is the reason
+it's here. The plugin is not pinned and renames skills between versions: the
+table below is what was installed when it was last checked; `/plugin` in
+Claude Code lists the current skills.
 
 | Skill | Use |
 | --- | --- |
-| `/grill-me` | Relentless one-question-at-a-time interview that stress-tests a plan or design before you build it |
-| `/grill-with-docs` | Same, but writes ADRs and a glossary as decisions fall |
-| `/ask-matt` | "Which skill fits?" router |
-| `/to-spec`, `/to-tickets`, `/implement-spec` | Conversation → spec → tracer-bullet tickets in the issue tracker → code |
-| `/tdd`, `/diagnosing-bugs`, `/code-review`, `/pr` | Test-first work, hard bugs, review since a commit/branch, PR body |
-| `/improve-codebase-architecture`, `/codebase-design`, `/domain-modeling` | Find deepening opportunities, design module interfaces, keep a glossary |
-| `/handoff`, `/teach`, `/wait-what` | Hand work to a fresh agent, learn a concept, "re-explain that" |
+| `grilling` | Relentless one-question-at-a-time interview that stress-tests a plan or design before you build it |
+| `tdd`, `diagnosing-bugs` | Test-first work, a diagnosis loop for hard bugs and slowdowns |
+| `code-review`, `pr` | Review since a commit or branch, write a PR body |
+| `codebase-design`, `domain-modeling` | Design deep module interfaces, keep a glossary and ADRs |
+| `prototype`, `research`, `wizard`, `writing-for-agents` | Throwaway prototypes, sourced research notes, step-by-step wizards for manual tasks, writing skills and CLAUDE.md |
 
 Best use:
 
-- Describe your plan in a few sentences, then `/grill-me`. Answer until it
-  stops asking; the result is a plan with the holes found before coding.
-  Use `/grill-with-docs` when the decisions should end up in the repo.
-- Run `/setup-matt-pocock-skills` once per repo before the ticket/triage
-  skills (it asks for issue tracker, labels, doc location). They use `gh`.
+- Describe your plan in a few sentences, then ask to be grilled. Answer until
+  it stops asking; the result is a plan with the holes found before coding.
 - Overlaps with agent-skills (`interview-me`, `/spec`, TDD, review). Pick one
-  flow per task: grill-me for sharpening an idea, agent-skills'
+  flow per task: grilling for sharpening an idea, agent-skills'
   `/spec` → `/build` chain for carrying it out.
 
 ### frontend-slides (`frontend-slides@frontend-slides`)
@@ -252,8 +263,8 @@ use Playwright for the same job.
 ### rust-analyzer-lsp (`rust-analyzer-lsp@claude-plugins-official`)
 
 From Anthropic's official marketplace. Gives Claude Code rust-analyzer
-diagnostics/navigation in Rust projects; `rust-analyzer` must be on `PATH`
-(e.g. from the project's dev shell).
+diagnostics/navigation in Rust projects; `rust-analyzer` is in `home.packages`
+(a project's dev shell can still provide its own).
 
 ### ECC (`ecc@ecc`, github.com/affaan-m/ecc)
 

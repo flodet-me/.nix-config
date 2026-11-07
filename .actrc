@@ -1,0 +1,2 @@
+-P ubuntu-latest=ubuntu-act-nix:local
+--pull=false

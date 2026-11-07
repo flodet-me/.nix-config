@@ -4,10 +4,13 @@ For authentication, encryption and signing of information [YubiKey](https://www.
 
 ## Initial setup
 
-If a new device should be connected you need to import the GPG-Public key.
+On a machine installed from this config this is automatic: `programs.gpg.publicKeys`
+imports `keys/flodet.asc` with full trust, and a user service makes gpg learn the
+YubiKey at login and whenever it is plugged in. Only for a machine outside this
+config, import the public key and trust it by hand.
 
 ```bash
-gpg --import ../home/flodet/3AA38E98CA2AE31F.asc
+gpg --import keys/flodet.asc
 ```
 
 Then get the key by executing the following command and extract the id under `General key info` after `0x`.
@@ -60,3 +63,10 @@ Now you can use the key for git or any other ssh based authentication.
 - https://github.com/drduh/YubiKey-Guide
 - https://developer.okta.com/blog/2021/07/07/developers-guide-to-gpg#enable-your-gpg-key-for-ssh
 - https://gist.github.com/mcattarinussi/834fc4b641ff4572018d0c665e5a94d3
+
+## Disk unlock (FIDO2)
+
+The same YubiKey can unlock the LUKS disk of the workstations with a PIN and a
+touch. That uses its FIDO2 function, separate from the OpenPGP keys above and
+with its own PIN (`ykman fido access change-pin`). Enrollment happens in
+`install-host`; see docs/installer.md ("YubiKey disk unlock").

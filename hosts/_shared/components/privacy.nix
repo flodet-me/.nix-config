@@ -35,5 +35,5 @@ in
 
   # Location lookups send nearby Wi-Fi networks to a location service
   # (GNOME: automatic time zone / night light). Set those manually instead.
-  services.geoclue2.enable = lib.mkForce false;
+  services.geoclue2.enable = false;
 }

@@ -12,12 +12,19 @@ needed and making it a routine.
    ("flake.lock: weekly update"). Merge it after CI is green, then deploy.
    For CI to build that PR, add a fine-grained GitHub token (this repo,
    *Contents* + *Pull requests*: read/write) as the secret
-   `FLAKE_UPDATE_TOKEN`; without it the PR is created but not built.
+   `FLAKE_UPDATE_TOKEN`; without it the PR is created but not built. Without
+   the token the default one is used, which can only open the PR if the
+   repository setting *Settings → Actions → General → Allow GitHub Actions to
+   create and approve pull requests* is on; otherwise the job fails with 403.
 2. **CVE scan** per host (`check-cves`): known vulnerabilities in what the
    host actually runs (its runtime closure, not build tools), CVSS >= 7, minus
    the whitelist. The table is in the run summary; if anything is found the run
    fails and GitHub sends you a notification (Settings → Notifications →
    Actions: "Send notifications for failed workflows only").
+
+CVEs without a CVSSv3 score count as 0 and are not reported (at any
+`--min-cvss` above 0). The workflows' third-party actions are pinned to
+commits; Dependabot (`.github/dependabot.yml`) proposes the updates.
 
 ## Locally
 
@@ -57,3 +64,12 @@ shows why something is there.
   (category *Security*) and the oss-security mailing list before scans catch
   them. For something like a remotely exploitable OpenSSH bug: update and
   deploy right away instead of waiting for Monday.
+
+## Testing the workflows locally
+
+`act` (in the dev shell, needs Docker) runs `.github/workflows/*` without
+pushing. Build the runner image once, which is the usual one plus Nix:
+`docker build -t ubuntu-act-nix:local .github/act` (`.actrc` selects it), then
+e.g. `act -W .github/workflows/nix.yml -j format` or
+`act -W .github/workflows/security.yml -j cves --matrix host:vps`. The
+`update` job needs a real token and cannot be tried this way.

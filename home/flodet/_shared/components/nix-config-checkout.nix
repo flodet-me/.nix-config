@@ -15,6 +15,8 @@ in
   systemd.user.services.nix-config-checkout = {
     Unit = {
       Description = "Turn the installer's copy of ~/.nix-config into a git checkout";
+      # The signed commit needs the session's display for the PIN prompt
+      After = [ "graphical-session.target" ];
       ConditionPathExists = [
         "%h/.nix-config/flake.nix"
         "!%h/.nix-config/.git"
@@ -39,7 +41,7 @@ in
             ]
           }:/run/current-system/sw/bin:$PATH
           notify() { notify-send --app-name=nix-config "$1" "$2" || true; echo "$1: $2"; }
-          host=$(cat /proc/sys/kernel/hostname)
+          host=
           installed="$HOME/.nix-config"
 
           # Clone next to it: a failed attempt (no network yet) changes nothing
@@ -73,16 +75,14 @@ in
             notify "~/.nix-config: sops-sync failed" "See: journalctl --user -u nix-config-checkout"
             exit 0
           fi
-          if gpg --card-status >/dev/null 2>&1 && sops-sync; then
-            git add -A
-            git commit --quiet -m "$host: register sops host key"
+          if gpg --card-status >/dev/null 2>&1 && sops-sync && git add -A && git commit --quiet -m "$host: register sops host key"; then
             notify "~/.nix-config is ready" "Registration of $host committed. Push it: cd ~/.nix-config && git push"
           else
-            notify "~/.nix-config needs the YubiKey" "Plug it in, then: cd ~/.nix-config && sops-sync && git add -A && git commit -m '$host: register sops host key' && git push"
+            notify "~/.nix-config needs the YubiKey (or the commit failed)" "Plug it in, then: cd ~/.nix-config && sops-sync && git add -A && git commit -m '$host: register sops host key' && git push"
           fi
         ''
       );
     };
-    Install.WantedBy = [ "default.target" ];
+    Install.WantedBy = [ "graphical-session.target" ];
   };
 }

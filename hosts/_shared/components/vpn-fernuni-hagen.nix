@@ -1,11 +1,11 @@
+{ pkgs, ... }:
 {
-  pkgs,
-  ...
-}:
-{
-  environment.systemPackages = with pkgs; [
-    openconnect
-  ];
+  # The NetworkManager profile below needs the openconnect plugin.
+  networking.networkmanager = {
+    enable = true;
+    plugins = [ pkgs.networkmanager-openconnect ];
+  };
+  environment.systemPackages = [ pkgs.openconnect ];
 
   networking.networkmanager.ensureProfiles.profiles = {
     uni = {

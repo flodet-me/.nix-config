@@ -7,12 +7,13 @@
 #   biosBoot = true   extra BIOS boot partition for GRUB on legacy-BIOS VMs (Hetzner Cloud)
 {
   device,
-  swapSize,
+  swapSize, # whole GiB, e.g. "16G"
   encrypt ? true,
   biosBoot ? false,
 }:
 { inputs, lib, ... }:
 let
+  names = import ./names.nix;
   mountOptions = [
     "compress=zstd"
     "noatime"
@@ -90,7 +91,7 @@ in
                 size = "100%";
                 content = {
                   type = "luks";
-                  name = "crypted";
+                  name = names.luks;
                   settings.allowDiscards = true;
                   # YubiKey (FIDO2) unlock if one was enrolled by install-host; with
                   # none enrolled or plugged in, systemd falls back to the passphrase.

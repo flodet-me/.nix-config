@@ -7,24 +7,25 @@
 {
   imports = [ inputs.stylix.nixosModules.stylix ];
 
-  stylix = with pkgs; {
+  stylix = {
     enable = true;
+    # overrides the value stylix sets itself for this option
     targets.qt.platform = lib.mkForce "qtct";
-    image = ../../../home/flodet/_shared/assets/share/backgrounds/planets-3440x1440.png;
+    image = ../../../assets/planets-3440x1440.png;
     base16Scheme = "${pkgs.base16-schemes}/share/themes/dracula.yaml";
     polarity = "dark";
     fonts = {
       monospace = {
         name = "MonaspiceAr NFM";
-        package = nerd-fonts.monaspace;
+        package = pkgs.nerd-fonts.monaspace;
       };
       sansSerif = {
         name = "MonaspiceAr NF";
-        package = nerd-fonts.monaspace;
+        package = pkgs.nerd-fonts.monaspace;
       };
       serif = {
         name = "MonaspiceAr NF";
-        package = nerd-fonts.monaspace;
+        package = pkgs.nerd-fonts.monaspace;
       };
       emoji = {
         package = pkgs.noto-fonts-color-emoji;

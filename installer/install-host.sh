@@ -13,7 +13,48 @@ die() {
   echo "error: $*" >&2
   exit 1
 }
-step() { printf '\n\033[1;34m==> %s\033[0m\n' "$*"; }
+current="starting" # the step that is running, named when something fails
+step() {
+  current="$*"
+  printf '\n\033[1;34m==> %s\033[0m\n' "$*"
+}
+
+# Releases what disko mounted. An active swap file keeps btrfs busy, and the
+# live system's shutdown then loops on unmounting /mnt and closing LUKS.
+teardown() {
+  sync
+  swapon --noheadings --show=NAME | grep '^/mnt/' | xargs -r swapoff || true
+  umount -R /mnt 2>/dev/null || echo "warning: /mnt still mounted (check: findmnt -R /mnt)" >&2
+  if [[ -e /dev/mapper/@luks@ ]]; then
+    cryptsetup close @luks@ || echo "warning: could not close LUKS device @luks@" >&2
+  fi
+  # the data disk (data-disk.nix), if the host has one
+  if [[ -e /dev/mapper/@dataLuks@ ]]; then
+    cryptsetup close @dataLuks@ || echo "warning: could not close LUKS device @dataLuks@" >&2
+  fi
+  # the temporary key of the data disk must never outlive the run
+  shred -u @dataKeyTmp@ 2>/dev/null || rm -f @dataKeyTmp@
+}
+
+# Any failure (or Ctrl-C) after the disk was touched ends here: say where it
+# stopped and leave a clean state, so running install-host again just works.
+disk_touched=no
+finished=no
+on_exit() {
+  local rc=$?
+  [[ $finished == yes || $rc -eq 0 ]] && return
+  # a usage error before the first step explained itself already
+  [[ $current == starting ]] && return
+  echo >&2
+  echo "install-host FAILED (exit $rc) during: $current" >&2
+  if [[ $disk_touched == yes ]]; then
+    echo "The disk of $host is half set up; nothing else was changed." >&2
+    echo "Releasing /mnt and the encrypted disk so a new run starts clean." >&2
+    echo "Run install-host again (it wipes the disk again). The error is above (Shift+PageUp)." >&2
+    teardown || true
+  fi
+}
+trap on_exit EXIT
 ask() {
   local reply
   read -r -p "$1 [y/N] " reply
@@ -37,36 +78,63 @@ while [[ $# -gt 0 ]]; do
 done
 
 step "Preparing a writable copy of the config in $work"
-if [[ -e $work ]]; then
-  echo "$work exists (from an earlier run), reusing it"
-else
-  cp -r --no-preserve=mode "$repo_src" "$work"
-fi
+# Always fresh: a copy left by an earlier run may carry its --disk edit
+rm -rf "$work"
+cp -r --no-preserve=mode "$repo_src" "$work"
 hostcfg="$work/hosts/$host/default.nix"
 
 if [[ -n $disk ]]; then
   [[ -b $disk ]] || die "$disk is not a block device"
   sed -i -E "s|^(\s*device = )\"[^\"]*\";|\1\"$disk\";|" "$hostcfg"
 fi
-target=$(grep -oP '^\s*device = "\K[^"]+' "$hostcfg")
+# What disko will really wipe: the evaluated value, not a guess from the source
+target=$(nix eval --raw "$work#nixosConfigurations.$host.config.disko.devices.disk.main.device") ||
+  die "could not read the disk of $host from its disko layout"
 [[ -b $target ]] || die "configured disk $target does not exist here; pick one from lsblk and pass --disk /dev/XXX"
 
-step "Target disk for $host: $target -> $(readlink -f "$target")"
-lsblk -o NAME,SIZE,TYPE,TRAN,MODEL,FSTYPE,LABEL "$(readlink -f "$target")"
+# disko wipes every disk the layout declares (a data disk too), not only the
+# system disk, so all of them are shown and must be there
+mapfile -t all_disks < <(nix eval --raw "$work#nixosConfigurations.$host.config.disko.devices.disk" \
+  --apply 'ds: builtins.concatStringsSep "\n" (map (d: d.device) (builtins.attrValues ds))')
+for d in "${all_disks[@]}"; do
+  [[ -b $d ]] || die "disk $d of $host does not exist here (plug it in, or remove it from the host's disko layout)"
+done
+
+step "Disks of $host that will be erased"
+for d in "${all_disks[@]}"; do
+  echo "$d -> $(readlink -f "$d")"
+  lsblk -o NAME,SIZE,TYPE,TRAN,MODEL,FSTYPE,LABEL "$(readlink -f "$d")"
+done
 echo
-echo "EVERYTHING on this disk will be erased."
+echo "EVERYTHING on ${#all_disks[@]} disk(s) above will be erased."
 read -r -p "Type the host name ($host) to continue: " confirm
 [[ $confirm == "$host" ]] || die "aborted"
 
 step "Partitioning and formatting (you will be asked for the new LUKS passphrase)"
+disk_touched=yes
+
+# A host with a data disk (data-disk.nix) formats it with a random key that is
+# stored on the encrypted system disk afterwards; it is needed during disko.
+has_data=$(nix eval --raw "$work#nixosConfigurations.$host.config.disko.devices.disk" \
+  --apply 'ds: if ds ? data then "yes" else "no"')
+if [[ $has_data == yes ]]; then
+  (umask 077 && head -c 64 /dev/urandom | base64 -w0 >@dataKeyTmp@)
+fi
+
 disko --mode destroy,format,mount --yes-wipe-all-disks --flake "$work#$host"
 mountpoint -q /mnt/persist || die "/mnt/persist is not mounted after disko"
+if [[ $has_data == yes ]]; then
+  # The key is only needed again after boot: it lives on the encrypted system disk
+  install -D -m 400 @dataKeyTmp@ "/mnt@dataKey@"
+  shred -u @dataKeyTmp@
+  echo "Data disk key stored in @dataKey@ on the encrypted system disk."
+fi
 
-if [[ -e /dev/mapper/crypted ]]; then
+if [[ -e /dev/mapper/@luks@ ]]; then
   step "Optional: unlock the disk with a YubiKey (FIDO2 + PIN)"
   echo "The passphrase you just set stays valid as a fallback. The key needs a FIDO2 PIN"
   echo "(set one first if missing: ykman fido access change-pin)."
-  luks_dev=$(cryptsetup status crypted | awk '/device:/ {print $2}')
+  luks_dev=$(cryptsetup status @luks@ | awk '/device:/ {print $2}')
   while ask "Enroll a YubiKey now? (passphrase, then PIN, then touch)"; do
     systemd-cryptenroll --fido2-device=auto --fido2-with-client-pin=yes \
       --fido2-with-user-presence=yes "$luks_dev" ||
@@ -75,7 +143,7 @@ if [[ -e /dev/mapper/crypted ]]; then
 fi
 
 step "Generating the sops host key"
-keyfile=/mnt/persist/var/lib/sops-nix/key.txt
+keyfile=/mnt@sopsKey@
 install -d -m 700 "$(dirname "$keyfile")"
 if [[ -s $keyfile ]]; then
   echo "keeping existing key $keyfile"
@@ -122,15 +190,20 @@ step "Installing NixOS ($host)"
 nixos-install --system "$system" --no-root-passwd --no-channel-copy
 
 step "Putting the config into ~/.nix-config"
-home=/mnt/home/flodet
+home=/mnt/home/@user@
 checkout="$home/.nix-config"
 # What this install adds to the repo: only the host's key (and the disk, if
 # --disk was given). Everything else comes from GitHub's current state, so a
 # stick that is older than the repo never overwrites newer secrets.
 keep=("keys/hosts/$host.age")
 [[ -n $disk ]] && keep+=("hosts/$host/default.nix")
+role=$(nix eval --raw "$work#nixosConfigurations.$host.config.host.role")
 # shellcheck disable=SC2088 # the ~ in the messages is meant literally
-if [[ -d $checkout/.git ]]; then
+if [[ $role == server ]]; then
+  # No home-manager on servers: nothing turns the copy into a checkout
+  cp -r "$work" "$checkout"
+  how="A server has no automatic checkout. From your workstation: sops-sync && git add -A && git commit -m \"$host: register sops key\" && git push, then deploy (docs/cloud.md). The copy on the server is only a backup of what was installed."
+elif [[ -d $checkout/.git ]]; then
   # restored backup with a checkout: put the files there
   (cd "$work" && cp --parents "${keep[@]}" "$checkout/")
   how="In your restored ~/.nix-config (YubiKey plugged in): sops-sync && git add -A && git commit -m \"$host: register sops key\" && git push"
@@ -144,16 +217,12 @@ else
   (cd "$work" && cp --parents "${keep[@]}" "$home/install-$host/")
   how="~/.nix-config exists but isn't a git checkout: copy ~/install-$host/* into your checkout, run sops-sync, commit and push"
 fi
-chown -R 1000:100 "$home" 2>/dev/null || true
+# The user's uid/gid: the first normal user (1000) in group users (100)
+chown -R 1000:100 "$home" || echo "warning: could not chown $home to the user" >&2
 
-# Tear down what disko set up: an active swapfile keeps btrfs busy, and the
-# live system's shutdown then loops on unmounting /mnt and closing LUKS.
-sync
-swapoff -a || true
-umount -R /mnt || echo "warning: /mnt still mounted (check: findmnt -R /mnt)" >&2
-if [[ -e /dev/mapper/crypted ]]; then
-  cryptsetup close crypted || echo "warning: could not close LUKS device 'crypted'" >&2
-fi
+step "Releasing /mnt and the encrypted disk"
+teardown
+finished=yes
 
 cat <<EOF
 

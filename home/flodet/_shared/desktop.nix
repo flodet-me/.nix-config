@@ -1,20 +1,25 @@
-{
-  inputs,
-  pkgs,
-  ...
-}:
+{ pkgs, ... }:
 {
   imports = [
     ./components/firefox.nix
     ./components/vscode.nix
-    ./assets
+    ./components/qmk
+    ./components/yubikey-gpg.nix
+    ./components/claude-code
+    ./components/stream-controller
+    ./components/easyeffects
+    ./desktop-environments/gnome
   ];
+
+  fonts.fontconfig.enable = true;
 
   # rofi is not used; the stylix target still sets the renamed
   # programs.rofi.font (evaluation warning)
   stylix.targets.rofi.enable = false;
 
   home.packages = with pkgs; [
+    cameractrls
+    cameractrls-gtk3
     spotify
     vlc
     gimp

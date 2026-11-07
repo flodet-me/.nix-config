@@ -1,14 +1,6 @@
 {
-  outputs,
   inputs,
 }:
-let
-  addPatches =
-    pkg: patches:
-    pkg.overrideAttrs (oldAttrs: {
-      patches = (oldAttrs.patches or [ ]) ++ patches;
-    });
-in
 {
   # For every flake input, aliases 'pkgs.inputs.${flake}' to
   # 'inputs.${flake}.packages.{pkgs.stdenv.hostPlatform.system}' or
@@ -34,13 +26,8 @@ in
   };
 
   # Adds my custom packages
-  additions =
-    final: prev:
-    import ../pkgs { pkgs = final; }
-    // {
-    };
+  additions = final: _: import ../pkgs { pkgs = final; };
 
   # Modifies existing packages
-  modifications = final: prev: {
-  };
+  modifications = _: _: { };
 }

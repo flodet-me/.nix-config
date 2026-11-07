@@ -1,51 +1,46 @@
-# Module to setup driver for proprietary nVidia
+# Proprietary NVIDIA driver (X11/Wayland), with an optional power limit.
+{ config, lib, ... }:
 {
-  config,
-  lib,
-  pkgs,
-  ...
-}:
-
-{
-  hardware.graphics = {
-    enable = true;
+  options.hardware.nvidia.powerLimit = lib.mkOption {
+    type = lib.types.nullOr lib.types.ints.positive;
+    default = null;
+    example = 150;
+    description = "Power limit of the GPU in watts, applied at boot (nvidia-smi -pl). null: the card's default.";
   };
 
-  services.xserver.videoDrivers = [ "nvidia" ];
+  config = {
+    hardware.graphics.enable = true;
+    services.xserver.videoDrivers = [ "nvidia" ];
+    # Explicit: modesetting.enable alone no longer puts this on the command line
+    boot.kernelParams = [ "nvidia-drm.modeset=1" ];
 
-  hardware.nvidia = {
+    hardware.nvidia = {
+      modesetting.enable = true; # required
+      nvidiaPersistenced = true; # keeps the driver loaded (persistence mode)
+      nvidiaSettings = true; # `nvidia-settings`
+      package = config.boot.kernelPackages.nvidiaPackages.stable;
 
-    # Modesetting is required.
-    modesetting.enable = true;
+      # Saving all VRAM on suspend/hibernate; needed to resume from hibernation.
+      # Experimental and can make suspend fail, so off until needed.
+      powerManagement.enable = false;
+      powerManagement.finegrained = false; # turns the GPU off when idle (laptops, Turing+)
 
-    # Nvidia power management. Experimental, and can cause sleep/suspend to fail.
-    # Enable this if you have graphical corruption issues or application crashes after waking
-    # up from sleep. This fixes it by saving the entire VRAM memory to /tmp/ instead
-    # of just the bare essentials.
-    powerManagement.enable = false;
+      # Open kernel modules (Turing and newer, driver 515+). The proprietary
+      # module is kept: it is what this machine has been tested with.
+      open = false;
+    };
 
-    # Fine-grained power management. Turns off GPU when not in use.
-    # Experimental and only works on modern Nvidia GPUs (Turing or newer).
-    powerManagement.finegrained = false;
-
-    # Use the NVidia open source kernel module (not to be confused with the
-    # independent third-party "nouveau" open source driver).
-    # Support is limited to the Turing and later architectures. Full list of
-    # supported GPUs is at:
-    # https://github.com/NVIDIA/open-gpu-kernel-modules#compatible-gpus
-    # Only available from driver 515.43.04+
-    # Currently alpha-quality/buggy, so false is currently the recommended setting.
-    open = false;
-
-    # Enable the Nvidia settings menu,
-    # accessible via `nvidia-settings`.
-    nvidiaSettings = true;
-
-    # Optionally, you may need to select the appropriate driver version for your specific GPU.
-    package = config.boot.kernelPackages.nvidiaPackages.stable;
+    systemd.services.nvidia-power-limit = lib.mkIf (config.hardware.nvidia.powerLimit != null) {
+      description = "Set the NVIDIA GPU power limit";
+      after = [ "nvidia-persistenced.service" ];
+      wants = [ "nvidia-persistenced.service" ];
+      wantedBy = [ "multi-user.target" ];
+      path = [ config.hardware.nvidia.package ];
+      script = "nvidia-smi -pl ${toString config.hardware.nvidia.powerLimit}";
+      serviceConfig = {
+        Type = "oneshot";
+        RemainAfterExit = true;
+      };
+    };
   };
-
-  boot.kernelParams = [ "nvidia-drm.modeset=1" ];
-  nixpkgs.config.allowUnfree = true;
-
 }

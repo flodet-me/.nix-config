@@ -1,4 +1,5 @@
-# This file (and the global directory) holds config that i use on all hosts
+# Config of every host (workstations and servers): secrets, nixpkgs, nix
+# settings. Workstation-only things live in components/workstation.nix.
 {
   inputs,
   outputs,
@@ -11,14 +12,13 @@
     ./components/host-role.nix
     ./components/privacy.nix
     ./components/zsh.nix
-    ./components/locale.nix
     ./components/nix.nix
-    ./components/nix-ld.nix
-    ./users/flodet
   ];
 
-  # Each host decrypts with its own age key, generated on first activation if
-  # missing; its public key must then be added to .sops.yaml (docs/secrets.md).
+  # Each host decrypts with its own age key. install-host creates it at
+  # install time and registers its public key in .sops.yaml (docs/secrets.md);
+  # a host that boots without a registered key just gets no secrets, because
+  # generateKey creates a fresh unregistered one.
   sops.age = {
     keyFile = lib.mkDefault "/var/lib/sops-nix/key.txt";
     generateKey = true;
@@ -28,24 +28,6 @@
 
   nixpkgs = {
     overlays = builtins.attrValues outputs.overlays;
-    config = {
-      allowUnfree = true;
-      allowUnfreePredicate = _: true;
-    };
-  };
-
-  nix.settings = {
-    substituters = [
-      "https://cache.nixos.org"
-      "https://nix-community.cachix.org"
-    ];
-    trusted-public-keys = [
-      "cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY="
-      "nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCYg3Fs="
-    ];
-
-    # strongly recommended
-    fallback = true;
-    builders-use-substitutes = true;
+    config.allowUnfree = true;
   };
 }

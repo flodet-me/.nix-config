@@ -51,14 +51,18 @@ for host in "${hosts[@]}"; do
   system_path=$(nix build --no-link --print-out-paths ".#nixosConfigurations.$host.config.system.build.toplevel")
   # exit code 2 just means "vulnerabilities found"
   vulnix --closure --json --whitelist "$whitelist" "$system_path" >"$tmp/$host.json" || [[ $? -eq 2 ]]
+  # Highest score first (numeric, in jq). CVEs without a CVSSv3 score count as 0
+  # and are not reported at any --min-cvss above 0.
   jq -r --arg min "$min_cvss" --arg host "$host" --arg md "$markdown" '
-    .[]
-    | {name: "\(.pname) \(.version)", cves: .affected_by, cvss: ([.cvssv3_basescore[]?] | max // 0)}
-    | select(.cvss >= ($min | tonumber))
+    [ .[]
+      | {name: "\(.pname) \(.version)", cves: .affected_by, cvss: ([.cvssv3_basescore[]?] | max // 0)}
+      | select(.cvss >= ($min | tonumber)) ]
+    | sort_by(-.cvss)
+    | .[]
     | if $md == "yes"
       then "| \($host) | \(.name) | \(.cvss) | \(.cves | join(" ")) |"
       else "\($host)\t\(.name)\tCVSS \(.cvss)\t\(.cves | join(" "))"
-      end' "$tmp/$host.json" | sort -t$'\t' -k3 -r >"$tmp/$host.txt"
+      end' "$tmp/$host.json" >"$tmp/$host.txt"
   if [[ -s $tmp/$host.txt ]]; then
     found=1
     cat "$tmp/$host.txt"

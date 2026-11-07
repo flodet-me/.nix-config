@@ -1,7 +1,8 @@
+# The login user on the workstations. Servers define their own, see
+# components/server/default.nix.
 {
   pkgs,
   config,
-  lib,
   ...
 }:
 let
@@ -9,9 +10,9 @@ let
 in
 {
   users.mutableUsers = false;
-  users.users.flodet = {
+  users.users.${config.host.user} = {
     isNormalUser = true;
-    description = "flodet";
+    description = config.host.user;
     shell = pkgs.zsh;
     extraGroups = ifTheyExist [
       "networkmanager"

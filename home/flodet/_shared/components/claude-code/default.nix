@@ -80,24 +80,35 @@ let
       python
     ];
     text = ''
+      # One broken step (a renamed plugin, a flaky download) must not stop the
+      # rest: failures are collected and reported at the end (non-zero exit).
+      failed=()
+      try() { "$@" || failed+=("$*"); }
+
       ${lib.concatMapStrings (repo: ''
-        claude plugin marketplace add ${repo}
+        try claude plugin marketplace add ${repo}
       '') (lib.attrValues marketplaces)}
       ${lib.concatMapStrings (p: ''
-        claude plugin install ${p}
+        try claude plugin install ${p}
       '') plugins}
       ${lib.concatStrings (
         lib.mapAttrsToList (name: server: ''
           claude mcp remove -s user ${name} >/dev/null 2>&1 || true
-          claude mcp add-json -s user ${name} ${lib.escapeShellArg (builtins.toJSON server)}
+          try claude mcp add-json -s user ${name} ${lib.escapeShellArg (builtins.toJSON server)}
         '') mcpServers
       )}
       # graphify is a Python CLI that installs its own skill into ~/.claude/skills.
       # --reinstall when the venv's old Python was garbage-collected.
       reinstall=()
       "$HOME/.local/bin/graphify" --help >/dev/null 2>&1 || reinstall=(--reinstall)
-      UV_PYTHON_DOWNLOADS=never uv tool install "''${reinstall[@]}" --python ${lib.getExe python} graphifyy
-      "$HOME/.local/bin/graphify" install --platform claude
+      UV_PYTHON_DOWNLOADS=never try uv tool install "''${reinstall[@]}" --python ${lib.getExe python} graphifyy
+      try "$HOME/.local/bin/graphify" install --platform claude
+
+      if [ "''${#failed[@]}" -gt 0 ]; then
+        echo "These steps FAILED (the rest was done; the service retries):" >&2
+        printf '  %s\n' "''${failed[@]}" >&2
+        exit 1
+      fi
       echo "Done. Restart Claude Code to load new plugins."
     '';
   };
@@ -108,27 +119,36 @@ in
     claude-plugins-sync
     python
     pkgs.nodejs # ponytail hooks, frontend-slides PDF export, npx-based MCP servers
-    pkgs.jq # agent-skills hooks
     pkgs.perl # agent-skills hooks
     pkgs.gh # mattpocock-skills (issues, PRs)
     pkgs.uv # graphify
+    pkgs.rust-analyzer # rust-analyzer-lsp plugin
   ];
   home.sessionPath = [ "$HOME/.local/bin" ]; # uv tool binaries (graphify)
 
   home.activation.claudeCodeSettings = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
     settings="${config.home.homeDirectory}/.claude/settings.json"
-    tmp="$(mktemp)"
-    { [ -s "$settings" ] && cat "$settings" || echo '{}'; } \
-      | ${lib.getExe pkgs.jq} -s '.[0] * .[1]' - ${managedSettings} > "$tmp"
     run mkdir -p "$(dirname "$settings")"
-    run install -m 600 "$tmp" "$settings"
+    tmp="$(mktemp)"
+    if [ -s "$settings" ]; then current="$(cat "$settings")"; else current='{}'; fi
+    # Nix-owned keys win; arrays are replaced as a whole, not merged
+    if printf '%s' "$current" | ${lib.getExe pkgs.jq} -s '.[0] * .[1]' - ${managedSettings} > "$tmp"; then
+      run install -m 600 "$tmp" "$settings"
+    else
+      echo "claude-code: $settings is not valid JSON, left unchanged" >&2
+    fi
     rm -f "$tmp"
   '';
 
   # Runs at login and again whenever the declared lists change (new unit
   # file -> restarted on switch). Retries until the network is up.
   systemd.user.services.claude-plugins-sync = {
-    Unit.Description = "Install declared Claude Code plugins and skills";
+    Unit = {
+      Description = "Install declared Claude Code plugins and skills";
+      # a broken plugin name must not retry forever
+      StartLimitIntervalSec = 3600;
+      StartLimitBurst = 10;
+    };
     Service = {
       Type = "oneshot";
       RemainAfterExit = true;

@@ -13,12 +13,9 @@
           vscodevim.vim
           jnoortheen.nix-ide
           mkhl.direnv
-          arrterian.nix-env-selector
           ms-azuretools.vscode-docker
           editorconfig.editorconfig
           ms-python.python
-          github.copilot
-          github.copilot-chat
           esbenp.prettier-vscode
           streetsidesoftware.code-spell-checker
           sonarsource.sonarlint-vscode

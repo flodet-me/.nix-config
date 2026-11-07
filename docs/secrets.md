@@ -29,8 +29,15 @@ Files:
 
 | File                                           | Contents                                                  |
 | ---------------------------------------------- | --------------------------------------------------------- |
-| `hosts/_shared/users/flodet/user-secrets.yaml` | `mullvad-account-key`, `home-location`, `weather-api-key` |
+| `hosts/_shared/users/flodet/user-secrets.yaml` | `mullvad-account-key` (used). `home-location` and `weather-api-key` are not declared anywhere since the Hyprland config was removed: delete both keys with `sops` when convenient. |
 | `hosts/<server>/secrets.yaml`                  | that server's secrets (`docs/cloud.md`)                   |
+
+The **login password is not a secret**: it is `123456789` on purpose, set in
+`hosts/_shared/users/flodet/default.nix`. It only guards the screen lock and
+`sudo` at the keyboard (sshd is off on the workstations, servers have no
+password), and the disk's LUKS encryption protects the data. Switch to a hashed
+password from sops (`hashedPasswordFile`) before ever enabling sshd on a
+workstation.
 
 ## Everyday use
 

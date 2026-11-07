@@ -3,8 +3,10 @@
 # below) survive. Requires the btrfs layout from ./disko.nix.
 #
 # Run `fs-diff` to list what currently lives on the ephemeral root, i.e. what
-# would be lost on the next reboot. Previous roots are kept for 30 days in the
-# btrfs top level under /old_roots in case something was missed.
+# would be lost on the next reboot. Previous roots are kept for
+# `impermanence.oldRootRetentionDays` days in the btrfs top level under
+# /old_roots in case something was missed (that includes /tmp and /root, so
+# big temporary files live on until then).
 {
   config,
   lib,
@@ -14,6 +16,7 @@
   ...
 }:
 let
+  names = import ./names.nix;
   # The btrfs device holding all subvolumes (LUKS mapper or plain partition)
   rootDevice = config.fileSystems."/".device;
   rootDeviceUnit = "${utils.escapeSystemdPath rootDevice}.device";
@@ -34,6 +37,12 @@ in
   # server/backup.nix) without listing it here.
   options.impermanence.persistVarLib = lib.mkEnableOption "persisting all of /var/lib instead of a curated list";
 
+  options.impermanence.oldRootRetentionDays = lib.mkOption {
+    type = lib.types.ints.positive;
+    default = 30;
+    description = "How many days wiped root subvolumes are kept under /old_roots.";
+  };
+
   options.impermanence.sendSnapshotsTo = lib.mkOption {
     type = lib.types.nullOr lib.types.str;
     default = null;
@@ -45,7 +54,7 @@ in
 
     # Read directly from /persist: secrets are decrypted during activation,
     # before impermanence's bind mounts exist.
-    sops.age.keyFile = "/persist/var/lib/sops-nix/key.txt";
+    sops.age.keyFile = names.sopsAgeKey;
 
     # /home too: user creation runs during activation, before regular
     # filesystems are mounted.
@@ -89,7 +98,9 @@ in
       after = [
         rootDeviceUnit
       ]
-      ++ lib.optional (config.boot.initrd.luks.devices ? crypted) "systemd-cryptsetup@crypted.service";
+      ++ lib.optional (
+        config.boot.initrd.luks.devices ? ${names.luks}
+      ) "systemd-cryptsetup@${names.luks}.service";
       before = [ "sysroot.mount" ];
       unitConfig.DefaultDependencies = "no";
       serviceConfig.Type = "oneshot";
@@ -108,18 +119,20 @@ in
         if [[ -e /btrfs_tmp/root ]]; then
           mkdir -p /btrfs_tmp/old_roots
           timestamp=$(date --date="@$(stat -c %Y /btrfs_tmp/root)" "+%Y-%m-%d_%H:%M:%S")
-          mv /btrfs_tmp/root "/btrfs_tmp/old_roots/$timestamp"
+          # -$$ keeps two roots of the same second apart (mv would nest otherwise)
+          mv /btrfs_tmp/root "/btrfs_tmp/old_roots/$timestamp-$$"
         fi
 
-        cutoff=$(( $(date +%s) - 30 * 24 * 60 * 60 ))
+        # The new root comes first: nothing below may keep the system from booting
+        btrfs subvolume create /btrfs_tmp/root
+
+        cutoff=$(( $(date +%s) - ${toString config.impermanence.oldRootRetentionDays} * 24 * 60 * 60 ))
         for old in /btrfs_tmp/old_roots/*; do
           [[ -e "$old" ]] || continue
           if (( $(stat -c %Y "$old") < cutoff )); then
-            delete_subvolume_recursively "$old"
+            delete_subvolume_recursively "$old" || echo "could not delete $old" >&2
           fi
         done
-
-        btrfs subvolume create /btrfs_tmp/root
         umount /btrfs_tmp
       '';
     };
@@ -185,10 +198,12 @@ in
         name = "fs-diff";
         text = ''
           # Everything on the ephemeral root (other subvolumes and bind mounts
-          # are separate devices, so -xdev skips them).
+          # are separate devices, so -xdev skips them). NixOS's own /etc symlinks
+          # (into /etc/static) are regenerated on every boot, so not listed.
           sudo find / -xdev \
             \( -path /tmp -o -path /var/tmp \) -prune -o \
-            \( -type f -o -type l \) -print | sort
+            \( -type f -o -type l \) \
+            ! -lname '/etc/static/*' ! -path /etc/machine-id -print | sort| sort
         '';
       })
     ];

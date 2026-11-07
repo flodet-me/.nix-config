@@ -1,8 +1,5 @@
 {
-  config,
   pkgs,
-  inputs,
-  lib,
   ...
 }:
 
@@ -10,30 +7,13 @@
   imports = [
     ../_shared/global.nix
     ../_shared/desktop.nix
-    ../_shared/components/qmk
-    ../_shared/components/yubikey-gpg.nix
-    ../_shared/components/claude-code
-    ../_shared/components/stream-controller
-    ../_shared/components/easyeffects
-    ../_shared/desktop-environments/gnome
   ];
 
   # Packages that should be installed to the user profile.
   home.packages = with pkgs; [
-    cameractrls
-    cameractrls-gtk3
     drawio
   ];
 
-  fonts.fontconfig.enable = true;
-
-  # This value determines the home Manager release that your
-  # configuration is compatible with. This helps avoid breakage
-  # when a new home Manager release introduces backwards
-  # incompatible changes.
-  #
-  # You can update home Manager without changing this value. See
-  # the home Manager release notes for a list of state version
-  # changes in each release.
+  # First-install release, never raised afterwards (docs/impermanence.md).
   home.stateVersion = "26.11";
 }

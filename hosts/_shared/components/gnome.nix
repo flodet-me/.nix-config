@@ -1,4 +1,4 @@
-{ pkgs, ... }:
+{ config, pkgs, ... }:
 
 {
   services.xserver.enable = true;
@@ -9,7 +9,7 @@
   # Enable automatic login for the user (the LUKS passphrase/YubiKey at boot is
   # the real gate, see docs/installer.md).
   services.displayManager.autoLogin.enable = true;
-  services.displayManager.autoLogin.user = "flodet";
+  services.displayManager.autoLogin.user = config.host.user;
 
   # Workaround for GNOME autologin: https://github.com/NixOS/nixpkgs/issues/103746#issuecomment-945091229
   systemd.services."getty@tty1".enable = false;

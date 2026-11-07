@@ -76,11 +76,11 @@ recipients() {
   echo "# host's host.role. Do not edit; see docs/secrets.md."
   echo "creation_rules:"
   for s in "${servers[@]}"; do
-    echo "  - path_regex: hosts/$s/secrets\\.(yaml|json|env|ini)\$"
+    echo "  - path_regex: hosts/$s/secrets\\.yaml\$"
     echo "    key_groups:"
     recipients "$s"
   done
-  echo "  - path_regex: (hosts/_shared|home)/.*secrets\\.(yaml|json|env|ini)\$"
+  echo "  - path_regex: (hosts/_shared|home)/.*secrets\\.yaml\$"
   echo "    key_groups:"
   recipients "${workstations[@]}"
 } >.sops.yaml
@@ -108,6 +108,10 @@ done < <(find hosts home -name '*secrets.yaml' | sort)
 
 if [[ -n $verify_host ]]; then
   role=$(jq -r --arg h "$verify_host" '.[$h]' <<<"$roles")
+  [[ $role != null ]] || {
+    echo "unknown host: $verify_host (no keys/hosts/$verify_host.age or host config)" >&2
+    exit 1
+  }
   if [[ $role == server ]]; then
     mapfile -t files < <(find "hosts/$verify_host" -name '*secrets.yaml' | sort)
   else

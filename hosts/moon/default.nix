@@ -22,14 +22,11 @@
       swapSize = "4G";
       encrypt = false;
     })
+    ../_shared/components/uefi-boot.nix
     ./dns.nix
   ];
 
   networking.hostName = "moon";
-
-  boot.loader.systemd-boot.enable = true;
-  boot.loader.systemd-boot.configurationLimit = 10;
-  boot.loader.efi.canTouchEfiVariables = true;
 
   # DHCP; give moon a fixed lease in the router, it is the network's DNS server
   networking.useDHCP = true;

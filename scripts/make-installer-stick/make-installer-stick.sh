@@ -81,5 +81,6 @@ done
 echo "==> Writing (needs sudo)"
 sudo dd if="$iso" of="$dev" bs=4M oflag=direct conv=fsync status=progress
 echo "==> Verifying"
+sudo blockdev --flushbufs "$dev" # read back from the stick, not from the page cache
 sudo cmp -n "$iso_size" "$iso" "$dev"
 echo "OK: $dev verified. Boot it with UEFI and run: sudo install-host <host>"

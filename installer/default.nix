@@ -27,6 +27,8 @@ let
     && (cfg.disko.devices.disk or { }) != { }
   ) (lib.attrNames outputs.nixosConfigurations);
   hostCfg = host: outputs.nixosConfigurations.${host}.config;
+  # Shared with the disk layout and the boot rollback
+  names = import ../hosts/_shared/components/impermanence/names.nix;
 
   install-host = pkgs.writeShellApplication {
     name = "install-host";
@@ -34,9 +36,7 @@ let
       inputs.disko.packages.${pkgs.stdenv.hostPlatform.system}.disko
       (import ../scripts { inherit pkgs; }).sops-register-host
       age
-      sops
       gnupg
-      git
       util-linux
       cryptsetup
       systemd
@@ -45,9 +45,29 @@ let
       gnugrep
       findutils
     ];
-    text = builtins.replaceStrings [ "@repo@" "@hosts@" ] [ "${inputs.self}" (toString hosts) ] (
-      builtins.readFile ./install-host.sh
-    );
+    text =
+      builtins.replaceStrings
+        [
+          "@repo@"
+          "@hosts@"
+          "@luks@"
+          "@sopsKey@"
+          "@user@"
+          "@dataLuks@"
+          "@dataKey@"
+          "@dataKeyTmp@"
+        ]
+        [
+          "${inputs.self}"
+          (toString hosts)
+          names.luks
+          names.sopsAgeKey
+          (hostCfg (lib.head hosts)).host.user
+          names.dataLuks
+          names.dataKey
+          names.dataKeyTmp
+        ]
+        (builtins.readFile ./install-host.sh);
   };
 in
 {
@@ -77,6 +97,7 @@ in
       # rebuilt offline (`inputDerivation`'s closure = exactly those inputs).
       ++ map (drv: drv.inputDerivation) [
         cfg.system.build.toplevel
+        cfg.system.build.destroyFormatMount # changes with install-host --disk
         cfg.system.build.etc
         cfg.system.build.separateActivationScript
         cfg.system.build.sops-nix-manifest
@@ -115,6 +136,9 @@ in
     pinentryPackage = pkgs.pinentry-curses;
   };
 
+  # Also built on its own in CI (shellcheck runs on it): .#install-host
+  system.build.installHost = install-host;
+
   environment.systemPackages = [
     install-host
     pkgs.rsync
@@ -123,6 +147,6 @@ in
 
   services.getty.helpLine = lib.mkAfter ''
 
-    To install: sudo install-host <desktop|laptop>   (docs/installer.md)
+    To install: sudo install-host <${lib.concatStringsSep "|" hosts}>   (docs/installer.md)
   '';
 }

@@ -1,12 +1,14 @@
 # Impermanence
 
-`desktop` and `laptop` wipe their root filesystem on every boot. Only these survive:
+All hosts (`desktop`, `laptop`, `moon`, `vps`) wipe their root filesystem on
+every boot. The workstations are LUKS-encrypted, the servers are not. Only
+these survive:
 
 | Path       | What                                                              |
 | ---------- | ----------------------------------------------------------------- |
-| `/nix`     | The store. Cleaned by `nix.gc` (weekly, >30d), not by reboots.    |
+| `/nix`     | The store. Cleaned by `nh clean` (weekly, keeps 5 generations and 30 days), not by reboots. |
 | `/home`    | Kept entirely: projects, dotfiles, caches.                        |
-| `/persist` | System state listed in `environment.persistence."/persist"`.      |
+| `/persist` | System state listed in `environment.persistence."/persist"` (on servers all of `/var/lib`). |
 | `/boot`    | ESP.                                                              |
 
 Everything else (stray files in `/etc` and `/var`, `/tmp`, `/root`, state from
@@ -22,7 +24,10 @@ Config: `hosts/_shared/components/impermanence/` (`disko.nix` = disk layout,
 - To keep a path, add it to `directories`/`files` in
   `impermanence/default.nix`, rebuild, and copy the current contents into
   `/persist/<path>` **before** rebooting.
-- Forgot something? The previous roots are kept for 30 days:
+- Forgot something? The previous roots are kept for
+  `impermanence.oldRootRetentionDays` (30) days. That includes `/tmp` and
+  `/root`, so a big temporary file (a VM image, a build) stays on disk for
+  that long after a reboot; delete it before rebooting.
   ```sh
   sudo mount -o subvol=/ /dev/mapper/crypted /mnt
   ls /mnt/old_roots/
@@ -41,6 +46,24 @@ Config: `hosts/_shared/components/impermanence/` (`disko.nix` = disk layout,
   expires (up to ~4 weeks).
 - `btrfs scrub` runs monthly (`btrfs-scrub@-.timer`); check results with
   `sudo btrfs scrub status /`.
+
+## Upkeep on the workstations
+
+`hosts/_shared/components/workstation-health.nix`:
+
+- zram swap next to the swap file, and `earlyoom`, which kills the runaway
+  process (with a notification) before the desktop freezes. `systemd-oomd` is
+  off so there is only one OOM killer.
+- `smartd` watches the disks and warns by desktop notification.
+- The journal is capped at 500 MB / 3 months and coredumps at 1 GB.
+- `systemd.sleep` hibernate delay (2 h): hibernate to the btrfs swap file works
+  without a `resume_offset` kernel parameter, because systemd records the
+  swap file's location in an EFI variable and the initrd reads it back. Try
+  `systemctl hibernate` on the real machine before relying on it. The desktop
+  should not hibernate: its NVIDIA driver does not save the GPU memory
+  (`powerManagement.enable = false`).
+- Nix collects garbage by itself when less than 5 GB are free during a build
+  (`min-free`/`max-free` in `components/nix.nix`).
 
 ## Testing in a VM
 
@@ -85,7 +108,9 @@ run `nixos-rebuild switch` on a host that hasn't been reinstalled.
    ```
    Skipping this still boots, but secrets (e.g. Mullvad login) stay missing
    until the key is registered and you switch again.
-6. Install and reboot:
+6. Install and reboot. This needs a network: `--flake` evaluates against the
+   still empty `/mnt` store and fetches the flake inputs. Offline, use the
+   installer stick (`install-host` builds in the stick's store first):
    ```sh
    sudo nixos-install --flake .#<HOST> --no-root-passwd
    ```

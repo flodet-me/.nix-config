@@ -42,6 +42,11 @@
           mullvad account logout
           ;;
         *"Not logged in"*) ;;
+        # daemon not ready yet: fail so Restart retries in 30s, not in 15 min
+        *"Failed to connect"* | *"Could not connect"* | *"onnection refused"*)
+          echo "$status" >&2
+          exit 1
+          ;;
         *)
           echo "already logged in"
           exit 0

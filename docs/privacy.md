@@ -10,7 +10,10 @@ things. Three layers:
 | Network | `hosts/moon/dns.nix` | Everything using moon as DNS: ads/trackers (StevenBlack) and device/OS telemetry (hagezi "native" lists: Windows/Office, Samsung, LG, Amazon, Apple, Xiaomi, TikTok). Covers what can't be configured: smart TVs, phones, proprietary apps. |
 
 Also: location services (geoclue) are off, so GNOME's automatic time zone and
-night light schedule must be set manually.
+night light schedule must be set manually. GNOME itself reports no crashes or
+usage, uses no external search providers, and its remote-desktop sharing,
+file sharing (WebDAV), DLNA server and file content indexing are off
+(`hosts/_shared/components/gnome.nix`, `home/flodet/_shared/desktop-environments/gnome`).
 
 ## Not covered (decide yourself)
 

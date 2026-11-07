@@ -2,7 +2,6 @@
 # server, adjust the values marked TODO, and add it to flake.nix and
 # hosts/_shared/components/server-access.nix. Workflow: docs/cloud.md
 {
-  inputs,
   modulesPath,
   ...
 }:

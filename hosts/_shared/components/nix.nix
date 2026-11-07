@@ -4,7 +4,8 @@
   ...
 }:
 let
-  flakeInputs = lib.filterAttrs (_: lib.isType "flake") inputs;
+  # `self` is a store path of this repo: useless as a registry entry
+  flakeInputs = lib.filterAttrs (name: input: name != "self" && lib.isType "flake" input) inputs;
 in
 {
   nix = {
@@ -26,6 +27,17 @@ in
       ];
       flake-registry = ""; # Disable global flake registry
 
+      substituters = [
+        "https://cache.nixos.org"
+        "https://nix-community.cachix.org"
+      ];
+      trusted-public-keys = [
+        "cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY="
+        "nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCYg3Fs="
+      ];
+      fallback = true; # build locally when a substituter is unreachable
+      builders-use-substitutes = true;
+
       # Garbage-collect during a build when the disk runs low, instead of failing
       # with "No space left on device" half way.
       min-free = 5 * 1024 * 1024 * 1024;
@@ -40,7 +52,6 @@ in
   # weekly garbage collection (keeps at least 5 generations and 30 days).
   programs.nh = {
     enable = true;
-    flake = "/home/flodet/.nix-config";
     clean = {
       enable = true;
       dates = "weekly";
