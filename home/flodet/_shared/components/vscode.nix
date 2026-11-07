@@ -1,7 +1,44 @@
 {
+  lib,
   pkgs,
   ...
 }:
+let
+  declaredSettings = {
+    "workbench.sideBar.location" = "right";
+    "workbench.tree.indent" = 10;
+    "workbench.tree.renderIndentGuides" = "always";
+    "workbench.iconTheme" = null;
+    "workbench.colorTheme" = "Dracula Theme";
+    "editor.renderWhitespace" = "all";
+    "editor.inlineSuggest.syntaxHighlightingEnabled" = true;
+    "editor.fontFamily" = "MonaspiceAr NFM";
+    "files.autoSave" = "onFocusChange";
+    "files.autoSaveWhenNoErrors" = true;
+    "accessibility.dimUnfocused.enabled" = false;
+    "explorer.fileNesting.enabled" = true;
+    "explorer.confirmDragAndDrop" = false;
+    "vim.enableNeovim" = true;
+    "vim.highlightedyank.enable" = true;
+    "vim.useSystemClipboard" = true;
+    "vim.useCtrlKeys" = false;
+    "git.enableSmartCommit" = true;
+
+    # No telemetry, experiments or online lookups to Microsoft; updates come from Nix
+    "telemetry.telemetryLevel" = "off";
+    "telemetry.feedback.enabled" = false;
+    "workbench.enableExperiments" = false;
+    "workbench.settings.enableNaturalLanguageSearch" = false;
+    "workbench.cloudChanges.continueOn" = "off";
+    "update.mode" = "none";
+    "update.showReleaseNotes" = false;
+    "extensions.autoCheckUpdates" = false;
+    "extensions.autoUpdate" = false;
+    "npm.fetchOnlinePackageInfo" = false;
+    "redhat.telemetry.enabled" = false;
+    "chat.disableAIFeatures" = true;
+  };
+in
 {
   stylix.targets.vscode.enable = false;
 
@@ -33,41 +70,17 @@
 
           anthropic.claude-code
         ];
-        userSettings = {
-          "workbench.sideBar.location" = "right";
-          "workbench.tree.indent" = 10;
-          "workbench.tree.renderIndentGuides" = "always";
-          "workbench.iconTheme" = null;
-          "workbench.colorTheme" = "Dracula Theme";
-          "editor.renderWhitespace" = "all";
-          "editor.inlineSuggest.syntaxHighlightingEnabled" = true;
-          "editor.fontFamily" = "MonaspiceAr NFM";
-          "files.autoSave" = "onFocusChange";
-          "files.autoSaveWhenNoErrors" = true;
-          "accessibility.dimUnfocused.enabled" = false;
-          "explorer.fileNesting.enabled" = true;
-          "explorer.confirmDragAndDrop" = false;
-          "vim.enableNeovim" = true;
-          "vim.highlightedyank.enable" = true;
-          "vim.useSystemClipboard" = true;
-          "vim.useCtrlKeys" = false;
-          "git.enableSmartCommit" = true;
-
-          # No telemetry, experiments or online lookups to Microsoft; updates come from Nix
-          "telemetry.telemetryLevel" = "off";
-          "telemetry.feedback.enabled" = false;
-          "workbench.enableExperiments" = false;
-          "workbench.settings.enableNaturalLanguageSearch" = false;
-          "workbench.cloudChanges.continueOn" = "off";
-          "update.mode" = "none";
-          "update.showReleaseNotes" = false;
-          "extensions.autoCheckUpdates" = false;
-          "extensions.autoUpdate" = false;
-          "npm.fetchOnlinePackageInfo" = false;
-          "redhat.telemetry.enabled" = false;
-          "chat.disableAIFeatures" = true;
-        };
       };
     };
   };
+
+  # settings.json must stay writable (VS Code saves into it), so it is not a store symlink:
+  # activation merges declaredSettings over the existing file (declared values win).
+  home.activation.vscodeSettings = lib.hm.dag.entryAfter [ "linkGeneration" ] ''
+    f="$HOME/.config/Code/User/settings.json"
+    mkdir -p "$(dirname "$f")"
+    if [ -L "$f" ]; then rm "$f"; fi
+    if [ ! -f "$f" ]; then echo '{}' > "$f"; fi
+    ${pkgs.jq}/bin/jq -s '.[0] * .[1]' "$f" ${pkgs.writeText "vscode-settings.json" (builtins.toJSON declaredSettings)} > "$f.tmp" && mv "$f.tmp" "$f"
+  '';
 }

@@ -4,3 +4,4 @@ result
 
 # UEFI variable stores that `vmWithDisko` VMs write into the current directory
 *-efi-vars.fd
+graphify-out/
