@@ -15,6 +15,7 @@
     gnomeExtensions.color-picker
     gnomeExtensions.headsetcontrol
     gnomeExtensions.mullvad-indicator
+    smile # emoji picker, opened with Super+. (like Win+.)
   ];
 
   dconf.settings = {
@@ -51,6 +52,17 @@
       show-battery-percentage = true;
       # Middle click paste
       gtk-enable-primary-paste = true;
+    };
+
+    "org/gnome/settings-daemon/plugins/media-keys" = {
+      custom-keybindings = [
+        "/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/emoji/"
+      ];
+    };
+    "org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/emoji" = {
+      name = "Emoji picker";
+      command = "smile";
+      binding = "<Super>period";
     };
 
     "org/gnome/desktop/datetime".automatic-timezone = true;
