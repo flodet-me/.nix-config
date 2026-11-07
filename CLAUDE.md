@@ -191,8 +191,15 @@ password `123456789`):
 
 ```sh
 nix build .#nixosConfigurations.<host>.config.system.build.vmWithDisko -o /tmp/vm
+cd "$(mktemp -d)"   # never start it inside the repo, see below
 QEMU_OPTS="-nographic" QEMU_KERNEL_PARAMS="console=ttyS0" /tmp/vm/bin/disko-vm
 ```
+
+The VM writes its UEFI variable store, `<host>-efi-vars.fd` (about 0.5 MB), into
+the **current directory**, so start it from a scratch directory, never from the
+repo (a started-in-background `expect` job inherits the directory you were in).
+`.gitignore` hides such files as a safety net, but delete them with the rest of
+the test data.
 
 With those two variables the VM has a serial console, so an `expect` script can
 log in and run commands (`nixpkgs#expect`). The disk is a fresh copy each run
