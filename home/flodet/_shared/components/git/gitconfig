@@ -5,11 +5,8 @@ signingkey = B39042889DD7D4BA
 
 [commit]
 gpgsign = true
-
-[color]
-# Enable colors in color-supporting terminals
-diff = false
-show = false
+# Show the diff below the message while writing it
+verbose = true
 
 [alias]
 # List available aliases
@@ -39,32 +36,18 @@ uncommit = reset --soft HEAD~1
 untrack = rm --cache --
 
 [core]
-# Don't paginate output by default
-# -X:           don't talk to X11 on startup
-# -R:           read only mode
-# -n:           don't use a swap file
-# -c:           run command on start, after autocmd/modeline
-pager = nvim -X -R - -n -c 'set filetype=git nowrap noro'
+# No core.pager: diff/log/show/blame go through delta (default.nix), the rest through less
 # Global ignore file (not shared)
 excludesfile = ~/.gitignore_global
-# Global shared hooks directory
-# hooksPath = ~/.githooks
-#
-# Out of luck: on Windows w/o msysGit? You may have Notepad++…
-# editor = 'C:/Program Files (x86)/Notepad++/notepad++.exe' -multiInst -notabbar -nosession -noPlugin
-#
-# If you want to use Sublime Text 2's subl wrapper:
-# editor = subl -w
-#
-# Sublime Text 3 on Windows:
-# editor = 'c:/Program Files/Sublime Text 3/subl.exe' -w
-#
-# VIM
 editor = nvim
 # Don't consider trailing space change as a cause for merge conflicts
 whitespace = -trailing-space
 autocrlf = input
 ignorecase = false
+
+[branch]
+# Most recently used branches first
+sort = -committerdate
 
 [diff]
 # Use better, descriptive initials (c, i, w) instead of a/b.
@@ -75,8 +58,15 @@ renames = true
 wordRegex = .
 # Display submodule-related information (commit listings)
 submodule = log
-# Use VIM as default diff tool when running `git diff-tool`
-tool = nvim -d
+# Fewer misaligned hunks than the default myers
+algorithm = histogram
+# Moved code is shown as moved, not as delete + add
+colorMoved = default
+# `git difftool` opens VS Code's side-by-side diff (git's built-in `vscode` tool)
+tool = vscode
+
+[difftool]
+prompt = false
 
 [fetch]
 # Auto-fetch submodule changes (sadly, won't auto-update)
@@ -88,6 +78,8 @@ heading = true
 lineNumber = true
 # Consider most regexes to be ERE
 extendedRegexp = true
+# `git grep` also works outside a repository
+fallbackToNoIndex = true
 
 [log]
 # Use abbrev SHAs whenever possible/relevant instead of full 40 chars
@@ -99,21 +91,10 @@ follow = true
 decorate = false
 
 [merge]
-# Display common-ancestor blocks in conflict hunks
-# conflictStyle = diff3
-# Disable fast-forward merges as default merge strategy.
-# Force explicit call of `git merge --ff …`.
-ff = false
-# Custom/dedicated merge drive for npm lock files (`package-lock.json`).
-# Also works with Yarn.
-# Use Git attributes to set targeted files (located at `~/.config/git/attributes``
-# when installed with npm).
-# See https://www.npmjs.com/package/npm-merge-driver
-# [merge "npm-merge-driver"]
-# name = automatically merge npm lockfiles
-# driver = npx npm-merge-driver merge %A %O %B %P
-tool = nvim -d
-conflictstyle = diff3
+# Conflict hunks show the common ancestor, without lines both sides share
+conflictStyle = zdiff3
+# `git mergetool` opens VS Code's 3-way merge editor
+tool = vscode
 
 [mergetool]
 # Clean up backup files created by merge tools on tool exit
@@ -124,42 +105,31 @@ keepTemporaries = false
 writeToTemp = true
 # Auto-accept file prompts when launching merge tools
 prompt = false
-# [page]
-# Use custom pager to get an better log on terminal.
-# As this is an external tool it has to be installed.
-# See https://github.com/so-fancy/diff-so-fancy
-# show = diff-so-fancy | less --tabs=4 -RFX
 
 [pull]
-# This is GREAT… when you know what you're doing and are careful
-# not to pull --no-rebase over a local line containing a true merge.
-# rebase = true
-# This option, which does away with the one gotcha of
-# auto-rebasing on pulls, is only available from 1.8.5 onwards.
-# rebase = preserve
-# WARNING! This option, which is the latest variation, is only
-# available from 2.18 onwards.
+# Rebase local commits on pull, keeping local merge commits
 rebase = merges
 
 [push]
 # Default push should only push the current branch to its push target, regardless of its remote name
 default = upstream
+# First push of a new branch sets its upstream (no `-u` needed)
+autoSetupRemote = true
 # When pushing, also push tags whose commit-ishs are now reachable upstream
 followTags = true
-# [rebase]
-# Rebase advanced usage.
-# Automagically reorder and prefix your commands while doing an interactive
-# rebase. This has to be used with `--fixup` and/or `--squash` options for
-# `git commit`.
-# autoSquash = true
-# Automatically stash current WD and stage when running rebase
-# then you won't have to manually `git stash push` and `git stash pop`
-# after and before your rebase.
-# autoStash = true
-# [rerere]
-# If, like me, you like rerere, uncomment these
-# autoupdate = true
-# enabled = true
+
+[rebase]
+# Stash uncommitted changes before a rebase and restore them after
+autoStash = true
+# Move `fixup!`/`squash!` commits next to their target in `rebase -i`
+autoSquash = true
+# Branches stacked on the rebased commits move along
+updateRefs = true
+
+[rerere]
+# Remember conflict resolutions and replay them when the same conflict returns
+enabled = true
+autoUpdate = true
 
 [status]
 # Display submodule rev change summaries in status
@@ -181,11 +151,6 @@ prereleaseSuffix = .rc
 
 [init]
 defaultBranch = main
-
-[grep]
-lineNumber = true
-extendedRegexp = true
-fallbackToNoIndex = true
 
 [blame]
 markIgnoredLines = true
