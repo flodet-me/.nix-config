@@ -187,8 +187,9 @@ in
     run mkdir -p "$(dirname "$settings")"
     tmp="$(mktemp)"
     if [ -s "$settings" ]; then current="$(cat "$settings")"; else current='{}'; fi
-    # Nix-owned keys win; arrays are replaced as a whole, not merged
-    if printf '%s' "$current" | ${lib.getExe pkgs.jq} -s '.[0] * .[1]' - ${managedSettings} > "$tmp"; then
+    # Nix-owned keys win; arrays are replaced as a whole, not merged. The plugin
+    # lists come only from Nix, so a plugin removed above is disabled too.
+    if printf '%s' "$current" | ${lib.getExe pkgs.jq} -s '(.[0] | del(.enabledPlugins, .extraKnownMarketplaces)) * .[1]' - ${managedSettings} > "$tmp"; then
       run install -m 600 "$tmp" "$settings"
     else
       echo "claude-code: $settings is not valid JSON, left unchanged" >&2

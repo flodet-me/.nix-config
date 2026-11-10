@@ -81,13 +81,16 @@ current version. Playwright MCP is the exception: it comes from nixpkgs.
 2. `nixos-rebuild switch`. The sync service installs it.
 3. Add a section to [Installed plugins](#installed-plugins) below.
 
-Removing an entry stops it from being declared but does not uninstall it:
-run `claude plugin uninstall <plugin>@<marketplace>` (and
-`claude plugin marketplace remove <name>`, `claude mcp remove -s user
-<name>`, `graphify uninstall`) once.
+`enabledPlugins` and `extraKnownMarketplaces` come only from Nix: activation
+replaces them, so removing a plugin or marketplace from the lists disables it
+at the next switch. Its downloaded files stay in `~/.claude/plugins/`; to
+delete them, run `claude plugin uninstall <plugin>@<marketplace>` (and
+`claude plugin marketplace remove <name>`) once. MCP servers and graphify
+are not removed by a switch: `claude mcp remove -s user <name>`,
+`graphify uninstall`.
 
-Trying a plugin interactively with `/plugin install` is fine; it only becomes
-reproducible once it is added to the Nix lists.
+Trying a plugin interactively with `/plugin install` is fine, but it is
+disabled again at the next switch; add it to the Nix lists to keep it.
 
 Sensitive plugin options (e.g. ponytail's `webhookToken`) are kept in the
 system keychain by Claude Code; never put them into `pluginConfigs`.
@@ -353,12 +356,8 @@ Was installed until 2026-11; removed because it duplicated everything above
 (~300 skills, ~70 agents, its own reviews, TDD, planning) and ran Node hooks
 on every tool call (a "fact-forcing gate" blocked the first Bash command of
 each session; a second browser MCP, `chrome-devtools`, next to Playwright).
-After the switch, uninstall it once:
-
-```sh
-claude plugin uninstall ecc@ecc
-claude plugin marketplace remove ecc
-```
+Uninstalled on 2026-11-10 (`claude plugin uninstall ecc@ecc`,
+`claude plugin marketplace remove ecc`).
 
 ## References
 
