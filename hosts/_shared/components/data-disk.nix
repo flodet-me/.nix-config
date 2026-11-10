@@ -52,6 +52,8 @@ let
         "bind"
         "nofail"
         "x-systemd.requires-mounts-for=${mountpoint}"
+        # unmount only after login sessions and user managers stopped (they keep it busy)
+        "x-systemd.before=systemd-user-sessions.service"
       ];
     }
   ) homeBinds;

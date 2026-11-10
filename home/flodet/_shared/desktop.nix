@@ -60,6 +60,7 @@ in
 
     # encryption
     veracrypt
+    bitwarden-desktop # Firefox extension: firefox.nix
 
     jetbrains.rider
 

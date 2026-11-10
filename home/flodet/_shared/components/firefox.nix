@@ -58,7 +58,6 @@
         videospeed
 
         # Integration
-        zotero-connector
         gnome-shell-integration
       ];
 

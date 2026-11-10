@@ -19,6 +19,9 @@
   ];
 
   dconf.settings = {
+    # its default is /usr/local/bin/headsetcontrol, which does not exist on NixOS
+    "org/gnome/shell/extensions/HeadsetControl".headsetcontrol-executable =
+      "${pkgs.headsetcontrol}/bin/headsetcontrol";
     "org/gnome/shell" = {
       disable-user-extensions = false;
 
