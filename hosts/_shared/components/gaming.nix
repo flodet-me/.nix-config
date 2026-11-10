@@ -6,6 +6,7 @@
     lutris
     winetricks
     wineWow64Packages.stable
+    prismlauncher # Minecraft: vanilla plus Fabric/Forge/NeoForge/Quilt mods from Modrinth/CurseForge
   ];
 
   programs.gamemode.enable = true;
