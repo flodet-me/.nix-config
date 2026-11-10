@@ -21,7 +21,7 @@ The dev shell also has `claude-code`, but not the plugins.
 - **Activation** (first boot after an install and every `nixos-rebuild switch`)
   merges the Nix-owned settings into `~/.claude/settings.json` with `jq`:
   `home/flodet/_shared/components/claude-code/settings.json` (model
-  `sonnet`, advisor `opus`, effort, theme, Remote Control on every session, fullscreen TUI with compact (focus) view, permissions, ...) plus the declared
+  `claude-opus-5-5` (Opus 5.5), advisor `fable` (newest Fable this Claude Code knows), effort, theme, Remote Control on every session, fullscreen TUI with compact (focus) view, permissions, ...) plus the declared
   `extraKnownMarketplaces`, `enabledPlugins` and `pluginConfigs`. Nix owns
   those keys: changing them in Claude Code (`/model`, `/permissions`, ...)
   works until the next switch, then the repo wins. To keep a change, edit
@@ -33,6 +33,16 @@ The dev shell also has `claude-code`, but not the plugins.
   remote controllable through Anthropic's servers: the one place that contradicts
   the telemetry opt-out, on purpose), `tui: fullscreen` and `viewMode: focus`
   (the compact view, which needs the fullscreen renderer).
+- **Personal instructions** (`personal.md` in the module, linked to
+  `~/.claude/rules/personal.md`, read in every session): who I am, answer
+  language, stack, propose-before-building, product thinking, simple
+  architecture, ADRs. Edit the file in the repo and switch; keep it short,
+  it costs tokens in every session. `/memory` shows which files are loaded.
+- **Status line** (`claude-statusline` in the module): model, folder and git
+  branch, context used, session cost, ponytail badge. Watch the context
+  number: around 60-70 % is a good moment for `/compact` or `/clear`.
+- **Desktop notification** (`Notification` hook, `notify-send`) when Claude
+  waits for a permission or your input, so you can work elsewhere meanwhile.
 - **Permissions:** `Bash`, `Edit` and `Write` are allowed in general, with a long
   deny list (secrets and sops files, gpg/ykman, privilege escalation, disk
   tools, force pushes, `gh auth`, `nixos-rebuild`) and `disableBypassPermissionsMode`.
@@ -102,7 +112,64 @@ claude plugin details <plugin>@<mkt>    # what it ships + context-token cost
 Plugins run hooks and scripts on this machine as `flodet`; only add
 marketplaces from sources you trust.
 
-## Installed plugins
+## Which tool for which job
+
+Several plugins can do the same thing. Use this one, ignore the others:
+
+| Job | Use | Not |
+| --- | --- | --- |
+| Sharpen a rough product idea | agent-skills `idea-refine`, then `interview-me` | — |
+| Stress-test a plan or architecture | mattpocock `grilling` | agent-skills `doubt-driven-development` (only for one risky decision) |
+| Write down what to build | agent-skills `/spec` | mattpocock spec/ticket skills |
+| Domain model, module boundaries, interfaces | mattpocock `domain-modeling`, `codebase-design`; agent-skills `api-and-interface-design` for HTTP/public APIs | — |
+| Record a decision | agent-skills `documentation-and-adrs` | — |
+| Understand an unfamiliar or large repo | `/graphify .`, then ask | — |
+| Plan and implement | agent-skills `/planning` → `/build`, with ponytail on `full` | built-in plan mode for small things |
+| Tests first, bug hunts | agent-skills `/test`, `debugging-and-error-recovery` | mattpocock `tdd`, `diagnosing-bugs` |
+| Library/API docs | built-in web search/fetch ("check the current docs of X") | — |
+| UI | `frontend-design` (look), check it with Playwright MCP | — |
+| Review before commit | `/ponytail-review` | agent-skills `/agent-skills:review`, mattpocock `code-review` |
+| Deep review of a PR | built-in `/code-review`, `/security-review` | — |
+| Whole repo health | `/ponytail-audit` | — |
+| Release checklist | agent-skills `/ship` | — |
+| PR text | mattpocock `pr` or just "open a PR" (`gh`) | — |
+| Talk/demo deck | `/frontend-slides:frontend-slides` | — |
+
+A typical feature: `idea-refine` → `grilling` → `/spec` → `/planning` →
+`/build` → `/ponytail-review` → PR. A small fix: just ask, then
+`/ponytail-review`.
+
+Only local tools and Claude itself: no plugin or MCP server that sends data to
+a third-party service (Context7 was tried and dropped for that reason), and
+the claude.ai connectors (Google Drive, ...) are off in Claude Code
+(`ENABLE_CLAUDEAI_MCP_SERVERS=false`); they still work on claude.ai.
+
+Not added on purpose: GitHub MCP (`gh` already does it), more review
+toolkits (`code-review`, `pr-review-toolkit`, `feature-dev` plugins duplicate
+the above), Linear/Notion/Figma/Sentry (add one when you use that service:
+each is a `…@claude-plugins-official` line), and language servers for languages
+not in `~/Projects` yet (see [Language servers](#language-servers-rust-analyzer-lsp-typescript-lsp-csharp-lsp)).
+
+## Token usage
+
+Already set up: prompt caching and auto-compact (Claude Code defaults), MCP
+tool schemas load only when a tool is needed (tool search), and only a few
+plugins, because every installed skill and agent adds its description to each
+session (ECC alone was several thousand tokens). Before adding a plugin, check
+`claude plugin details <plugin>@<mkt>` for its context cost.
+
+Habits that save the most without hurting results:
+
+- `/clear` when you start an unrelated task; `/compact <what to keep>` in a
+  long one instead of waiting for auto-compact.
+- `/context` shows what fills the window, `/cost` what a session used.
+- Name files (`@path/file`) instead of "find where we do X".
+- Wide searches over many files: let Claude use a subagent (Explore); only
+  its conclusion comes back into the main context.
+- Plan mode (Shift+Tab) for bigger changes: a wrong plan is cheaper to fix
+  than wrong code.
+- Keep project `CLAUDE.md` files short and factual: they are read every session.
+
 
 ### ponytail (`ponytail@ponytail`)
 
@@ -260,20 +327,38 @@ form works". Check it's connected with `/mcp`. agent-skills'
 `browser-testing-with-devtools` expects a Chrome DevTools MCP server instead;
 use Playwright for the same job.
 
-### rust-analyzer-lsp (`rust-analyzer-lsp@claude-plugins-official`)
+### Language servers (`rust-analyzer-lsp`, `typescript-lsp`, `csharp-lsp`)
 
-From Anthropic's official marketplace. Gives Claude Code rust-analyzer
-diagnostics/navigation in Rust projects; `rust-analyzer` is in `home.packages`
-(a project's dev shell can still provide its own).
+From Anthropic's official marketplace, chosen by what `~/Projects` is written
+in (C#, TypeScript/JavaScript, Rust). Claude gets compiler diagnostics after
+each edit and exact go-to-definition/references instead of grepping: fewer
+wrong edits and fewer tokens. The servers (`rust-analyzer`,
+`typescript-language-server`, `csharp-ls`) are in `home.packages`; the
+project's own toolchain (`dotnet` SDK, `node_modules/typescript`, `cargo`)
+comes from its dev shell, so start Claude inside it (direnv). For another
+language add its `…-lsp@claude-plugins-official` plugin and server binary
+(`pyright-lsp` + `pyright`, `gopls-lsp` + `gopls`, ...).
 
-### ECC (`ecc@ecc`, github.com/affaan-m/ecc)
+### frontend-design (`frontend-design@claude-plugins-official`)
 
-Large collection: ~300 skills, ~70 agents, ~100 commands, plus Node hooks on
-`SessionStart`, `PreToolUse`, `PostToolUse`, `Stop`, `SessionEnd` and more
-(memory persistence, checks). Costs: every tool call runs extra Node
-processes, and the skill/agent lists take context. It overlaps with
-agent-skills and ponytail. If sessions get slow or noisy, remove it again
-from `plugins` (and its marketplace) in the module.
+Anthropic's skill for distinctive, production-grade UIs (typography, colour,
+layout, motion) instead of the generic "AI look". It triggers by itself when
+you build a page or component; you can also ask for it by name. For
+accessibility and state handling, agent-skills' `frontend-ui-engineering`
+complements it; check the result in a browser with Playwright MCP.
+
+### Removed: ECC (`ecc@ecc`)
+
+Was installed until 2026-11; removed because it duplicated everything above
+(~300 skills, ~70 agents, its own reviews, TDD, planning) and ran Node hooks
+on every tool call (a "fact-forcing gate" blocked the first Bash command of
+each session; a second browser MCP, `chrome-devtools`, next to Playwright).
+After the switch, uninstall it once:
+
+```sh
+claude plugin uninstall ecc@ecc
+claude plugin marketplace remove ecc
+```
 
 ## References
 

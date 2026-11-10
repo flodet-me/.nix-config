@@ -19,17 +19,20 @@ let
     ponytail = "DietrichGebert/ponytail";
     addy-agent-skills = "addyosmani/agent-skills";
     frontend-slides = "zarazhangrui/frontend-slides";
-    ecc = "affaan-m/ecc";
   };
 
   # Plugins as <plugin>@<marketplace>. `claude-plugins-official` is built in.
+  # One plugin per job; docs/claude-code.md says which to use when.
   plugins = [
-    "ponytail@ponytail"
-    "agent-skills@addy-agent-skills"
-    "mattpocock-skills@claude-plugins-official" # grill-me & co.
+    "ponytail@ponytail" # smallest change, review
+    "agent-skills@addy-agent-skills" # spec -> plan -> build -> test -> ship
+    "mattpocock-skills@claude-plugins-official" # grilling, domain modelling, module design
+    "frontend-design@claude-plugins-official" # UI that doesn't look generated
     "frontend-slides@frontend-slides"
+    # Language servers for what ~/Projects is written in; binaries in home.packages.
     "rust-analyzer-lsp@claude-plugins-official"
-    "ecc@ecc" # large: ~300 skills, ~70 agents, Node hooks on every tool call
+    "typescript-lsp@claude-plugins-official"
+    "csharp-lsp@claude-plugins-official"
   ];
 
   # Non-sensitive plugin options (what /plugin configure stores).
@@ -53,6 +56,39 @@ let
   # Also the interpreter graphify's uv tool venv is built on.
   python = pkgs.python3.withPackages (ps: [ ps.python-pptx ]); # frontend-slides PPTX import
 
+  # One line under the prompt: model, folder and branch, context used, cost.
+  statusline = pkgs.writeShellApplication {
+    name = "claude-statusline";
+    runtimeInputs = [
+      pkgs.jq
+      pkgs.git
+    ];
+    text = ''
+      IFS=$'\t' read -r model dir ctx cost < <(jq -r '[
+        .model.display_name,
+        .workspace.current_dir,
+        (.context_window.used_percentage // 0 | floor),
+        (.cost.total_cost_usd // 0 | . * 100 | round / 100)
+      ] | @tsv')
+      branch=$(git -C "$dir" branch --show-current 2>/dev/null || true)
+      badge=$(bash "$HOME/.claude/ponytail-statusline.sh" 2>/dev/null || true)
+      printf '%s · %s%s · ctx %s%% · $%s %s' \
+        "$model" "''${dir##*/}" "''${branch:+ ($branch)}" "$ctx" "$cost" "$badge"
+    '';
+  };
+
+  # Desktop notification when Claude waits for you (permission, idle input).
+  notify = pkgs.writeShellApplication {
+    name = "claude-notify";
+    runtimeInputs = [
+      pkgs.jq
+      pkgs.libnotify
+    ];
+    text = ''
+      notify-send -a "Claude Code" "Claude Code" "$(jq -r '.message // "Waiting for you"')"
+    '';
+  };
+
   managedSettings = pkgs.writeText "claude-managed-settings.json" (
     builtins.toJSON (
       lib.importJSON ./settings.json
@@ -65,6 +101,20 @@ let
         }) marketplaces;
         enabledPlugins = lib.genAttrs plugins (_: true);
         inherit pluginConfigs;
+        statusLine = {
+          type = "command";
+          command = lib.getExe statusline;
+        };
+        hooks.Notification = [
+          {
+            hooks = [
+              {
+                type = "command";
+                command = lib.getExe notify;
+              }
+            ];
+          }
+        ];
       }
     )
   );
@@ -123,8 +173,14 @@ in
     pkgs.gh # mattpocock-skills (issues, PRs)
     pkgs.uv # graphify
     pkgs.rust-analyzer # rust-analyzer-lsp plugin
+    pkgs.typescript-language-server # typescript-lsp plugin
+    pkgs.csharp-ls # csharp-lsp plugin
   ];
   home.sessionPath = [ "$HOME/.local/bin" ]; # uv tool binaries (graphify)
+
+  # Personal instructions for every session. A rules file, not
+  # ~/.claude/CLAUDE.md, because graphify writes into that one.
+  home.file.".claude/rules/personal.md".source = ./personal.md;
 
   home.activation.claudeCodeSettings = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
     settings="${config.home.homeDirectory}/.claude/settings.json"
