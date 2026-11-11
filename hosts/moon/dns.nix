@@ -74,7 +74,7 @@
       customDNS = {
         customTTL = "1h";
         filterUnmappedTypes = true;
-        mapping."moon.home.arpa" = "10.0.0.2"; # fixed lease in the router
+        mapping."moon.home.arpa" = "10.0.0.2,fd00::2"; # fixed lease / IPv6 token (default.nix)
       };
 
       caching = {

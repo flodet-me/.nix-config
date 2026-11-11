@@ -32,6 +32,18 @@
   # DHCP with a fixed lease in the router: 10.0.0.2 (server-access.nix and
   # dns.nix use it), it is the network's DNS and NTP server
   networking.useDHCP = true;
+  # Fixed IPv6 host part ::2 on every prefix the router announces, so the
+  # address is known in advance: fd00::2 with the Fritz!Box ULA prefix
+  # fd00::/64 (set it manually there), entered as its local DNSv6 server.
+  # Sorts before NixOS' 99-ethernet-default-dhcp, which it replaces.
+  systemd.network.networks."10-lan" = {
+    matchConfig = {
+      Type = "ether";
+      Kind = "!*";
+    };
+    networkConfig.DHCP = "yes";
+    ipv6AcceptRAConfig.Token = "static:::2";
+  };
 
   # Hardware watchdog: if the kernel hangs, the board resets moon instead of
   # leaving the network without DNS (Intel TCO watchdog, iTCO_wdt).

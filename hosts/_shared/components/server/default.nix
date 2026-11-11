@@ -12,6 +12,7 @@
     ../impermanence
     ./backup.nix
     ./hardening.nix
+    ./nix-config-checkout.nix
     ./web.nix
   ];
 
@@ -74,6 +75,27 @@
       ];
     };
   };
+
+  # --- Shell ----------------------------------------------------------------
+  # zsh like on the workstations, but system-wide: servers have no
+  # home-manager (home/flodet/_shared/components/zsh.nix). No oh-my-zsh.
+  programs.zsh = {
+    autosuggestions.enable = true;
+    syntaxHighlighting.enable = true;
+    histSize = 10000;
+    setOptions = [
+      "HIST_IGNORE_ALL_DUPS"
+      "HIST_IGNORE_SPACE"
+      "SHARE_HISTORY"
+      "HIST_FCNTL_LOCK"
+    ];
+    shellAliases.ll = "ls -l";
+  };
+  # An existing ~/.zshrc keeps zsh from starting its new-user wizard; the
+  # settings above come from /etc/zshrc.
+  systemd.tmpfiles.rules = [
+    "f ${config.users.users.${config.host.user}.home}/.zshrc 0644 ${config.host.user} users -"
+  ];
 
   # Slows down scanners; with key-only auth it is mainly log hygiene.
   services.fail2ban = {

@@ -88,10 +88,13 @@ is automatic:
 
 What is left for you: logging in to accounts (browser, ...).
 
-Servers (`moon`) have no home-manager, so there is no automatic checkout: the
-copy of the repo in `~/.nix-config` is only a record of what was installed.
-Register the key from your workstation (`sops-sync`, commit, push) and deploy,
-see docs/cloud.md.
+Servers (`moon`) do the same without the YubiKey: on the first boot with
+network the system service `nix-config-checkout`
+(`hosts/_shared/components/server/nix-config-checkout.nix`) makes
+`~/.nix-config` a read-only checkout of GitHub's main, with the host's key as
+an untracked file. Register it from your workstation
+(`scp <host>:.nix-config/keys/hosts/<host>.age keys/hosts/`, `sops-sync`,
+commit, push) and deploy, see docs/cloud.md.
 
 If you restored a backup that contained a checkout, the installer puts the
 files there instead: run `sops-sync`, commit, push.

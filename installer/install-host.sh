@@ -188,9 +188,11 @@ keep=("keys/hosts/$host.age")
 role=$(nix eval --raw "$work#nixosConfigurations.$host.config.host.role")
 # shellcheck disable=SC2088 # the ~ in the messages is meant literally
 if [[ $role == server ]]; then
-  # No home-manager on servers: nothing turns the copy into a checkout
+  # becomes a read-only checkout on the first boot with network (system
+  # service nix-config-checkout, server/nix-config-checkout.nix)
   cp -r "$work" "$checkout"
-  how="A server has no automatic checkout. From your workstation: sops-sync && git add -A && git commit -m \"$host: register sops key\" && git push, then deploy (docs/cloud.md). The copy on the server is only a backup of what was installed."
+  printf '%s\n' "${keep[@]}" >"$checkout/.install-keep"
+  how="On the first boot with network ~/.nix-config becomes a checkout of GitHub's main, with this host's key as a local change. From your workstation: scp $host:.nix-config/keys/hosts/$host.age keys/hosts/ && sops-sync && git add -A && git commit -m \"$host: register sops key\" && git push, then deploy (docs/cloud.md)."
 elif [[ -d $checkout/.git ]]; then
   # restored backup with a checkout: put the files there
   (cd "$work" && cp --parents "${keep[@]}" "$checkout/")
