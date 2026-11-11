@@ -1,26 +1,20 @@
 # Ad-/tracker-blocking DNS resolver for the home network (blocky, native
 # NixOS service instead of portal's docker container). Upstream queries are
-# encrypted (DNS-over-TLS/HTTPS to Mullvad), nothing about clients is logged
-# or forwarded. Point the router's DHCP DNS option at moon's address.
-{ config, lib, ... }:
-let
-  # Home network ranges that may query this resolver (not the internet)
-  lan = {
-    v4 = "10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16";
-    v6 = "fc00::/7, fe80::/10";
-  };
-in
+# encrypted (DNS-over-TLS/HTTPS to Quad9, which also blocks malware domains;
+# Mullvad's public DNS was shut down on 2026-11-02), nothing about clients is
+# logged or forwarded. Point the router's DHCP DNS option at moon's address.
+# Who may query it: ./firewall.nix.
 {
   services.blocky = {
     enable = true;
     settings = {
-      ports.dns = 53; # plain DNS for the LAN only (firewall below); no DoH/DoT/HTTP API
+      ports.dns = 53; # plain DNS for the LAN only (./firewall.nix); no DoH/DoT/HTTP API
 
       upstreams = {
         init.strategy = "fast"; # start answering before upstreams are verified
         groups.default = [
-          "tcp-tls:dns.mullvad.net:853"
-          "https://dns.mullvad.net/dns-query"
+          "tcp-tls:dns.quad9.net:853"
+          "https://dns.quad9.net/dns-query"
         ];
       };
       # Resolves the upstream names themselves, encrypted as well
@@ -75,11 +69,12 @@ in
         };
       };
 
-      # Local names, e.g. "nas.home" = "192.168.178.20";
+      # Local names under home.arpa (RFC 8375). Not bare names like "moon":
+      # fqdnOnly answers those with NXDOMAIN before this mapping is read.
       customDNS = {
         customTTL = "1h";
         filterUnmappedTypes = true;
-        mapping = { };
+        mapping."moon.home.arpa" = "10.0.0.2"; # fixed lease in the router
       };
 
       caching = {
@@ -100,18 +95,13 @@ in
   services.resolved.settings.Resolve.DNSStubListener = false;
   networking.nameservers = [ "127.0.0.1" ];
 
-  # extraInputRules only exist with nftables; without it the LAN rules below
-  # would silently vanish and moon would stop answering.
-  assertions = [
-    {
-      assertion = config.networking.nftables.enable;
-      message = "hosts/moon/dns.nix needs networking.nftables (firewall rules for the LAN).";
-    }
-  ];
-
-  # Only the home network may use the resolver
-  networking.firewall.extraInputRules = lib.mkAfter ''
-    ip saddr { ${lan.v4} } meta l4proto { tcp, udp } th dport 53 accept
-    ip6 saddr { ${lan.v6} } meta l4proto { tcp, udp } th dport 53 accept
-  '';
+  # Tighter sandbox than the NixOS module (same set as Caddy in server/web.nix)
+  systemd.services.blocky.serviceConfig = {
+    PrivateTmp = true;
+    ProtectProc = "invisible";
+    ProcSubset = "pid";
+    RestrictSUIDSGID = true;
+    RemoveIPC = true;
+    UMask = "0077";
+  };
 }

@@ -17,19 +17,25 @@
     # Unencrypted: an unattended home server must come back after a power cut
     # without someone typing a passphrase.
     (import ../_shared/components/impermanence/disko.nix {
-      # TODO: check with `ls -l /dev/disk/by-id` on moon, or pass --disk to install-host
-      device = "/dev/sda";
+      device = "/dev/disk/by-id/ata-UDSS_UD2CS1HT100-512G_TUSMA24BVX00720";
       swapSize = "4G";
       encrypt = false;
     })
     ../_shared/components/uefi-boot.nix
     ./dns.nix
+    ./firewall.nix
+    ./ntp.nix
   ];
 
   networking.hostName = "moon";
 
-  # DHCP; give moon a fixed lease in the router, it is the network's DNS server
+  # DHCP with a fixed lease in the router: 10.0.0.2 (server-access.nix and
+  # dns.nix use it), it is the network's DNS and NTP server
   networking.useDHCP = true;
+
+  # Hardware watchdog: if the kernel hangs, the board resets moon instead of
+  # leaving the network without DNS (Intel TCO watchdog, iTCO_wdt).
+  systemd.settings.Manager.RuntimeWatchdogSec = "30s";
 
   # Home services as containers (state in /var/lib/containers: kept, backed up)
   virtualisation = {
@@ -39,6 +45,13 @@
       dockerCompat = true;
       defaultNetwork.settings.dns_enabled = true; # containers under podman-compose can talk to each other
     };
+    # Container DNS (aardvark-dns) can't bind :53 next to blocky; podman
+    # redirects the containers' port 53 to this one instead.
+    containers.containersConf.settings.network.dns_bind_port = 1153;
+  };
+  networking.firewall.interfaces."podman*" = {
+    allowedUDPPorts = [ 1153 ];
+    allowedTCPPorts = [ 1153 ];
   };
 
   # Backups: add the restic-* keys to hosts/moon/secrets.yaml first (docs/cloud.md)

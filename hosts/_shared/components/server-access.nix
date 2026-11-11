@@ -6,9 +6,10 @@ let
   servers = {
     # TODO: the server's public IPv4 (or DNS name) once it exists
     vps.address = "203.0.113.10";
-    # Home server (DNS); a fixed lease in the router makes the name stable.
+    # Home server (DNS, NTP); fixed lease in the router.
     # Its host key file is written by install-host.
-    moon.address = "moon"; # resolved by the router/DNS, set a fixed IP if not
+    # IP, not a name: moon is the network's DNS server itself
+    moon.address = "10.0.0.2";
   };
   hostKey = name: ../../${name}/ssh_host_ed25519_key.pub;
   pinned = lib.filterAttrs (name: _: builtins.pathExists (hostKey name)) servers;
