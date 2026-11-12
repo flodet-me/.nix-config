@@ -30,8 +30,15 @@ The dev shell also has `claude-code`, but not the plugins.
   rule added by hand is dropped at the next switch. If `~/.claude/settings.json`
   is not valid JSON the merge leaves it unchanged and says so.
 - **Session behavior** set there: `remoteControlAtStartup` (every session is
-  remote controllable through Anthropic's servers: the one place that contradicts
-  the telemetry opt-out, on purpose), `tui: fullscreen` and `viewMode: focus`
+  remote controllable through Anthropic's servers). Remote Control needs
+  feature-flag evaluation, which `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`,
+  `DISABLE_TELEMETRY` and `DO_NOT_TRACK` switch off, so neither `env` nor
+  `privacy.nix` sets them (only `DISABLE_ERROR_REPORTING`; the nixpkgs wrapper
+  disables the autoupdater). `env` is Nix-owned as a whole, so a variable
+  removed here is removed from `~/.claude/settings.json` too.
+  Opus effort is pinned to `high` in `modelSettings` too, because `/effort`
+  stores a per-model value that would otherwise outlive a switch.
+  `tui: fullscreen` and `viewMode: focus`
   (the compact view, which needs the fullscreen renderer).
 - **Personal instructions** (`personal.md` in the module, linked to
   `~/.claude/rules/personal.md`, read in every session): who I am, answer

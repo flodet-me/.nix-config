@@ -16,6 +16,7 @@
     gnomeExtensions.headsetcontrol
     gnomeExtensions.mullvad-indicator
     smile # emoji picker, opened with Super+. (like Win+.)
+    gnomeExtensions.smile-complementary-extension # lets smile paste the emoji on Wayland
   ];
 
   dconf.settings = {
@@ -36,6 +37,7 @@
         "color-picker@tuberry"
         "HeadsetControl@lauinger-clan.de"
         "mullvadindicator@pobega.github.com"
+        "smile-extension@mijorus.it"
         "system-monitor@gnome-shell-extensions.gcampax.github.com"
         "user-theme@gnome-shell-extensions.gcampax.github.com"
       ];
@@ -57,9 +59,14 @@
       gtk-enable-primary-paste = true;
     };
 
+    # Windows-like shortcuts. Already GNOME defaults: Super+L lock,
+    # Super+arrows tile, Super+Shift+arrows other monitor, Super+1..9 apps, Print.
     "org/gnome/settings-daemon/plugins/media-keys" = {
+      home = [ "<Super>e" ];
+      control-center = [ "<Super>i" ];
       custom-keybindings = [
         "/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/emoji/"
+        "/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/task-manager/"
       ];
     };
     "org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/emoji" = {
@@ -67,6 +74,45 @@
       command = "smile";
       binding = "<Super>period";
     };
+    "org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/task-manager" = {
+      name = "Task manager";
+      command = "gnome-system-monitor";
+      binding = "<Control><Shift>Escape";
+    };
+    "org/gnome/desktop/wm/keybindings" = {
+      show-desktop = [ "<Super>d" ];
+      panel-run-dialog = [
+        "<Alt>F2"
+        "<Super>r"
+      ];
+      # Alt+Tab cycles windows, not apps
+      switch-windows = [ "<Alt>Tab" ];
+      switch-windows-backward = [ "<Shift><Alt>Tab" ];
+      switch-applications = [ "<Super>Tab" ];
+      switch-applications-backward = [ "<Shift><Super>Tab" ];
+      switch-to-workspace-left = [
+        "<Super><Control>Left"
+        "<Super>Page_Up"
+        "<Super>KP_Prior"
+        "<Super><Alt>Left"
+        "<Control><Alt>Left"
+      ];
+      switch-to-workspace-right = [
+        "<Super><Control>Right"
+        "<Super>Page_Down"
+        "<Super>KP_Next"
+        "<Super><Alt>Right"
+        "<Control><Alt>Right"
+      ];
+    };
+    "org/gnome/shell/keybindings" = {
+      show-screenshot-ui = [
+        "Print"
+        "<Super><Shift>s"
+      ];
+      toggle-message-tray = [ "<Super>m" ]; # frees Super+V for the clipboard
+    };
+    "org/gnome/shell/extensions/clipboard-history".toggle-menu = [ "<Super>v" ];
 
     "org/gnome/desktop/datetime".automatic-timezone = true;
 

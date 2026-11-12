@@ -4,11 +4,9 @@
 { lib, ... }:
 let
   optOut = {
-    DO_NOT_TRACK = "1"; # generic, honoured by many CLIs (consoledonottrack.com)
-    # Claude Code: telemetry, error reporting, feedback, update checks
-    CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = "1";
-    DISABLE_TELEMETRY = "1";
-    DISABLE_ERROR_REPORTING = "1";
+    # Not DO_NOT_TRACK, DISABLE_TELEMETRY or CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC:
+    # Claude Code turns Remote Control off when any of them is set.
+    DISABLE_ERROR_REPORTING = "1"; # Claude Code
     # Microsoft
     DOTNET_CLI_TELEMETRY_OPTOUT = "1";
     POWERSHELL_TELEMETRY_OPTOUT = "1";
