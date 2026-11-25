@@ -29,5 +29,18 @@
   additions = final: _: import ../pkgs { pkgs = final; };
 
   # Modifies existing packages
-  modifications = _: _: { };
+  modifications = _: prev: {
+    gnomeExtensions = prev.gnomeExtensions // {
+      # Mutter 50 dropped raise_and_make_recent(); the extension threw on the
+      # Smile window, so Super+. opened it behind other windows. --replace-fail
+      # breaks the build once upstream fixes it: then drop this.
+      smile-complementary-extension = prev.gnomeExtensions.smile-complementary-extension.overrideAttrs {
+        postPatch = ''
+          substituteInPlace extension.js --replace-fail \
+            'window.raise_and_make_recent();' \
+            'window.raise_and_make_recent_on_workspace(global.workspace_manager.get_active_workspace());'
+        '';
+      };
+    };
+  };
 }
