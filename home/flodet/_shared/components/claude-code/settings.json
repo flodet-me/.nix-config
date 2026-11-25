@@ -14,8 +14,7 @@
       "WebSearch",
       "Write",
       "mcp__claude-artifacts",
-      "mcp__claude-vscode",
-      "mcp__claude_ai_Claude_Docs"
+      "mcp__claude-vscode"
     ],
     "deny": [
       "Bash(blkdiscard *)",
@@ -108,18 +107,18 @@
       "Bash(systemctl suspend *)",
       "Bash(wipefs *)",
       "Bash(ykman *)",
-      "Edit(/etc/**)",
+      "Edit(//etc/**)",
       "Edit(~/.claude/settings.json)",
       "Edit(~/.gnupg/**)",
       "Edit(~/.ssh/**)",
       "Read(**/.env)",
       "Read(**/.env.*)",
-      "Read(/etc/ssh/ssh_host_*_key)",
-      "Read(/persist/etc/ssh/**)",
-      "Read(/persist/var/lib/sops-nix/**)",
-      "Read(/run/secrets-for-users/**)",
-      "Read(/run/secrets/**)",
-      "Read(/var/lib/sops-nix/**)",
+      "Read(//etc/ssh/ssh_host_*_key)",
+      "Read(//persist/etc/ssh/**)",
+      "Read(//persist/var/lib/sops-nix/**)",
+      "Read(//run/secrets-for-users/**)",
+      "Read(//run/secrets/**)",
+      "Read(//var/lib/sops-nix/**)",
       "Read(~/.aws/**)",
       "Read(~/.azure/**)",
       "Read(~/.claude/.credentials.json)",
@@ -171,11 +170,14 @@
     ],
     "allow": [
       "$defaults",
-      "Factory skill undoing its own merge: `git -C <main checkout> reset --keep <merge>^1` on the local main branch, right after that merge's Gate failed, when HEAD still equals the merge commit the factory created (merge message 'factory/<item>' branch, Goal: G-<n>). The branch factory/<item> still holds every commit, nothing is pushed or lost; resets of any other commit, `--hard` resets and resets on other branches are not covered."
+      "Factory skill undoing its own merge: `git -C <main checkout> reset --keep HEAD^1` on the local main branch, right after that merge's Gate failed, when HEAD is the merge commit the factory created (its second parent is the tip of the factory/<item> branch, its message carries Goal: G-<n>). The branch factory/<item> still holds every commit, nothing is pushed or lost; resets of any other commit, `--hard` resets and resets on other branches are not covered."
     ]
   },
   "syncClaudeAiSkills": false,
   "syncClaudeAiPlugins": false,
   "autoCompactWindow": 250000,
+  "worktree": {
+    "baseRef": "head"
+  },
   "attribution": false
 }

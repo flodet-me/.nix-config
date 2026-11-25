@@ -1,6 +1,6 @@
 ---
 name: factory
-description: Autonomous software factory. Takes a goal from the user and delivers it as merged, verified code on the local main branch, with the agent owning design, implementation, tests, review and merge. Use when the user states a goal for a project ("/factory <goal>", "make it so that ...", "build ..."), or says "continue the factory" / "factory status".
+description: Autonomous software factory. Takes a goal from the user and delivers it as merged, verified code on the local main branch, with the agent owning design, implementation, tests, review and merge. Use when the user states a goal for a project ("/factory [goal]", "make it so that ...", "build ..."), or says "continue the factory" / "factory status".
 ---
 
 # Factory
@@ -40,6 +40,8 @@ The project's `CLAUDE.md` needs a `## Factory` section; if it is missing, write 
   `main="$(git rev-parse --path-format=absolute --git-common-dir)/factory/main"; git worktree add "$main" main`.
   Run the Gate on `main` once before the first item: red means item 1 is to
   make it green.
+- **Shell variables** (`$main`, `$wt`, `$logs`) don't survive a Bash call: set them again in each call, or write
+  the paths out.
 - **Project knowledge and agents**: the project's CLAUDE.md, docs and skills are the source for every brief; name
   the files that matter. Spawn `implementer` and `reviewer` by name: a project's own `.claude/agents/` version
   replaces the global one. Other project agents are used where the Skills line or their description fits.
@@ -86,7 +88,7 @@ git worktree list --porcelain | grep -qxF "worktree $wt" \
   || git worktree add -b factory/<item> "$wt" main
 ```
 
-(Not the subagent `isolation` option: in a bare-repo layout it branched from a stale commit.) Spawn `implementer`
+(Not the subagent `isolation` option: the factory needs its own branch name and path to resume.) Spawn `implementer`
 with: worktree path, goal id, item, acceptance criteria, the files and docs that matter, the Check command, the
 reserved rules, relevant brain lessons. For a resumed branch add `git -C "$wt" log --oneline main..HEAD`.
 
@@ -102,18 +104,22 @@ reserved rules, relevant brain lessons. For a resumed branch add `git -C "$wt" l
 ## 6. Merge
 
 ```sh
-git -C "$wt" rebase main || { git -C "$wt" rebase --abort; }   # aborted: ask the implementer to rebase and resolve
+git -C "$wt" rebase main || { git -C "$wt" rebase --abort; }   # aborted: the implementer rebases and resolves, then this section again
 <Check> in "$wt"                                                # again, on the rebased branch
 git -C "$main" merge --no-ff factory/<item> -m "<item>: <what changed>" -m "Goal: G-<n>"
-merge=$(git -C "$main" rev-parse HEAD)
-<Gate> in "$main"                                               # the next merge waits for this
+<Gate> in "$main"                                               # only after a merge that exited 0; the next merge waits for this
 ```
 
-- Gate green: `git worktree remove "$wt" && git -C "$main" branch -d factory/<item>`; item row `done` with the merge commit,
-  committed. `worktree remove` refused: report `git -C "$wt" status --porcelain -uall`, never `--force`.
-- Gate red: if `git -C "$main" rev-parse HEAD` still equals `$merge`, `git -C "$main" reset --keep "$merge^1"`; else
-  stop and report. That undoes only the merge you just made; branch and worktree stay
-  (a `revert` would make a later re-merge silently drop the item). Item back to open with the gate output.
+- Merge exits non-zero: no Gate, no reset (HEAD is not your merge). If `git -C "$main" rev-parse -q --verify MERGE_HEAD`
+  prints a hash, `git -C "$main" merge --abort`. Report `git -C "$main" status --porcelain`; item back to open (a
+  conflict goes to the implementer to rebase).
+- Gate green: `git worktree remove "$wt" && git -C "$main" branch -d factory/<item>`; item row `done` with the merge
+  commit (`git -C "$main" rev-parse HEAD`), committed. `worktree remove` refused: report
+  `git -C "$wt" status --porcelain -uall`, never `--force`.
+- Gate red: only if `git -C "$main" rev-parse -q --verify HEAD^2` equals `git -C "$main" rev-parse factory/<item>`
+  (HEAD is this item's merge), `git -C "$main" reset --keep HEAD^1`; else stop and report. That undoes only the merge
+  you just made; branch and worktree stay (a `revert` would make a later re-merge silently drop the item). Item back
+  to open with the gate output.
 - Commits use the unsigned agent identity from the environment; never pass `-S` or change it.
 - Never push, never rewrite `main` beyond undoing your own just-made merge, never delete a branch with unmerged
   commits.

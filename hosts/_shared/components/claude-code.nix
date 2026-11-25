@@ -20,6 +20,7 @@
     libgbm
     libxkbcommon
     systemd # libudev
+    alsa-lib # libasound, only found through claude's own wrapper otherwise
     libx11
     libxcomposite
     libxdamage

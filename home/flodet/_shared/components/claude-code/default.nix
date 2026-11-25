@@ -63,6 +63,11 @@ let
     };
   };
 
+  # Pinned: its skill runs in every project and an unpinned install moved on its
+  # own (a new Python rebuilt the venv). Raise it after reading the new SKILL.md;
+  # the sync script cuts the "Graphify Cloud" section out of it.
+  graphifyVersion = "0.9.120";
+
   # Also the interpreter graphify's uv tool venv is built on.
   python = pkgs.python3.withPackages (ps: [ ps.python-pptx ]); # frontend-slides PPTX import
 
@@ -127,7 +132,7 @@ let
         hooks.Notification = [
           {
             # only when Claude waits for you, not on auth or agent events
-            matcher = "permission_prompt|idle_prompt|elicitation_dialog|agent_needs_input";
+            matcher = "permission_prompt|idle_prompt|elicitation_dialog|elicitation_url_dialog|agent_needs_input|quota_auto_resume_stale";
             hooks = [
               {
                 type = "command";
@@ -147,6 +152,7 @@ let
     runtimeInputs = [
       pkgs.claude-code
       pkgs.git
+      pkgs.gnused
       pkgs.uv
       python
     ];
@@ -155,6 +161,10 @@ let
       # rest: failures are collected and reported at the end (non-zero exit).
       failed=()
       try() { "$@" || failed+=("$*"); }
+
+      # ponytail only refreshes its status line script, it creates it only when no
+      # statusLine is set (Nix sets one): seed it so the badge shows on a fresh install.
+      [ -e "$HOME/.claude/ponytail-statusline.sh" ] || : > "$HOME/.claude/ponytail-statusline.sh"
 
       ${lib.concatMapStrings (repo: ''
         try claude plugin marketplace add ${repo}
@@ -175,8 +185,10 @@ let
       # --reinstall when the venv's old Python was garbage-collected.
       reinstall=()
       "$HOME/.local/bin/graphify" --help >/dev/null 2>&1 || reinstall=(--reinstall)
-      UV_PYTHON_DOWNLOADS=never try uv tool install "''${reinstall[@]}" --python ${lib.getExe python} graphifyy
+      UV_PYTHON_DOWNLOADS=never try uv tool install "''${reinstall[@]}" --python ${lib.getExe python} graphifyy==${graphifyVersion}
       try "$HOME/.local/bin/graphify" install --platform claude
+      # Its skill tells Claude to suggest the hosted Graphify Cloud: not here (local first).
+      try sed -i '/^## Graphify Cloud (hosted)$/,/^---$/d' "$HOME/.claude/skills/graphify/SKILL.md"
 
       if [ "''${#failed[@]}" -gt 0 ]; then
         echo "These steps FAILED (the rest was done; the service retries):" >&2
@@ -226,7 +238,8 @@ in
   '';
 
   # Runs at login and again whenever the declared lists change (new unit
-  # file -> restarted on switch). Retries until the network is up.
+  # file -> restarted on switch). Retries every 60 s, gives up after 10 starts
+  # in an hour.
   systemd.user.services.claude-plugins-sync = {
     Unit = {
       Description = "Install declared Claude Code plugins and skills";

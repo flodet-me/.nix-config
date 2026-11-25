@@ -34,7 +34,9 @@ The dev shell also has `claude-code`, but not the plugins.
   rule added by hand is dropped at the next switch. If `~/.claude/settings.json`
   is not valid JSON the merge leaves it unchanged and says so.
 - **Session behavior** set there: `remoteControlAtStartup` (every session is
-  remote controllable through Anthropic's servers); `autoCompactWindow:
+  remote controllable through Anthropic's servers) with `agentPushNotifEnabled`
+  (Claude may push a mobile notification while Remote Control is connected);
+  `autoCompactWindow:
   250000` (compact at 250k tokens instead of near the 1M window, so a long
   session doesn't resend ~1M tokens per turn); `attribution: false` (Claude's commits already carry the
   `Merge Goblin` author, no trailers or claude.ai session links in local history).
@@ -57,28 +59,43 @@ The dev shell also has `claude-code`, but not the plugins.
   branch, context used, session cost, ponytail badge. Watch the context
   number: around 60-70 % is a good moment for `/compact` or `/clear`.
 - **Desktop notification** (`Notification` hook, `notify-send`, matcher
-  `permission_prompt|idle_prompt|elicitation_dialog|agent_needs_input`) when Claude
-  waits for a permission or your input, so you can work elsewhere meanwhile.
-- **Permissions:** `Bash`, `Edit` and `Write` are allowed in general, with a long
-  deny list (secrets and sops files, gpg/ykman, privilege escalation, disk
-  tools, force pushes, `gh auth`, `nixos-rebuild`) and `disableBypassPermissionsMode`.
-  The Bash denies match command names, so `cat <secret>` is denied but
-  `less`/`grep` of the same file is not: the `Read(...)` denies are the real
-  protection of the secret paths.
+  `permission_prompt|idle_prompt|elicitation_dialog|elicitation_url_dialog|agent_needs_input|quota_auto_resume_stale`)
+  when Claude waits for a permission or your input (also after a usage limit
+  reset while the machine slept), so you can work elsewhere meanwhile.
+- **Permissions:** interactive sessions start in auto mode, where Claude Code
+  drops the blanket `Bash` allow and its classifier decides on each shell
+  command (tuned by `autoMode`); `Bash` applies again in manual mode
+  (Shift+Tab) and in `claude -p`. `Edit` and `Write` are allowed in general.
+  In every mode there is a long deny list (secrets and sops files, gpg/ykman,
+  privilege escalation, disk tools, force pushes, `gh auth`, `nixos-rebuild`)
+  and `disableBypassPermissionsMode`. The Bash denies match the command text,
+  so `cat <secret>` is denied but another spelling of the same read is not.
+  The `Read(...)` denies cover the Read tool and the file commands Claude Code
+  recognizes inside a Bash command (`cat`, `head`, `tail`, `sed`, `tee`,
+  redirections), not a command that reads without naming the file or a script
+  that opens it itself. A path from the filesystem root needs two slashes
+  (`Read(//run/secrets/**)`): with one, a rule in the user settings is relative
+  to `~/.claude`. `Bash(rm -rf /*)` and its siblings also match every
+  `rm -rf <absolute path>`; clean up with `find <dir> -mindepth 1 -delete`.
 - **`claude-plugins-sync`** downloads and installs everything:
   marketplaces and plugins (`claude plugin …`), the user-scope MCP servers
-  (`claude mcp add-json -s user`), and graphify (`uv tool install graphifyy`,
-  then `graphify install`). Every step is idempotent.
+  (`claude mcp add-json -s user`), and graphify (`uv tool install
+  graphifyy==<graphifyVersion>`, then `graphify install`). Every step is
+  idempotent.
 - It runs **automatically** as the systemd user service
   `claude-plugins-sync`: at login, and on `nixos-rebuild switch` whenever the
-  declared lists change. It retries every 60 s until the network is up.
+  declared lists change. It retries every 60 s and gives up after 10 starts
+  within an hour (about 10 minutes offline; a broken plugin name must not
+  retry forever). Then it stays failed (`systemctl --user --failed`) until the
+  next login: run `claude-plugins-sync` by hand.
   Check it with `systemctl --user status claude-plugins-sync` or
   `journalctl --user -u claude-plugins-sync`. Running
   `claude-plugins-sync` by hand does the same.
 
 Plugin code lives in `~/.claude/plugins/` and is downloaded from GitHub, so
 it is **not** pinned by `flake.lock`: a fresh install gets each plugin's
-current version. Playwright MCP is the exception: it comes from nixpkgs.
+current version. Two exceptions: Playwright MCP comes from nixpkgs, and
+graphify is pinned (`graphifyVersion` in `default.nix`).
 
 ## After a reinstall
 
@@ -187,7 +204,8 @@ home-manager; the ownership rules are in `personal.md` ("Deciding").
   (`factory/<item>`), an `implementer` subagent, the Check run again by the
   orchestrator, a `reviewer` subagent that sees the diff and the criteria (not
   the implementer's story), rebase, `merge --no-ff` in the checkout of
-  `main`, the Gate on `main`; red: `reset --keep` to that merge's first parent (a
+  `main` (a merge that fails is aborted and reported, never reset), the Gate
+  on `main`; red: `reset --keep` to that merge's first parent (a
   revert would make the re-merge drop the item). Checks and Gates run in the
   background with logs under `<git dir>/factory/logs/` (a foreground call dies
   at 10 minutes). It stops when `main`'s checkout is dirty.
@@ -201,9 +219,12 @@ home-manager; the ownership rules are in `personal.md` ("Deciding").
   project skills run on which items.
 - Lessons go as drafts to `~/brain/inbox/`; you ingest them (see
   [Brain](#brain-shared-knowledge)).
-- The subagent `isolation: worktree` option is not used: in a `.bare` +
-  `main/` layout (command-and-control) it branched from an old commit of
-  `main` (tested 2026-11-25).
+- `worktree.baseRef` is `head` in `settings.json`: Claude Code's own worktrees
+  (`--worktree`, `EnterWorktree`, subagent `isolation: worktree`) branch from
+  the local HEAD. The default, `fresh`, branches from `origin/<default
+  branch>`, which is old in a repo that is never pushed (seen 2026-11-25 in
+  command-and-control: 493 commits behind). The factory still makes its own
+  worktrees: it needs the branch name and path to resume.
 - Identity: every Claude session (not only the factory) commits as
   `Merge Goblin <develop@flodet.me>`, unsigned. `env` in `settings.json` sets
   `GIT_AUTHOR_*`/`GIT_COMMITTER_*` and, through `GIT_CONFIG_COUNT`,
@@ -228,7 +249,9 @@ that outlive it in the brain, the personal vault
   `CLAUDE_OBSIDIAN_VAULT` picks the brain for every skill from any directory
   (it beats the working directory, which also keeps the personal vault safe);
   `CLAUDE_OBSIDIAN_SESSION_CONTEXT=1` injects the vault's bounded
-  `wiki/hot.md` (at most 32 KiB) at startup, resume, `/clear` and compaction.
+  `wiki/hot.md` (the plugin reads at most 32 KiB, Claude Code passes at most
+  10,000 characters of a hook's output) at startup, resume, `/clear` and
+  compaction.
   The hooks never write.
 - Writing: Claude never calls `save` or `wiki-ingest` itself (the skills
   require your explicit request, and that keeps you as the confidentiality
@@ -238,9 +261,12 @@ that outlive it in the brain, the personal vault
   dead links and orphans.
 - 15 skills, of which wiki, wiki-query, wiki-ingest, save and wiki-lint
   matter here; check their listing cost with `/skill-doctor`.
-- Keep `wiki/hot.md` short (under ~4 KiB): it is injected into every session,
-  up to 32 KiB (~8k tokens) if it grows; it is the largest always-loaded text
-  in this setup (personal.md ~900 tokens, ponytail ~800, superpowers ~750).
+- Keep `wiki/hot.md` short (under ~4 KiB): it is injected into every session.
+  Above 10,000 characters of hook output (the plugin's header included) Claude
+  gets a file path and only the first 2,000 characters, so a longer hot.md is
+  mostly lost. For scale, the other always-loaded texts: personal.md ~1000
+  tokens, superpowers ~850, ponytail ~700 plus a codebase map of up to 2,000
+  characters in code projects.
 - `wiki-retrieve`'s optional reranking talks only to a local Ollama
   (`127.0.0.1:11434`); nothing else leaves the machine unless asked.
 - Open it in Obsidian with "Open folder as vault" next to the personal vault.
@@ -311,18 +337,21 @@ Best use:
 
 - Its ruleset is injected into subagents only for `implementer`
   (`PONYTAIL_SUBAGENT_MATCHER=^implementer$` in `env`): Explore, Plan and the
-  reviewer don't pay ~600 tokens for rules about writing code.
+  reviewer don't pay ~700 tokens for rules about writing code.
+- Its status line badge comes from `~/.claude/ponytail-statusline.sh`, which
+  ponytail refreshes at session start but only creates when no status line is
+  set; `claude-plugins-sync` seeds an empty one.
 
 ### superpowers (`superpowers@claude-plugins-official`)
 
 Source: <https://github.com/obra/superpowers> · docs: its `README.md`.
 
-14 process skills: `writing-plans`, `subagent-driven-development` /
+15 process skills: `writing-plans`, `subagent-driven-development` /
 `executing-plans`, `test-driven-development`, `systematic-debugging`,
 `verification-before-completion`, `requesting-code-review`,
 `using-git-worktrees`, `finishing-a-development-branch`, `brainstorming`,
 `writing-skills` and a few more. A SessionStart hook injects
-`using-superpowers` (~3 KB) on startup, `/clear` and compaction; it tells
+`using-superpowers` (~3.4 KB) on startup, `/clear` and compaction; it tells
 Claude to check for a fitting skill before every task.
 
 Best use:
@@ -381,6 +410,13 @@ subagents.
   a PreToolUse hook so Claude reads `GRAPH_REPORT.md` before architecture
   questions; `graphify claude uninstall` reverts it.
 - `graphify install` also adds a short pointer to `~/.claude/CLAUDE.md`.
+- Pinned to `graphifyVersion` in `default.nix`: unpinned it moved from
+  0.9.103 to 0.9.120 on its own when a new Python rebuilt the uv venv, and its
+  skill is a prompt that runs in every project. Since 0.9.107 the skill has a
+  "Graphify Cloud (hosted)" section that makes Claude suggest the hosted
+  service; the sync script cuts it out after `graphify install` (so each sync
+  logs a `SKILL.md.bak`). To update: raise the pin, switch, read the new
+  `~/.claude/skills/graphify/SKILL.md`.
 
 Best use: on a large or unfamiliar repo, build the graph once, then ask
 architecture questions against it instead of letting Claude grep everything.
