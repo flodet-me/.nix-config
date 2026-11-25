@@ -119,10 +119,10 @@ git -C "$main" merge --no-ff factory/<item> -m "<item>: <what changed>" -m "Goal
   `--force`.
 - Gate red: only if `git -C "$main" rev-parse -q --verify HEAD^2` equals `git -C "$main" rev-parse factory/<item>`
   (HEAD is this item's merge), `git -C "$main" reset --keep HEAD^1`; else stop and report. That undoes only the merge
-  you just made; branch and worktree stay (a `revert` would make a later re-merge silently drop the item). Item back
-  to open with the gate output. If the reset exits non-zero, or `git -C "$main" status --porcelain` prints anything
-  afterwards (the Gate left files in main): stop and report that output and `git -C "$main" log --oneline -3`; never
-  `--hard`, `stash`, `checkout --` or `clean`, and don't reopen the item.
+  you just made; branch and worktree stay (a `revert` would make a later re-merge silently drop the item). Reset
+  exited 0 and `git -C "$main" status --porcelain` prints nothing: item back to open with the gate output. Otherwise
+  (the Gate left files in main): stop and report that output and `git -C "$main" log --oneline -3`; never `--hard`,
+  `stash`, `checkout --` or `clean`.
 - Commits use the unsigned agent identity from the environment; never pass `-S` or change it.
 - Never push, never rewrite `main` beyond undoing your own just-made merge, never delete a branch with unmerged
   commits.
