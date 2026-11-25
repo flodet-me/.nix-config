@@ -1,6 +1,8 @@
 # How I work
 
-I am a developer, software architect and product developer.
+I am a developer, software architect and product developer. I set goals and
+constraints; you own the code: design, implementation, tests, docs and
+merging into the local main branch.
 
 ## Language
 
@@ -16,49 +18,69 @@ I am a developer, software architect and product developer.
 - NixOS: prebuilt Linux binaries do not run without nix-ld; prefer the nixpkgs
   package.
 
-## Before bigger changes
+## Local first
 
-- Small, clear fixes: just do them.
-- Anything bigger (new feature, new dependency, schema or API change,
-  refactor across modules): first a short proposal with 2-3 options, their
-  trade-offs and your recommendation. Wait for my OK, then build.
+- Version control is local git. No remotes, no GitHub, no `gh`, no pull
+  requests, unless the project's CLAUDE.md says otherwise.
+- Tools, libraries and services must work on this machine without an online
+  service, account or subscription. Downloading and installing is fine;
+  depending on a hosted API, SaaS or telemetry at runtime is not. If a goal
+  seems to need one, ask.
+- Customer and defense projects: no code, identifiers, names or data from them
+  in web searches, fetched URLs, the brain or any tool outside this machine;
+  search generically.
 
-## Product thinking
+## Deciding
 
-- Before building, check the requirement: who needs it, what problem it
-  solves, what the smallest version is that proves it. Say so if something
-  should be cut, postponed or done differently.
-- Separate what the user sees from how it is built.
-
-## Architecture
-
-- Simple, boring, proven technology. No new dependency, abstraction, layer or
-  configuration option without a concrete need; say what you left out.
-- Follow the existing structure and conventions of the codebase.
-- Significant decisions (technology choice, module boundaries, data model,
-  public APIs, anything hard to reverse) get an ADR in the project's ADR
+- A project's CLAUDE.md, docs, `.claude/agents/` and `.claude/skills/` win
+  over this file; use them whenever they cover the task.
+- Inside a goal you decide: design, dependencies, refactors, schema and API
+  changes, merging into local main. Hard-to-reverse choices (technology,
+  module boundaries, data model, public APIs) get an ADR in the project's ADR
   folder (`docs/adr/` if none exists): context, options, decision,
-  consequences. Propose it, I approve it.
+  consequences, `Decided by: agent`.
+- Ask me only about: what a goal means when readings lead to different
+  results; destroying data or history; anything that leaves this machine
+  (push, publish, deploy, send, spend); credentials and secrets; whatever the
+  project reserves for a human. Ask all open questions at once and keep
+  working on what they don't block.
+- A change that needs more than one mergeable step goes through the `factory`
+  skill; a small fix is done directly. A goal I state is already agreed: run
+  superpowers' `brainstorming` only when I ask for it.
+
+## Knowledge
+
+- The project (CLAUDE.md, docs, ADRs, code) holds everything about itself.
+  Auto memory only for what the repo can't hold; a standing project rule goes
+  into the project's CLAUDE.md instead.
+- The brain, `~/brain` (claude-obsidian vault, English), holds what is true on
+  any project of this stack: patterns, toolchain and NixOS pitfalls, solutions
+  to problem classes, my recurring preferences. Its `hot.md` arrives at
+  session start. Query it (`/claude-obsidian:wiki-query`) before choosing a
+  tool, library or workaround for a problem that smells familiar.
+- To add to the brain, write a draft note to `~/brain/inbox/<yyyy-mm-dd>-<slug>.md`
+  (one idea, generalized: name the stack, never a customer or defense project)
+  and list it in your final message; I ingest it. Never call
+  `/claude-obsidian:save` or `wiki-ingest` yourself.
+- My personal vault (`~/Nextcloud/Notes/Default`) is mine: read it only when I
+  point you there, never write to it.
 
 ## Code
 
-- Use the current, idiomatic best practices of the language and framework
-  version the project is on: modern language features and APIs, not outdated
-  or deprecated patterns. If the project uses an older style, match it and
-  suggest the upgrade separately instead of mixing styles.
-- Make the compiler and linters work for you: strict types and null safety,
-  warnings clean, no swallowed errors or panics/exceptions as control flow.
-- Use what the project already has (DI, logging, configuration, error types)
-  before adding anything new.
+- Current idiomatic style of the language and framework version in use; if
+  the project uses an older style, match it and note the upgrade separately.
+- Strict types and null safety, warnings clean, no swallowed errors, no
+  exceptions or panics as control flow.
 
-## Facts and verification
+## Done
 
-- Unsure about an API, library version or CLI flag: check the docs or source
-  instead of guessing, and say what is still unverified.
-- Before saying a change is done: build, lint and run the project's checks
-  (`dotnet build`/`dotnet test`, `cargo clippy`/`cargo test`,
-  `nix flake check`, or what the project uses). Report failures with their
-  output; never claim success you did not see.
+- The project's gate is green (its `## Factory` section in CLAUDE.md, else
+  `nix flake check`, `dotnet build`/`dotnet test`, `cargo clippy`/
+  `cargo test`), new behavior has tests, docs and ADRs match the code.
+- Report failures with their output; never claim success you did not see.
+- Unsure about an API, library version or CLI flag: check docs or source,
+  and say what is still unverified.
+- Final messages: outcome, decisions, open questions, brain drafts, risks.
 
 ## Data
 

@@ -17,17 +17,18 @@ let
   # own `name` in its .claude-plugin/marketplace.json.
   marketplaces = {
     ponytail = "DietrichGebert/ponytail";
-    addy-agent-skills = "addyosmani/agent-skills";
+    impeccable = "pbakaus/impeccable";
+    agricidaniel-claude-obsidian = "AgriciDaniel/claude-obsidian";
     frontend-slides = "zarazhangrui/frontend-slides";
   };
 
   # Plugins as <plugin>@<marketplace>. `claude-plugins-official` is built in.
-  # One plugin per job; docs/claude-code.md says which to use when.
+  # One plugin per job; docs/claude-code.md says which to use when. Local
+  # only: nothing that needs an online service or subscription at runtime.
   plugins = [
     "ponytail@ponytail" # smallest change, review
-    "agent-skills@addy-agent-skills" # spec -> plan -> build -> test -> ship
-    "mattpocock-skills@claude-plugins-official" # grilling, domain modelling, module design
-    "frontend-design@claude-plugins-official" # UI that doesn't look generated
+    "superpowers@claude-plugins-official" # plan -> TDD -> debug -> verify, used by /factory
+    "claude-obsidian@agricidaniel-claude-obsidian" # the shared brain: ~/brain, see `brain` below
     "frontend-slides@frontend-slides"
     # Language servers for what ~/Projects is written in; binaries in home.packages.
     "rust-analyzer-lsp@claude-plugins-official"
@@ -35,11 +36,20 @@ let
     "csharp-lsp@claude-plugins-official"
   ];
 
+  # Installed but off by default; a project turns one on in its own
+  # .claude/settings.json (`enabledPlugins`), project settings win.
+  optInPlugins = [
+    # UI design + anti-pattern detector (successor of frontend-design); its hooks
+    # run on every edit and turn end and download its engine on first use, so only
+    # in UI projects.
+    "impeccable@impeccable"
+  ];
+
   # Non-sensitive plugin options (what /plugin configure stores).
   pluginConfigs = {
     "ponytail@ponytail".options = {
       ledger = true;
-      sendNames = true;
+      sendNames = false; # no webhook is set; keep it that way
     };
   };
 
@@ -89,17 +99,26 @@ let
     '';
   };
 
+  # Cross-project knowledge: one Obsidian vault, separate from the personal
+  # notes vault, used by claude-obsidian from every project.
+  brain = "${config.home.homeDirectory}/brain";
+  settings = lib.importJSON ./settings.json;
+
   managedSettings = pkgs.writeText "claude-managed-settings.json" (
     builtins.toJSON (
-      lib.importJSON ./settings.json
+      settings
       // {
+        env = settings.env // {
+          CLAUDE_OBSIDIAN_VAULT = brain; # skills write here from any project
+          CLAUDE_OBSIDIAN_SESSION_CONTEXT = "1"; # inject the vault's bounded wiki/hot.md at session start, /clear, compaction
+        };
         extraKnownMarketplaces = lib.mapAttrs (_: repo: {
           source = {
             source = "github";
             inherit repo;
           };
         }) marketplaces;
-        enabledPlugins = lib.genAttrs plugins (_: true);
+        enabledPlugins = lib.genAttrs plugins (_: true) // lib.genAttrs optInPlugins (_: false);
         inherit pluginConfigs;
         statusLine = {
           type = "command";
@@ -107,6 +126,8 @@ let
         };
         hooks.Notification = [
           {
+            # only when Claude waits for you, not on auth or agent events
+            matcher = "permission_prompt|idle_prompt|elicitation_dialog|agent_needs_input";
             hooks = [
               {
                 type = "command";
@@ -140,7 +161,10 @@ let
       '') (lib.attrValues marketplaces)}
       ${lib.concatMapStrings (p: ''
         try claude plugin install ${p}
-      '') plugins}
+      '') (plugins ++ optInPlugins)}
+      ${lib.concatMapStrings (p: ''
+        claude plugin disable -s user ${p} >/dev/null 2>&1 || true # already off is fine
+      '') optInPlugins}
       ${lib.concatStrings (
         lib.mapAttrsToList (name: server: ''
           claude mcp remove -s user ${name} >/dev/null 2>&1 || true
@@ -169,9 +193,8 @@ in
     claude-plugins-sync
     python
     pkgs.nodejs # ponytail hooks, frontend-slides PDF export, npx-based MCP servers
-    pkgs.perl # agent-skills hooks
-    pkgs.gh # mattpocock-skills (issues, PRs)
     pkgs.uv # graphify
+    pkgs.gh # your CLI, not Claude's: personal.md keeps Claude on local git
     pkgs.rust-analyzer # rust-analyzer-lsp plugin
     pkgs.typescript-language-server # typescript-lsp plugin
     pkgs.csharp-ls # csharp-lsp plugin
@@ -182,14 +205,19 @@ in
   # ~/.claude/CLAUDE.md, because graphify writes into that one.
   home.file.".claude/rules/personal.md".source = ./personal.md;
 
+  # Goal -> merged code: the factory skill and its two agents (docs/claude-code.md, "Factory").
+  home.file.".claude/skills/factory/SKILL.md".source = ./skills/factory/SKILL.md;
+  home.file.".claude/agents/implementer.md".source = ./agents/implementer.md;
+  home.file.".claude/agents/reviewer.md".source = ./agents/reviewer.md;
+
   home.activation.claudeCodeSettings = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
     settings="${config.home.homeDirectory}/.claude/settings.json"
     run mkdir -p "$(dirname "$settings")"
     tmp="$(mktemp)"
     if [ -s "$settings" ]; then current="$(cat "$settings")"; else current='{}'; fi
     # Nix-owned keys win; arrays are replaced as a whole, not merged. The plugin
-    # lists and `env` come only from Nix, so a plugin or variable removed is gone too.
-    if printf '%s' "$current" | ${lib.getExe pkgs.jq} -s '(.[0] | del(.enabledPlugins, .extraKnownMarketplaces, .env)) * .[1]' - ${managedSettings} > "$tmp"; then
+    # lists, plugin options and `env` come only from Nix, so a removed one is gone too.
+    if printf '%s' "$current" | ${lib.getExe pkgs.jq} -s '(.[0] | del(.enabledPlugins, .extraKnownMarketplaces, .env, .pluginConfigs)) * .[1]' - ${managedSettings} > "$tmp"; then
       run install -m 600 "$tmp" "$settings"
     else
       echo "claude-code: $settings is not valid JSON, left unchanged" >&2

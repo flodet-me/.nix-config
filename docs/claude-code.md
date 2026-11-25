@@ -10,9 +10,9 @@ or `/plugin install` steps.
   downloaded Chromium needs to `programs.nix-ld`.
 - `home/flodet/_shared/components/claude-code/default.nix` (user): what is
   installed, plus the runtime tools: `node`/`npx` (ponytail hooks,
-  frontend-slides PDF export), `jq`, `perl` (agent-skills hooks), `gh`
-  (mattpocock-skills), Python with `python-pptx` (frontend-slides PPTX import),
-  and `uv` (graphify).
+  frontend-slides PDF export), `jq`, Python with `python-pptx`
+  (frontend-slides PPTX import), and `uv` (graphify). `gh` stays installed for
+  you; `personal.md` keeps Claude on local git.
 
 The dev shell also has `claude-code`, but not the plugins.
 
@@ -25,14 +25,22 @@ The dev shell also has `claude-code`, but not the plugins.
   `extraKnownMarketplaces`, `enabledPlugins` and `pluginConfigs`. Nix owns
   those keys: changing them in Claude Code (`/model`, `/permissions`, ...)
   works until the next switch, then the repo wins. To keep a change, edit
-  `settings.json` in the repo. Keys not declared there (e.g. `autoMode`) stay
-  Claude's. The merge replaces arrays as a whole, so a `permissions.allow`
+  `settings.json` in the repo. Keys not declared there stay Claude's;
+  `autoMode.environment` and `autoMode.allow` are Nix-owned (both start with
+  `"$defaults"`, so the built-in entries stay); `allow` adds one exception:
+  the factory may `reset --keep` its own just-made merge on local `main` after
+  a red Gate, so an unattended run isn't blocked there. Check the result with
+  `claude auto-mode config` and `claude auto-mode critique`. The merge replaces arrays as a whole, so a `permissions.allow`
   rule added by hand is dropped at the next switch. If `~/.claude/settings.json`
   is not valid JSON the merge leaves it unchanged and says so.
 - **Session behavior** set there: `remoteControlAtStartup` (every session is
-  remote controllable through Anthropic's servers). Remote Control needs
-  feature-flag evaluation, which `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`,
-  `DISABLE_TELEMETRY` and `DO_NOT_TRACK` switch off, so neither `env` nor
+  remote controllable through Anthropic's servers); `autoCompactWindow:
+  250000` (compact at 250k tokens instead of near the 1M window, so a long
+  session doesn't resend ~1M tokens per turn); `attribution: false` (Claude's commits already carry the
+  `Merge Goblin` author, no trailers or claude.ai session links in local history).
+  `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`, `DISABLE_TELEMETRY` and
+  `DO_NOT_TRACK` skip Claude Code's feature-flag fetch (no `/skill-doctor`,
+  `/import`, and Remote Control only with conditions), so neither `env` nor
   `privacy.nix` sets them (only `DISABLE_ERROR_REPORTING`; the nixpkgs wrapper
   disables the autoupdater). `env` is Nix-owned as a whole, so a variable
   removed here is removed from `~/.claude/settings.json` too.
@@ -42,13 +50,14 @@ The dev shell also has `claude-code`, but not the plugins.
   (the compact view, which needs the fullscreen renderer).
 - **Personal instructions** (`personal.md` in the module, linked to
   `~/.claude/rules/personal.md`, read in every session): who I am, answer
-  language, stack, propose-before-building, product thinking, simple
-  architecture, ADRs. Edit the file in the repo and switch; keep it short,
+  language, stack, local first, what Claude decides and what it asks,
+  knowledge (project, brain, personal vault), done. Edit the file in the repo and switch; keep it short,
   it costs tokens in every session. `/memory` shows which files are loaded.
 - **Status line** (`claude-statusline` in the module): model, folder and git
   branch, context used, session cost, ponytail badge. Watch the context
   number: around 60-70 % is a good moment for `/compact` or `/clear`.
-- **Desktop notification** (`Notification` hook, `notify-send`) when Claude
+- **Desktop notification** (`Notification` hook, `notify-send`, matcher
+  `permission_prompt|idle_prompt|elicitation_dialog|agent_needs_input`) when Claude
   waits for a permission or your input, so you can work elsewhere meanwhile.
 - **Permissions:** `Bash`, `Edit` and `Write` are allowed in general, with a long
   deny list (secrets and sops files, gpg/ykman, privilege escalation, disk
@@ -128,37 +137,119 @@ Several plugins can do the same thing. Use this one, ignore the others:
 
 | Job | Use | Not |
 | --- | --- | --- |
-| Sharpen a rough product idea | agent-skills `idea-refine`, then `interview-me` | — |
-| Stress-test a plan or architecture | mattpocock `grilling` | agent-skills `doubt-driven-development` (only for one risky decision) |
-| Write down what to build | agent-skills `/spec` | mattpocock spec/ticket skills |
-| Domain model, module boundaries, interfaces | mattpocock `domain-modeling`, `codebase-design`; agent-skills `api-and-interface-design` for HTTP/public APIs | — |
-| Record a decision | agent-skills `documentation-and-adrs` | — |
+| Deliver a goal end to end, unattended | `/factory <goal>` (see [Factory](#factory)) | — |
+| Sharpen a rough idea with me | superpowers `brainstorming` (only when you ask) | — |
+| Record a decision | ADR by hand, format in `personal.md` | — |
 | Understand an unfamiliar or large repo | `/graphify .`, then ask | — |
-| Plan and implement | agent-skills `/planning` → `/build`, with ponytail on `full` | built-in plan mode for small things |
-| Tests first, bug hunts | agent-skills `/test`, `debugging-and-error-recovery` | mattpocock `tdd`, `diagnosing-bugs` |
+| Plan and implement by hand | superpowers `writing-plans` → `subagent-driven-development` (or `executing-plans`, cheaper) | built-in plan mode for small things |
+| Tests first, bug hunts | superpowers `test-driven-development`, `systematic-debugging` | — |
 | Library/API docs | built-in web search/fetch ("check the current docs of X") | — |
-| UI | `frontend-design` (look), check it with Playwright MCP | — |
-| Review before commit | `/ponytail-review` | agent-skills `/agent-skills:review`, mattpocock `code-review` |
-| Deep review of a PR | built-in `/code-review`, `/security-review` | — |
+| UI | `/impeccable:impeccable` (craft, polish, audit, critique; enable per project), check it with Playwright MCP | — |
+| Review before commit | `/ponytail-review` | superpowers `requesting-code-review` |
+| Deep review of a branch | built-in `/code-review`, `/security-review` | — |
 | Whole repo health | `/ponytail-audit` | — |
-| Release checklist | agent-skills `/ship` | — |
-| PR text | mattpocock `pr` or just "open a PR" (`gh`) | — |
 | Talk/demo deck | `/frontend-slides:frontend-slides` | — |
 
-A typical feature: `idea-refine` → `grilling` → `/spec` → `/planning` →
-`/build` → `/ponytail-review` → PR. A small fix: just ask, then
-`/ponytail-review`.
+A goal: `/factory <goal>`. A small fix: just ask, then `/ponytail-review`.
 
-Only local tools and Claude itself: no plugin or MCP server that sends data to
-a third-party service (Context7 was tried and dropped for that reason), and
-the claude.ai connectors (Google Drive, ...) are off in Claude Code
-(`ENABLE_CLAUDEAI_MCP_SERVERS=false`); they still work on claude.ai.
+Local first: Claude itself and things installed on this machine, nothing that
+needs another online service, account or subscription at runtime (downloads
+at install time are fine). No plugin or MCP server that sends data to a
+third-party service (Context7 was dropped for that reason); the claude.ai
+connectors are off in Claude Code (`ENABLE_CLAUDEAI_MCP_SERVERS=false`), and
+so is syncing skills and plugins from the claude.ai account
+(`syncClaudeAiSkills`, `syncClaudeAiPlugins`: false; it brought ~45 skills,
+among them finance, productivity and the docx/pptx/xlsx/pdf skills). Exception
+you accept knowingly: impeccable's new-design flow fetches visual directions
+from impeccable.style (see [impeccable](#impeccable-impeccableimpeccable)).
 
-Not added on purpose: GitHub MCP (`gh` already does it), more review
+Not added on purpose: GitHub MCP and `gh` (local git only), more review
 toolkits (`code-review`, `pr-review-toolkit`, `feature-dev` plugins duplicate
 the above), Linear/Notion/Figma/Sentry (add one when you use that service:
 each is a `…@claude-plugins-official` line), and language servers for languages
 not in `~/Projects` yet (see [Language servers](#language-servers-rust-analyzer-lsp-typescript-lsp-csharp-lsp)).
+
+## Factory
+
+`/factory <goal>` in a project: you state the goal, Claude owns the rest and
+merges verified code into the local `main` (never pushes). Files:
+`components/claude-code/skills/factory/SKILL.md` (the orchestrator) and
+`agents/implementer.md`, `agents/reviewer.md`, linked into `~/.claude/` by
+home-manager; the ownership rules are in `personal.md` ("Deciding").
+
+- Per project it keeps a `## Factory` section in `CLAUDE.md` (a fast Check
+  per item, the full Gate, goals file, decisions reserved for a human,
+  project skills and when they run) and `docs/goals.md` (goals, acceptance
+  criteria, items), committed on `main` as soon as they are written.
+- One item at a time (two built in parallel only when they touch disjoint
+  directories; merges and Gates always one at a time): a
+  worktree from the current `main` under the repo's git dir
+  (`factory/<item>`), an `implementer` subagent, the Check run again by the
+  orchestrator, a `reviewer` subagent that sees the diff and the criteria (not
+  the implementer's story), rebase, `merge --no-ff` in the checkout of
+  `main`, the Gate on `main`; red: `reset --keep` to that merge's first parent (a
+  revert would make the re-merge drop the item). Checks and Gates run in the
+  background with logs under `<git dir>/factory/logs/` (a foreground call dies
+  at 10 minutes). It stops when `main`'s checkout is dirty.
+- It replaces superpowers' `brainstorming`, `writing-plans`,
+  `using-git-worktrees`, `subagent-driven-development` and
+  `finishing-a-development-branch` (they ask the user, offer PRs, or merge at
+  the end by menu); the agents use its TDD, debugging and verification skills.
+- A project's `.claude/agents/implementer.md` or `reviewer.md` replaces the
+  global one (project agents beat user agents by name). Project skills can't
+  replace `factory` (personal skills win), so the `Skills:` line says which
+  project skills run on which items.
+- Lessons go as drafts to `~/brain/inbox/`; you ingest them (see
+  [Brain](#brain-shared-knowledge)).
+- The subagent `isolation: worktree` option is not used: in a `.bare` +
+  `main/` layout (command-and-control) it branched from an old commit of
+  `main` (tested 2026-11-25).
+- Identity: every Claude session (not only the factory) commits as
+  `Merge Goblin <develop@flodet.me>`, unsigned. `env` in `settings.json` sets
+  `GIT_AUTHOR_*`/`GIT_COMMITTER_*` and, through `GIT_CONFIG_COUNT`,
+  `commit.gpgsign=false` and `tag.gpgsign=false`, which beat every git config
+  file. Your own shell keeps your signed identity; Claude's commits are told
+  apart by author (`git log --author='Merge Goblin'`).
+- A project's own CLAUDE.md rules that reserve a decision for a person win:
+  those items stop at ready-to-merge.
+- `continue the factory` resumes, `factory status` summarizes.
+
+## Brain (shared knowledge)
+
+One Obsidian vault, `~/brain`, holds what is true beyond a single project;
+the claude-obsidian plugin (`claude-obsidian@agricidaniel-claude-obsidian`,
+<https://github.com/AgriciDaniel/claude-obsidian>, MIT, plain Markdown, no
+telemetry) reads and writes it from every project. `personal.md`
+("Knowledge") says what goes where: project knowledge in the project, lessons
+that outlive it in the brain, the personal vault
+(`~/Nextcloud/Notes/Default`) untouched.
+
+- `env` (set in `default.nix`, path from the home directory):
+  `CLAUDE_OBSIDIAN_VAULT` picks the brain for every skill from any directory
+  (it beats the working directory, which also keeps the personal vault safe);
+  `CLAUDE_OBSIDIAN_SESSION_CONTEXT=1` injects the vault's bounded
+  `wiki/hot.md` (at most 32 KiB) at startup, resume, `/clear` and compaction.
+  The hooks never write.
+- Writing: Claude never calls `save` or `wiki-ingest` itself (the skills
+  require your explicit request, and that keeps you as the confidentiality
+  gate for defense work). It drops drafts into `~/brain/inbox/` and lists
+  them; you read them and run `/claude-obsidian:wiki-ingest`. Reading:
+  `/claude-obsidian:wiki-query`, any time; `/claude-obsidian:wiki-lint` finds
+  dead links and orphans.
+- 15 skills, of which wiki, wiki-query, wiki-ingest, save and wiki-lint
+  matter here; check their listing cost with `/skill-doctor`.
+- Keep `wiki/hot.md` short (under ~4 KiB): it is injected into every session,
+  up to 32 KiB (~8k tokens) if it grows; it is the largest always-loaded text
+  in this setup (personal.md ~900 tokens, ponytail ~800, superpowers ~750).
+- `wiki-retrieve`'s optional reranking talks only to a local Ollama
+  (`127.0.0.1:11434`); nothing else leaves the machine unless asked.
+- Open it in Obsidian with "Open folder as vault" next to the personal vault.
+  It stays local; it is not in Nextcloud.
+- First use, once after the switch: `claude` anywhere, then
+  `/claude-obsidian:wiki init ~/brain` (a dry run first, approve to apply; it
+  creates `wiki/`, `inbox/`, `.raw/`, `.obsidian/`, `.claude-obsidian.json`
+  and `.gitignore`), then `git -C ~/brain init`. Until then the hook is silent
+  and queries fail closed.
 
 ## Token usage
 
@@ -167,6 +258,13 @@ tool schemas load only when a tool is needed (tool search), and only a few
 plugins, because every installed skill and agent adds its description to each
 session (ECC alone was several thousand tokens). Before adding a plugin, check
 `claude plugin details <plugin>@<mkt>` for its context cost.
+
+Measure first: `/skill-doctor` shows each skill's context cost and how often
+it is used; the Skills row of `/context` shows the listing's size. The listing
+gets 1% of the context window; when it overflows, Claude Code drops the
+descriptions of the least-used skills, and Claude then picks skills at random.
+The fix is fewer skills, not a bigger budget (`skillListingBudgetFraction`):
+2026-11-25 went from about 105 listed skills to about 40.
 
 Habits that save the most without hurting results:
 
@@ -211,71 +309,35 @@ Best use:
 - The board data stays local in `~/.config/ponytail/band/` (`ledger = true`);
   no webhook is configured.
 
-### agent-skills (`agent-skills@addy-agent-skills`)
+- Its ruleset is injected into subagents only for `implementer`
+  (`PONYTAIL_SUBAGENT_MATCHER=^implementer$` in `env`): Explore, Plan and the
+  reviewer don't pay ~600 tokens for rules about writing code.
 
-Source: <https://github.com/addyosmani/agent-skills> · docs:
-<https://skills.addy.ie> (incl. tutorials), repo `docs/getting-started.md`.
+### superpowers (`superpowers@claude-plugins-official`)
 
-25 engineering-workflow skills covering the lifecycle
-define → plan → build → verify → review → ship, plus 4 subagents
-(`code-reviewer`, `security-auditor`, `test-engineer`,
-`web-performance-auditor`). Skills also trigger automatically from what you
-are doing (e.g. designing an API loads `api-and-interface-design`).
+Source: <https://github.com/obra/superpowers> · docs: its `README.md`.
 
-| Command | Use |
-| --- | --- |
-| `/spec` | Write a spec/PRD before code |
-| `/planning` | Break work into small, ordered tasks with acceptance criteria |
-| `/build` (`/build auto`) | Implement task by task: test, verify, commit (`auto`: whole plan after one approval) |
-| `/test` | TDD; for bugs, prove it with a failing test first |
-| `/constraints` | Write the project's quality bar to `CONSTRAINTS.md` and guard it |
-| `/agent-skills:review` | Five-axis review (namespaced: built-in `/review` exists) |
-| `/code-simplify` | Simplify without behavior change |
-| `/webperf` | Web performance audit |
-| `/ship` | Pre-launch checklist and go/no-go |
-
-Notable skills to ask for by name: `interview-me` (clarify a vague request),
-`idea-refine`, `doubt-driven-development` (adversarial check of risky
-decisions), `debugging-and-error-recovery`, `security-and-hardening`,
-`documentation-and-adrs`, `git-workflow-and-versioning`,
-`source-driven-development`. `using-agent-skills` explains how to pick one.
+14 process skills: `writing-plans`, `subagent-driven-development` /
+`executing-plans`, `test-driven-development`, `systematic-debugging`,
+`verification-before-completion`, `requesting-code-review`,
+`using-git-worktrees`, `finishing-a-development-branch`, `brainstorming`,
+`writing-skills` and a few more. A SessionStart hook injects
+`using-superpowers` (~3 KB) on startup, `/clear` and compaction; it tells
+Claude to check for a fitting skill before every task.
 
 Best use:
 
-- For a new feature: `/spec` → `/planning` → `/build` → `/test` →
-  `/agent-skills:review`. Small fixes don't need the full chain.
-- Use `interview-me` when you only have a rough idea, `/constraints` once per
-  project.
-- It overlaps with ponytail (both review/simplify). They combine well:
-  agent-skills gives the process, ponytail keeps each step small. Pick one
-  reviewer per change rather than running both.
-
-### mattpocock-skills (`mattpocock-skills@claude-plugins-official`) — grilling
-
-Source: <https://github.com/mattpocock/skills> · docs: its `README.md`,
-`GLOSSARY.md`.
-
-Small, composable engineering skills. The plugin ships all of them, but
-`grilling` (called `grill-me` in older versions of this doc) is the reason
-it's here. The plugin is not pinned and renames skills between versions: the
-table below is what was installed when it was last checked; `/plugin` in
-Claude Code lists the current skills.
-
-| Skill | Use |
-| --- | --- |
-| `grilling` | Relentless one-question-at-a-time interview that stress-tests a plan or design before you build it |
-| `tdd`, `diagnosing-bugs` | Test-first work, a diagnosis loop for hard bugs and slowdowns |
-| `code-review`, `pr` | Review since a commit or branch, write a PR body |
-| `codebase-design`, `domain-modeling` | Design deep module interfaces, keep a glossary and ADRs |
-| `prototype`, `research`, `wizard`, `writing-for-agents` | Throwaway prototypes, sourced research notes, step-by-step wizards for manual tasks, writing skills and CLAUDE.md |
-
-Best use:
-
-- Describe your plan in a few sentences, then ask to be grilled. Answer until
-  it stops asking; the result is a plan with the holes found before coding.
-- Overlaps with agent-skills (`interview-me`, `/spec`, TDD, review). Pick one
-  flow per task: grilling for sharpening an idea, agent-skills'
-  `/spec` → `/build` chain for carrying it out.
+- The factory's implementer preloads `test-driven-development` and
+  `verification-before-completion`, a red Check goes through
+  `systematic-debugging`; the factory itself replaces the planning, worktree,
+  SDD and finishing skills (see [Factory](#factory)).
+- The official marketplace auto-updates by default and pins superpowers to a
+  commit, so it moves on its own; the third-party ones (ponytail, impeccable,
+  claude-obsidian) don't.
+- `brainstorming` asks you questions before building; `personal.md` says a
+  goal you state is already agreed, so it runs only when you ask.
+- `finishing-a-development-branch` offers a PR; with local git the answer is
+  always the local merge.
 
 ### frontend-slides (`frontend-slides@frontend-slides`)
 
@@ -333,9 +395,7 @@ browsers NixOS can't run.
 
 Gives Claude a real browser: navigate, click, fill forms, screenshots,
 console and network logs. Ask e.g. "open localhost:3000 and check the login
-form works". Check it's connected with `/mcp`. agent-skills'
-`browser-testing-with-devtools` expects a Chrome DevTools MCP server instead;
-use Playwright for the same job.
+form works". Check it's connected with `/mcp`.
 
 ### Language servers (`rust-analyzer-lsp`, `typescript-lsp`, `csharp-lsp`)
 
@@ -349,13 +409,44 @@ comes from its dev shell, so start Claude inside it (direnv). For another
 language add its `…-lsp@claude-plugins-official` plugin and server binary
 (`pyright-lsp` + `pyright`, `gopls-lsp` + `gopls`, ...).
 
-### frontend-design (`frontend-design@claude-plugins-official`)
+### impeccable (`impeccable@impeccable`)
 
-Anthropic's skill for distinctive, production-grade UIs (typography, colour,
-layout, motion) instead of the generic "AI look". It triggers by itself when
-you build a page or component; you can also ask for it by name. For
-accessibility and state handling, agent-skills' `frontend-ui-engineering`
-complements it; check the result in a browser with Playwright MCP.
+Source: <https://github.com/pbakaus/impeccable> · docs: <https://impeccable.style>.
+
+The successor of Anthropic's `frontend-design`: one skill, `/impeccable
+<command>` (`craft`, `polish`, `audit`, `critique`, `harden`, `adapt`, ...),
+a deterministic anti-pattern detector and 5 design agents. Its hooks run on
+SessionStart, after every Edit/Write and at every turn end (a 30 s "design
+deep pass"), so it is installed but **off by default** (`optInPlugins` in
+`default.nix`). Turn it on in a UI project's `.claude/settings.json`:
+`{"enabledPlugins": {"impeccable@impeccable": true}}` (project settings win).
+
+- The engine is a binary the launcher downloads into `~/.impeccable/` (checked
+  against shipped checksums) and runs through nix-ld. After the switch check
+  it once: `/impeccable audit` on a web file; an exec error means nix-ld lacks
+  a library (`hosts/_shared/components/claude-code.nix`).
+- Online parts: anonymous telemetry, off with `npx impeccable telemetry off`
+  once, or `"telemetry": false` in a project's `.impeccable/config.json` (not
+  `DO_NOT_TRACK`: that also skips Claude Code's feature flags). The new-design flow
+  (`concept-seed`) fetches visual directions from impeccable.style; polish,
+  audit, critique and the detector work offline.
+- Live mode's Apply would start `claude` with bypassed permissions;
+  `IMPECCABLE_LIVE_COPY_AGENT=off` in `env` disables it.
+
+### Removed: agent-skills (`agent-skills@addy-agent-skills`) and frontend-design
+
+Removed 2026-11-25. agent-skills: 25 skills built around slash commands you
+drive by hand (`/spec`, `/planning`, `/build`); superpowers covers the same
+process for an autonomous loop with fewer skills. frontend-design: replaced by
+its successor impeccable. To restore, add the line back to `plugins` (and the
+`addy-agent-skills` marketplace) in `default.nix`.
+
+### Removed: mattpocock-skills (`mattpocock-skills@claude-plugins-official`)
+
+Removed 2026-11-25: 14 skills, most of them duplicates (TDD, review,
+diagnosis, spec) whose descriptions cost tokens in every session and made the
+choice between near-identical skills random. `grilling` was the reason it was
+here; goals now go to `/factory`. To restore, add the line back to `plugins` in `default.nix`.
 
 ### Removed: ECC (`ecc@ecc`)
 

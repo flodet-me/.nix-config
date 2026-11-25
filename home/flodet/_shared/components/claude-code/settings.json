@@ -137,7 +137,18 @@
   },
   "env": {
     "DISABLE_ERROR_REPORTING": "1",
-    "ENABLE_CLAUDEAI_MCP_SERVERS": "false"
+    "ENABLE_CLAUDEAI_MCP_SERVERS": "false",
+    "GIT_AUTHOR_NAME": "Merge Goblin",
+    "GIT_AUTHOR_EMAIL": "develop@flodet.me",
+    "GIT_COMMITTER_NAME": "Merge Goblin",
+    "GIT_COMMITTER_EMAIL": "develop@flodet.me",
+    "GIT_CONFIG_COUNT": "2",
+    "GIT_CONFIG_KEY_0": "commit.gpgsign",
+    "GIT_CONFIG_VALUE_0": "false",
+    "GIT_CONFIG_KEY_1": "tag.gpgsign",
+    "GIT_CONFIG_VALUE_1": "false",
+    "IMPECCABLE_LIVE_COPY_AGENT": "off",
+    "PONYTAIL_SUBAGENT_MATCHER": "^implementer$"
   },
   "remoteControlAtStartup": true,
   "tui": "fullscreen",
@@ -146,5 +157,25 @@
     "claude-opus-5-5": {
       "effortLevel": "high"
     }
-  }
+  },
+  "autoMode": {
+    "environment": [
+      "$defaults",
+      "### User-specific",
+      "**Primary use of Claude Code**: software development on a personal NixOS workstation",
+      "**Trusted repo**: the git repository the session started in; its local branches and worktrees, including merges into its local main branch",
+      "**Source control**: local repositories only; pushing to any remote leaves the trust boundary",
+      "**Secrets management**: sops-nix (system level), GPG on a YubiKey; secrets and keys are never read or printed",
+      "**Sensitive remote targets**: any host, namespace or container whose name carries `prod` or `production` as a whole word or name segment",
+      "**Internal sharing / snippet hosting**: none; public paste and gist services are outside the trust boundary"
+    ],
+    "allow": [
+      "$defaults",
+      "Factory skill undoing its own merge: `git -C <main checkout> reset --keep <merge>^1` on the local main branch, right after that merge's Gate failed, when HEAD still equals the merge commit the factory created (merge message 'factory/<item>' branch, Goal: G-<n>). The branch factory/<item> still holds every commit, nothing is pushed or lost; resets of any other commit, `--hard` resets and resets on other branches are not covered."
+    ]
+  },
+  "syncClaudeAiSkills": false,
+  "syncClaudeAiPlugins": false,
+  "autoCompactWindow": 250000,
+  "attribution": false
 }
