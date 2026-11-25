@@ -151,6 +151,7 @@ let
     name = "claude-plugins-sync";
     runtimeInputs = [
       pkgs.claude-code
+      pkgs.coreutils
       pkgs.git
       pkgs.gnused
       pkgs.uv
@@ -164,7 +165,8 @@ let
 
       # ponytail only refreshes its status line script, it creates it only when no
       # statusLine is set (Nix sets one): seed it so the badge shows on a fresh install.
-      [ -e "$HOME/.claude/ponytail-statusline.sh" ] || : > "$HOME/.claude/ponytail-statusline.sh"
+      try mkdir -p "$HOME/.claude"
+      [ -e "$HOME/.claude/ponytail-statusline.sh" ] || try touch "$HOME/.claude/ponytail-statusline.sh"
 
       ${lib.concatMapStrings (repo: ''
         try claude plugin marketplace add ${repo}

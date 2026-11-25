@@ -70,12 +70,15 @@ The dev shell also has `claude-code`, but not the plugins.
   privilege escalation, disk tools, force pushes, `gh auth`, `nixos-rebuild`)
   and `disableBypassPermissionsMode`. The Bash denies match the command text,
   so `cat <secret>` is denied but another spelling of the same read is not.
-  The `Read(...)` denies cover the Read tool and the file commands Claude Code
-  recognizes inside a Bash command (`cat`, `head`, `tail`, `sed`, `tee`,
-  redirections), not a command that reads without naming the file or a script
-  that opens it itself. A path from the filesystem root needs two slashes
+  The `Read(...)` and `Edit(...)` denies cover the file tools and the file
+  commands Claude Code recognizes inside a Bash command (`cat`, `head`,
+  `tail`, `sed` and `<` against `Read`; `tee`, `>` and `>>` against `Edit`),
+  not a command that reads without naming the file or a script that opens it
+  itself. A path from the filesystem root needs two slashes
   (`Read(//run/secrets/**)`): with one, a rule in the user settings is relative
-  to `~/.claude`. `Bash(rm -rf /*)` and its siblings also match every
+  to `~/.claude`, and one without a slash (`Read(**/.env)`) only covers the
+  session's working directory, not a worktree outside it, hence
+  `Read(//**/.env)`. `Bash(rm -rf /*)` and its siblings also match every
   `rm -rf <absolute path>`; clean up with `find <dir> -mindepth 1 -delete`.
 - **`claude-plugins-sync`** downloads and installs everything:
   marketplaces and plugins (`claude plugin …`), the user-scope MCP servers
@@ -204,9 +207,11 @@ home-manager; the ownership rules are in `personal.md` ("Deciding").
   (`factory/<item>`), an `implementer` subagent, the Check run again by the
   orchestrator, a `reviewer` subagent that sees the diff and the criteria (not
   the implementer's story), rebase, `merge --no-ff` in the checkout of
-  `main` (a merge that fails is aborted and reported, never reset), the Gate
-  on `main`; red: `reset --keep` to that merge's first parent (a
-  revert would make the re-merge drop the item). Checks and Gates run in the
+  `main` (a merge that fails is never reset: a conflict is aborted and goes
+  back to the implementer, a checkout that is in the way stops the run), the
+  Gate on `main`; red: `reset --keep` to that merge's first parent (a reset
+  that fails or leaves `main` dirty stops the run; a revert would make the
+  re-merge drop the item). Checks and Gates run in the
   background with logs under `<git dir>/factory/logs/` (a foreground call dies
   at 10 minutes). It stops when `main`'s checkout is dirty.
 - It replaces superpowers' `brainstorming`, `writing-plans`,
@@ -304,6 +309,7 @@ Habits that save the most without hurting results:
   than wrong code.
 - Keep project `CLAUDE.md` files short and factual: they are read every session.
 
+## Installed plugins
 
 ### ponytail (`ponytail@ponytail`)
 

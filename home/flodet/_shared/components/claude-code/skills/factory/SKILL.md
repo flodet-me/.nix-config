@@ -106,20 +106,23 @@ reserved rules, relevant brain lessons. For a resumed branch add `git -C "$wt" l
 ```sh
 git -C "$wt" rebase main || { git -C "$wt" rebase --abort; }   # aborted: the implementer rebases and resolves, then this section again
 <Check> in "$wt"                                                # again, on the rebased branch
-git -C "$main" merge --no-ff factory/<item> -m "<item>: <what changed>" -m "Goal: G-<n>"
+git -C "$main" merge --no-ff factory/<item> -m "<item>: <what changed>" -m "Goal: G-<n>" \
+  && git -C "$main" rev-parse HEAD                              # the item's merge commit: note the printed hash
 <Gate> in "$main"                                               # only after a merge that exited 0; the next merge waits for this
 ```
 
 - Merge exits non-zero: no Gate, no reset (HEAD is not your merge). If `git -C "$main" rev-parse -q --verify MERGE_HEAD`
-  prints a hash, `git -C "$main" merge --abort`. Report `git -C "$main" status --porcelain`; item back to open (a
-  conflict goes to the implementer to rebase).
+  prints a hash (a conflict): `git -C "$main" merge --abort`, item back to open, the implementer rebases. No hash
+  (main's checkout is in the way): stop and report `git -C "$main" status --porcelain`; the item stays ready to merge.
 - Gate green: `git worktree remove "$wt" && git -C "$main" branch -d factory/<item>`; item row `done` with the merge
-  commit (`git -C "$main" rev-parse HEAD`), committed. `worktree remove` refused: report
-  `git -C "$wt" status --porcelain -uall`, never `--force`.
+  commit you noted, committed. `worktree remove` refused: report `git -C "$wt" status --porcelain -uall`, never
+  `--force`.
 - Gate red: only if `git -C "$main" rev-parse -q --verify HEAD^2` equals `git -C "$main" rev-parse factory/<item>`
   (HEAD is this item's merge), `git -C "$main" reset --keep HEAD^1`; else stop and report. That undoes only the merge
   you just made; branch and worktree stay (a `revert` would make a later re-merge silently drop the item). Item back
-  to open with the gate output.
+  to open with the gate output. If the reset exits non-zero, or `git -C "$main" status --porcelain` prints anything
+  afterwards (the Gate left files in main): stop and report that output and `git -C "$main" log --oneline -3`; never
+  `--hard`, `stash`, `checkout --` or `clean`, and don't reopen the item.
 - Commits use the unsigned agent identity from the environment; never pass `-S` or change it.
 - Never push, never rewrite `main` beyond undoing your own just-made merge, never delete a branch with unmerged
   commits.
