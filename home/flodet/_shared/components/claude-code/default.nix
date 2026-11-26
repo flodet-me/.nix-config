@@ -219,7 +219,7 @@ let
         hooks.Notification = [
           {
             # only when Claude waits for you, not on auth or agent events
-            matcher = "permission_prompt|idle_prompt|elicitation_dialog|elicitation_url_dialog|agent_needs_input|quota_auto_resume_stale";
+            matcher = "permission_prompt|idle_prompt|elicitation_dialog|elicitation_url_dialog|agent_needs_input|quota_auto_resume_fired|quota_auto_resume_stale|quota_auto_resume_disabled";
             hooks = [
               {
                 type = "command";

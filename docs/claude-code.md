@@ -63,10 +63,18 @@ The dev shell also has `claude-code`, but not the plugins.
 - **Session behavior** set there: `remoteControlAtStartup` (every session is
   remote controllable through Anthropic's servers) with `agentPushNotifEnabled`
   (Claude may push a mobile notification while Remote Control is connected);
-  `autoCompactWindow:
+  `autoContinueAtUsageLimit: true` (when a claude.ai subscription limit pauses
+  an open interactive session, wait for its reset and continue the interrupted
+  task automatically); `autoCompactWindow:
   250000` (compact at 250k tokens instead of near the 1M window, so a long
   session doesn't resend ~1M tokens per turn); `attribution: false` (Claude's commits already carry the
   `Merge Goblin` author, no trailers or claude.ai session links in local history).
+  Claude cannot inspect the remaining account quota itself; Claude Code owns
+  that state and displays the reset time. It will not auto-continue if the
+  machine slept through the reset for about 30 minutes, when it has already
+  retried three continuations, or after the session exits. The desktop
+  notification hook reports automatic continuation, a stale wait, and a
+  disabled wait so the user can intervene.
   `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`, `DISABLE_TELEMETRY` and
   `DO_NOT_TRACK` skip Claude Code's feature-flag fetch (no `/skill-doctor`,
   `/import`, and Remote Control only with conditions), so neither `env` nor
@@ -86,9 +94,10 @@ The dev shell also has `claude-code`, but not the plugins.
   branch, context used, session cost, ponytail badge. Watch the context
   number: around 60-70 % is a good moment for `/compact` or `/clear`.
 - **Desktop notification** (`Notification` hook, `notify-send`, matcher
-  `permission_prompt|idle_prompt|elicitation_dialog|elicitation_url_dialog|agent_needs_input|quota_auto_resume_stale`)
-  when Claude waits for a permission or your input (also after a usage limit
-  reset while the machine slept), so you can work elsewhere meanwhile.
+  `permission_prompt|idle_prompt|elicitation_dialog|elicitation_url_dialog|agent_needs_input|quota_auto_resume_fired|quota_auto_resume_stale|quota_auto_resume_disabled`)
+  when Claude waits for a permission or your input, or when a usage-limit wait
+  continues, becomes stale after sleep, or is disabled, so you can work
+  elsewhere meanwhile.
 - **Permissions:** interactive sessions start in auto mode, where Claude Code
   drops the blanket `Bash` allow and its classifier decides on each shell
   command (tuned by `autoMode`); `Bash` applies again in manual mode

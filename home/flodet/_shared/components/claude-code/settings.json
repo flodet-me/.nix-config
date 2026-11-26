@@ -186,6 +186,7 @@
   },
   "syncClaudeAiSkills": false,
   "syncClaudeAiPlugins": false,
+  "autoContinueAtUsageLimit": true,
   "autoCompactWindow": 250000,
   "worktree": {
     "baseRef": "head"
