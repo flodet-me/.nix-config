@@ -260,18 +260,21 @@ bool() { (($1)) && echo '$true' || echo '$false'; }
 # (cmd.exe or PowerShell). The code goes base64 (no quoting trouble on the
 # way) inside -Command: -EncodedCommand would send Write-Host, warnings and
 # errors as CLIXML on stderr.
-ps_cmdline() {
+ps_invoke() {  # one line of PowerShell that decodes and runs CODE
     local enc
     enc=$(python3 -I -c 'import base64,sys; print(base64.b64encode(sys.argv[1].encode("utf-16-le")).decode())' "$1")
-    printf '%s' "powershell -NoProfile -NonInteractive -Command \"& ([scriptblock]::Create([Text.Encoding]::Unicode.GetString([Convert]::FromBase64String('$enc'))))\""
+    printf '%s' "& ([scriptblock]::Create([Text.Encoding]::Unicode.GetString([Convert]::FromBase64String('$enc'))))"
 }
+ps_cmdline() { printf '%s' "powershell -NoProfile -NonInteractive -Command \"$(ps_invoke "$1")\""; }
 
 guest_ps() {
     ssh_opts
     local script
     script="\$ProgressPreference='SilentlyContinue'; \$ErrorActionPreference='Stop'; try { $1 } catch { [Console]::Error.WriteLine(\$_.ToString()); exit 1 }"
+    # The code goes in on stdin: Windows 10's built-in OpenSSH 7.7 with PowerShell as login shell
+    # strips the double quotes from a command line, so ps_cmdline breaks there.
     ssh "${SSH_OPTS[@]}" -o BatchMode=yes -o LogLevel=ERROR -p "$P_SSH" "$WIN_USER@127.0.0.1" \
-        "$(ps_cmdline "$script")" | tr -d '\r'   # Windows line endings
+        "powershell -NoProfile -NonInteractive -Command -" <<<"$(ps_invoke "$script")" | tr -d '\r'   # Windows line endings
 }
 
 # --- TPM (swtpm) ------------------------------------------------------------
@@ -2168,7 +2171,8 @@ cmd_usb() {
             need_vm
             is_running || die "'$VM' is not running (or put it in USB_DEVICES to attach at start)"
             usb_check_access "$id"
-            qmp device_add "$(printf '{"driver": "usb-host", "id": "usb-%s", "vendorid": "0x%s", "productid": "0x%s"}' "${id/:/-}" "${id%%:*}" "${id##*:}")"
+            # QMP wants numbers here (the -device command line takes "0x..." strings).
+            qmp device_add "$(printf '{"driver": "usb-host", "id": "usb-%s", "vendorid": %d, "productid": %d}' "${id/:/-}" "$((16#${id%%:*}))" "$((16#${id##*:}))")"
             info "attached $id to '$VM' (it disappears from the host while attached)" ;;
         detach)
             local id=${2:?usage: winvm usb detach VID:PID}

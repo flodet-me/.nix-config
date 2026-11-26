@@ -289,7 +289,7 @@ For tests that need a specially prepared VM (German formats, non-admin user,
 returns to the prepared state, not the plain image.
 
 ```sh
-winvm recipes                          # german-formats, standard-user, hidpi, low-spec-offline, vs-deploy
+winvm recipes                          # german-formats, standard-user, hidpi, low-spec-offline, vs-deploy, uwp-build
 winvm new de --recipe german-formats   # create + set up + seal
 winvm -n de start                      # ... test ...
 winvm -n de reset                      # back to the German setup

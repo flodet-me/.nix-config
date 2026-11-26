@@ -84,6 +84,8 @@ What `winvm new NAME --recipe R` does (the recipe's output appears in your termi
 | `hidpi` | 150 % display scaling: layout, clipped text, blurry bitmaps. Change `$dpi` for 125 % (120) or 200 % (192). |
 | `low-spec-offline` | 2 GB RAM, 1 CPU, no network. Only settings, no script. |
 | `vs-deploy` | Visual Studio 2026 deploy target: Developer Mode, remote debugger at every sign-in, .NET desktop runtimes. See [windows-host/README.md](../windows-host/README.md#visual-studio-deploy-and-debug). |
+| `uwp-build` | Build box for classic UWP (.NET Native) and native C++ (UWP app CRT and desktop) for x86/x64/ARM64: VS 2026 Build Tools at `C:\BuildTools2026` (UWP workload, C++ UWP and desktop tools, CMake, Windows SDK 26100), Developer Mode. 6 GB RAM, 6 CPUs. |
+| `vs2026-community` | Visual Studio 2026 Community IDE (use it over RDP) for classic UWP (.NET Native) and native C++ x86/x64/ARM64: all Windows updates first (the .NET 10 SDK needs them on old Windows 10 builds), UWP tools, C++ UWP and desktop tools, CMake, Git, Windows SDK 26100, Developer Mode. 8 GB RAM, 6 CPUs. Sign in with a Microsoft account after the 30-day trial. |
 
 ### Writing your own
 
