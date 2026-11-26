@@ -1,4 +1,4 @@
-{ ... }:
+_:
 
 {
   # QMK default config

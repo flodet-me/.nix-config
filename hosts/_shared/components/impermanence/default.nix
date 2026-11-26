@@ -203,7 +203,7 @@ in
           sudo find / -xdev \
             \( -path /tmp -o -path /var/tmp \) -prune -o \
             \( -type f -o -type l \) \
-            ! -lname '/etc/static/*' ! -path /etc/machine-id -print | sort| sort
+            ! -lname '/etc/static/*' ! -path /etc/machine-id -print | sort
         '';
       })
     ];

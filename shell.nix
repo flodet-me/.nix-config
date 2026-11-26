@@ -23,6 +23,11 @@
         gnupg
         age
         nixfmt
+        deadnix
+        statix
+        shellcheck
+        actionlint
+        nixd
         nix-output-monitor
         claude-code
         act # run the GitHub Actions workflow locally (needs Docker)

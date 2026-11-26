@@ -41,7 +41,7 @@ in
             ]
           }:/run/current-system/sw/bin:$PATH
           notify() { notify-send --app-name=nix-config "$1" "$2" || true; echo "$1: $2"; }
-          host=
+          host=$(uname -n)
           installed="$HOME/.nix-config"
 
           # Clone next to it: a failed attempt (no network yet) changes nothing

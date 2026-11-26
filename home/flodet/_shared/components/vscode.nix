@@ -23,6 +23,7 @@ let
     "vim.useSystemClipboard" = true;
     "vim.useCtrlKeys" = false;
     "git.enableSmartCommit" = true;
+    "scm.defaultViewMode" = "tree";
 
     # No telemetry, experiments or online lookups to Microsoft; updates come from Nix
     "telemetry.telemetryLevel" = "off";
@@ -77,9 +78,15 @@ in
   # activation merges declaredSettings over the existing file (declared values win).
   home.activation.vscodeSettings = lib.hm.dag.entryAfter [ "linkGeneration" ] ''
     f="$HOME/.config/Code/User/settings.json"
-    mkdir -p "$(dirname "$f")"
-    if [ -L "$f" ]; then rm "$f"; fi
-    if [ ! -f "$f" ]; then echo '{}' > "$f"; fi
-    ${pkgs.jq}/bin/jq -s '.[0] * .[1]' "$f" ${pkgs.writeText "vscode-settings.json" (builtins.toJSON declaredSettings)} > "$f.tmp" && mv "$f.tmp" "$f"
+    run mkdir -p "$(dirname "$f")"
+    if [ -L "$f" ]; then run rm "$f"; fi
+    tmp="$(mktemp)"
+    if [ -s "$f" ]; then current="$(cat "$f")"; else current='{}'; fi
+    if printf '%s' "$current" | ${lib.getExe pkgs.jq} -s '.[0] * .[1]' - ${pkgs.writeText "vscode-settings.json" (builtins.toJSON declaredSettings)} > "$tmp"; then
+      run install -m 600 "$tmp" "$f"
+    else
+      echo "vscode: $f is not valid JSON, left unchanged" >&2
+    fi
+    rm -f "$tmp"
   '';
 }

@@ -67,7 +67,7 @@ The dev shell also has `claude-code`, but not the plugins.
   command (tuned by `autoMode`); `Bash` applies again in manual mode
   (Shift+Tab) and in `claude -p`. `Edit` and `Write` are allowed in general.
   In every mode there is a long deny list (secrets and sops files, gpg/ykman,
-  privilege escalation, disk tools, force pushes, `gh auth`, `nixos-rebuild`)
+  privilege escalation, disk tools, pushes and `gh`, `nixos-rebuild`/`nh`)
   and `disableBypassPermissionsMode`. The Bash denies match the command text,
   so `cat <secret>` is denied but another spelling of the same read is not.
   The `Read(...)` and `Edit(...)` denies cover the file tools and the file

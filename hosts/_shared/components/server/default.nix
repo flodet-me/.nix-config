@@ -3,7 +3,6 @@
 # Guidance and the install/deploy workflow: docs/cloud.md
 {
   config,
-  lib,
   pkgs,
   ...
 }:

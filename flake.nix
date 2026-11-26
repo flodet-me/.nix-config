@@ -98,6 +98,19 @@
       devShells = forEachSystem (pkgs: import ./shell.nix { inherit pkgs; });
       formatter = forEachSystem (pkgs: pkgs.nixfmt);
       checks = forEachSystem (pkgs: {
+        # Fail if any Nix file is not RFC-formatted.
+        formatting = pkgs.runCommand "formatting" { nativeBuildInputs = [ pkgs.nixfmt ]; } ''
+          cd ${self}
+          find . -name '*.nix' -exec nixfmt --check {} +
+          touch $out
+        '';
+        # Builds all workflow scripts (runs shellcheck via writeShellApplication).
+        scripts = pkgs.linkFarm "scripts-check" (
+          lib.mapAttrsToList (name: drv: {
+            inherit name;
+            path = drv;
+          }) (import ./scripts { inherit pkgs; })
+        );
         # Fail if a secrets file was committed (partly) unencrypted.
         sops-encrypted = pkgs.runCommand "sops-encrypted" { } ''
           cd ${self}

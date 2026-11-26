@@ -153,6 +153,7 @@ let
       pkgs.claude-code
       pkgs.coreutils
       pkgs.git
+      pkgs.gnugrep
       pkgs.gnused
       pkgs.uv
       python
@@ -191,6 +192,9 @@ let
       try "$HOME/.local/bin/graphify" install --platform claude
       # Its skill tells Claude to suggest the hosted Graphify Cloud: not here (local first).
       try sed -i '/^## Graphify Cloud (hosted)$/,/^---$/d' "$HOME/.claude/skills/graphify/SKILL.md"
+      if grep -q "Graphify Cloud" "$HOME/.claude/skills/graphify/SKILL.md" 2>/dev/null; then
+        failed+=("graphify SKILL.md still mentions Graphify Cloud after strip")
+      fi
 
       if [ "''${#failed[@]}" -gt 0 ]; then
         echo "These steps FAILED (the rest was done; the service retries):" >&2
@@ -212,6 +216,7 @@ in
     pkgs.rust-analyzer # rust-analyzer-lsp plugin
     pkgs.typescript-language-server # typescript-lsp plugin
     pkgs.csharp-ls # csharp-lsp plugin
+    pkgs.nixd # Nix LSP
   ];
   home.sessionPath = [ "$HOME/.local/bin" ]; # uv tool binaries (graphify)
 
@@ -229,9 +234,9 @@ in
     run mkdir -p "$(dirname "$settings")"
     tmp="$(mktemp)"
     if [ -s "$settings" ]; then current="$(cat "$settings")"; else current='{}'; fi
-    # Nix-owned keys win; arrays are replaced as a whole, not merged. The plugin
-    # lists, plugin options and `env` come only from Nix, so a removed one is gone too.
-    if printf '%s' "$current" | ${lib.getExe pkgs.jq} -s '(.[0] | del(.enabledPlugins, .extraKnownMarketplaces, .env, .pluginConfigs)) * .[1]' - ${managedSettings} > "$tmp"; then
+    # Nix-owned keys win; arrays are replaced as a whole, not merged. Delete
+    # all Nix-owned object keys first so entries removed in Nix don't linger.
+    if printf '%s' "$current" | ${lib.getExe pkgs.jq} -s '(.[0] | del(.enabledPlugins, .extraKnownMarketplaces, .env, .pluginConfigs, .permissions, .hooks, .modelSettings, .autoMode, .statusLine)) * .[1]' - ${managedSettings} > "$tmp"; then
       run install -m 600 "$tmp" "$settings"
     else
       echo "claude-code: $settings is not valid JSON, left unchanged" >&2
@@ -245,6 +250,8 @@ in
   systemd.user.services.claude-plugins-sync = {
     Unit = {
       Description = "Install declared Claude Code plugins and skills";
+      After = [ "network-online.target" ];
+      Wants = [ "network-online.target" ];
       # a broken plugin name must not retry forever
       StartLimitIntervalSec = 3600;
       StartLimitBurst = 10;

@@ -1,5 +1,4 @@
-{ ... }:
-{
+_: {
   boot = {
 
     # Enable "Silent Boot" (systemd initrd: quiet via rd.systemd.show_status)

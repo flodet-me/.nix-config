@@ -1,7 +1,7 @@
 # Opt out of telemetry wherever software offers a switch (all hosts, imported
 # by global.nix). Proprietary apps without a switch are covered on the network
 # level by moon's DNS blocklists (hosts/moon/dns.nix). See docs/privacy.md.
-{ lib, ... }:
+_:
 let
   optOut = {
     # Not DO_NOT_TRACK, DISABLE_TELEMETRY or CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC:

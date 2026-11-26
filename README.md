@@ -38,5 +38,6 @@ sudo nixos-rebuild switch --flake .#<host>  # applies system and home-manager
 | YubiKey | [docs/yubikey.md](docs/yubikey.md) |
 | Cloud servers | [docs/cloud.md](docs/cloud.md) |
 | Security updates, CVEs | [docs/security-updates.md](docs/security-updates.md) |
+| Testing, VMs, closure diffs | [docs/testing.md](docs/testing.md) |
 | Claude Code | [docs/claude-code.md](docs/claude-code.md) |
 | Privacy, telemetry | [docs/privacy.md](docs/privacy.md) |

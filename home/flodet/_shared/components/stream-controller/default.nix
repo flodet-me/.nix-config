@@ -1,4 +1,4 @@
-{ ... }:
+_:
 
 {
   # Scripts for usage with stream-controller
