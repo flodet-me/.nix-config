@@ -55,7 +55,6 @@ in
           ms-python.python
           esbenp.prettier-vscode
           streetsidesoftware.code-spell-checker
-          sonarsource.sonarlint-vscode
           mhutchie.git-graph
           waderyan.gitblame
           bierner.markdown-mermaid
