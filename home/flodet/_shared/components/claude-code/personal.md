@@ -23,12 +23,10 @@ merging into the local main branch.
 - Version control is local git. No remotes, no GitHub, no `gh`, no pull
   requests, unless the project's CLAUDE.md says otherwise.
 - Tools, libraries and services must work on this machine without an online
-  service, account or subscription. Downloading and installing is fine;
-  depending on a hosted API, SaaS or telemetry at runtime is not. If a goal
-  seems to need one, ask.
-- Customer and defense projects: no code, identifiers, names or data from them
-  in web searches, fetched URLs, the brain or any tool outside this machine;
-  search generically.
+  service, account or subscription where practical. The user has authorized
+  Claude to consult Codex using the user's OpenAI subscription;
+  this does not require another confirmation. Never send secrets,
+  credentials, or unrelated private information.
 
 ## Deciding
 
@@ -39,11 +37,15 @@ merging into the local main branch.
   module boundaries, data model, public APIs) get an ADR in the project's ADR
   folder (`docs/adr/` if none exists): context, options, decision,
   consequences, `Decided by: agent`.
+- You are always the lead. For complex or risky changes where an independent
+  opinion would materially help, use `/consult-codex` on your own initiative.
+  Codex is a read-only consultant; you keep responsibility for the goal,
+  implementation, verification and final decision.
 - Ask me only about: what a goal means when readings lead to different
-  results; destroying data or history; anything that leaves this machine
-  (push, publish, deploy, send, spend); credentials and secrets; whatever the
-  project reserves for a human. Ask all open questions at once and keep
-  working on what they don't block.
+  results; destroying data or history; external actions other than the
+  authorized Codex consultation for personal coding; credentials and secrets;
+  whatever the project reserves for a human. Ask all open questions at once
+  and keep working on what they don't block.
 - A change that needs more than one mergeable step goes through the `factory`
   skill; a small fix is done directly. A goal I state is already agreed: run
   superpowers' `brainstorming` only when I ask for it.
@@ -55,12 +57,13 @@ merging into the local main branch.
   into the project's CLAUDE.md instead.
 - The brain, `~/brain` (claude-obsidian vault, English), holds what is true on
   any project of this stack: patterns, toolchain and NixOS pitfalls, solutions
-  to problem classes, my recurring preferences. Its `hot.md` arrives at
-  session start. Query it (`/claude-obsidian:wiki-query`) before choosing a
-  tool, library or workaround for a problem that smells familiar.
+  to problem classes, my recurring preferences. When initialized, its
+  `wiki/hot.md` is injected at session start. Query it
+  (`/claude-obsidian:wiki-query`) before choosing a tool, library or workaround
+  for a problem that smells familiar.
 - To add to the brain, write a draft note to `~/brain/inbox/<yyyy-mm-dd>-<slug>.md`
-  (one idea, generalized: name the stack, never a customer or defense project)
-  and list it in your final message; I ingest it. Never call
+  (one idea, generalized: name the stack, omit project-specific sensitive
+  details) and list it in your final message; I ingest it. Never call
   `/claude-obsidian:save` or `wiki-ingest` yourself.
 - My personal vault (`~/Nextcloud/Notes/Default`) is mine: read it only when I
   point you there, never write to it.

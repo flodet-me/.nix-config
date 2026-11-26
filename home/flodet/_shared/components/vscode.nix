@@ -67,8 +67,6 @@ in
           dracula-theme.theme-dracula
           timonwong.shellcheck
           mads-hartmann.bash-ide-vscode
-
-          anthropic.claude-code
         ];
       };
     };

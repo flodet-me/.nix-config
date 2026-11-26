@@ -8,13 +8,13 @@
   "permissions": {
     "allow": [
       "Bash",
+      "Bash(claude-codex-review *)",
       "Edit",
       "NotebookEdit",
       "WebFetch",
       "WebSearch",
       "Write",
-      "mcp__claude-artifacts",
-      "mcp__claude-vscode"
+      "mcp__claude-artifacts"
     ],
     "deny": [
       "Bash(blkdiscard *)",

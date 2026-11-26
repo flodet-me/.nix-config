@@ -30,6 +30,7 @@
         nixd
         nix-output-monitor
         claude-code
+        codex
         act # run the GitHub Actions workflow locally (needs Docker)
         nixos-anywhere # first install of cloud servers (docs/cloud.md)
       ]

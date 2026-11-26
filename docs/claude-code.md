@@ -14,6 +14,33 @@ or `/plugin install` steps.
   (frontend-slides PPTX import), and `uv` (graphify). `gh` stays installed for
   you; `personal.md` keeps Claude on local git.
 
+The shared workstation module also installs the native `codex` CLI and the
+`claude-codex-review` wrapper on both `desktop` and `laptop`. The
+`/consult-codex` skill lets Claude request a focused second opinion while
+remaining responsible for the goal and all changes. The wrapper runs
+`codex exec` with a read-only sandbox and no approval prompts; it cannot edit
+the checkout. Prompts and reviewed code are sent to OpenAI for model
+processing; this is authorized for personal coding work, with secrets and
+credentials excluded. Codex has its own OpenAI login and usage allowance:
+authenticate once on each machine with
+`codex login`. Claude asks for this review when it would materially help (or
+when requested), rather than launching Codex for every task. If Codex has no
+available usage, is unauthenticated, or fails, Claude stops or retries only as
+the skill directs, continues independently when reasonable, and reports when
+the second opinion could not be obtained. The dev shell provides `codex` too.
+
+Codex also gets a shared, Nix-managed user setup on both workstations:
+`~/.codex/config.toml` defaults to GPT-5.6 Terra at high reasoning effort,
+workspace writes with approvals on request, no shell-command network access,
+cached web search, non-login shells, and automatic filtering of environment
+variables named like secrets. The activation merges only these owned settings,
+preserving Codex's local project-trust entries and authentication. A global
+`~/.codex/AGENTS.md` carries personal guidance; project `AGENTS.md` files
+remain the source of project-specific rules. Its terminal footer shows the
+model, reasoning effort, remaining context, branch, and current directory.
+Change the Nix files under
+`home/flodet/_shared/components/claude-code/codex/` to keep these defaults.
+
 The dev shell also has `claude-code`, but not the plugins.
 
 ## How it works
@@ -247,40 +274,43 @@ the claude-obsidian plugin (`claude-obsidian@agricidaniel-claude-obsidian`,
 <https://github.com/AgriciDaniel/claude-obsidian>, MIT, plain Markdown, no
 telemetry) reads and writes it from every project. `personal.md`
 ("Knowledge") says what goes where: project knowledge in the project, lessons
-that outlive it in the brain, the personal vault
-(`~/Nextcloud/Notes/Default`) untouched.
+that outlive it in the brain.
 
 - `env` (set in `default.nix`, path from the home directory):
   `CLAUDE_OBSIDIAN_VAULT` picks the brain for every skill from any directory
   (it beats the working directory, which also keeps the personal vault safe);
+  `CLAUDE_OBSIDIAN_SESSION_CONTEXT_VAULT` repeats that exact path as the
+  explicit allow-list for startup context, since `~/brain` is outside each
+  project;
   `CLAUDE_OBSIDIAN_SESSION_CONTEXT=1` injects the vault's bounded
-  `wiki/hot.md` (the plugin reads at most 32 KiB, Claude Code passes at most
-  10,000 characters of a hook's output) at startup, resume, `/clear` and
-  compaction.
-  The hooks never write.
+  `wiki/hot.md` at startup, resume, `/clear`, compaction and fork. The plugin
+  sanitizes and bounds the context; the hook never writes. Python 3 is on
+  `PATH` for the plugin hook.
 - Writing: Claude never calls `save` or `wiki-ingest` itself (the skills
-  require your explicit request, and that keeps you as the confidentiality
-  gate for defense work). It drops drafts into `~/brain/inbox/` and lists
+  require your explicit request). It drops drafts into `~/brain/inbox/` and lists
   them; you read them and run `/claude-obsidian:wiki-ingest`. Reading:
   `/claude-obsidian:wiki-query`, any time; `/claude-obsidian:wiki-lint` finds
   dead links and orphans.
 - 15 skills, of which wiki, wiki-query, wiki-ingest, save and wiki-lint
   matter here; check their listing cost with `/skill-doctor`.
 - Keep `wiki/hot.md` short (under ~4 KiB): it is injected into every session.
-  Above 10,000 characters of hook output (the plugin's header included) Claude
-  gets a file path and only the first 2,000 characters, so a longer hot.md is
-  mostly lost. For scale, the other always-loaded texts: personal.md ~1000
+  For scale, the other always-loaded texts: personal.md ~1000
   tokens, superpowers ~850, ponytail ~700 plus a codebase map of up to 2,000
   characters in code projects.
 - `wiki-retrieve`'s optional reranking talks only to a local Ollama
   (`127.0.0.1:11434`); nothing else leaves the machine unless asked.
 - Open it in Obsidian with "Open folder as vault" next to the personal vault.
   It stays local; it is not in Nextcloud.
-- First use, once after the switch: `claude` anywhere, then
-  `/claude-obsidian:wiki init ~/brain` (a dry run first, approve to apply; it
-  creates `wiki/`, `inbox/`, `.raw/`, `.obsidian/`, `.claude-obsidian.json`
-  and `.gitignore`), then `git -C ~/brain init`. Until then the hook is silent
-  and queries fail closed.
+- First use, once after the switch: run `claude-plugins-sync`, restart Claude
+  Code, then run `/claude-obsidian:wiki` and ask it to initialize or adopt the
+  configured vault at `~/brain`. Review and approve its preview. It creates
+  `wiki/`, `inbox/`, `.raw/`, `.obsidian/`, `.claude-obsidian.json` and
+  `.gitignore`. The startup hook stays silent until `wiki/hot.md` exists;
+  queries explain when the vault is not ready. If startup context is still
+  absent, check that `~/.claude/settings.json` contains the two
+  `CLAUDE_OBSIDIAN_SESSION_CONTEXT*` values above, then restart Claude Code.
+  The plugin's own doctor is `/claude-obsidian:wiki-lint`; `git -C ~/brain init`
+  is optional local history.
 
 ## Token usage
 

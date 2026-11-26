@@ -1,0 +1,19 @@
+# Nix-managed defaults for interactive Codex CLI and IDE sessions.
+# Claude's delegated reviews override these with an explicit read-only sandbox.
+model = "gpt-5.6-terra"
+model_reasoning_effort = "high"
+
+approval_policy = "on-request"
+sandbox_mode = "workspace-write"
+sandbox_workspace_write.network_access = false
+allow_login_shell = false
+
+# Use cached web results by default; request live sources only when needed.
+web_search = "cached"
+
+# Keep variables named KEY, SECRET, or TOKEN out of subprocess environments.
+shell_environment_policy.ignore_default_excludes = false
+
+# Keep the CLI footer useful at a glance, like Claude's status line.
+[tui]
+status_line = ["model-with-reasoning", "context-remaining", "git-branch", "current-dir"]

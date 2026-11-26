@@ -104,6 +104,91 @@ let
     '';
   };
 
+  # Claude delegates an independent review to Codex; Codex never edits this
+  # checkout. Its own CLI login and subscription remain separate from Claude's.
+  codexReview = pkgs.writeShellApplication {
+    name = "claude-codex-review";
+    runtimeInputs = [ pkgs.codex ];
+    text = ''
+      if [ "$#" -eq 0 ]; then
+        echo "Usage: claude-codex-review <review prompt>" >&2
+        exit 2
+      fi
+
+      exec codex exec --sandbox read-only --ask-for-approval never "$@"
+    '';
+  };
+
+  # Preserve Codex's local project trust entries while owning stable defaults.
+  codexToml = pkgs.writeText "codex-managed-config.toml" (builtins.readFile ./codex/config.toml);
+  tomlkitPython = pkgs.python3.withPackages (ps: [ ps.tomlkit ]);
+  codexConfigMergeScript = pkgs.writeText "merge-codex-config.py" ''
+    import os
+    import stat
+    import sys
+    import tempfile
+    from pathlib import Path
+
+    import tomlkit
+
+    target = Path(sys.argv[1])
+    managed_path = Path(sys.argv[2])
+    owned_keys = {
+        "model",
+        "model_reasoning_effort",
+        "approval_policy",
+        "sandbox_mode",
+        "web_search",
+        "allow_login_shell",
+    }
+    managed_table_keys = {
+        "shell_environment_policy": {"ignore_default_excludes"},
+        "sandbox_workspace_write": {"network_access"},
+        "tui": {"status_line"},
+    }
+
+    target.parent.mkdir(parents=True, exist_ok=True)
+    mode = stat.S_IMODE(target.stat().st_mode) if target.exists() else 0o600
+    current_text = target.read_text() if target.exists() else ""
+    current = tomlkit.parse(current_text) if current_text.strip() else tomlkit.document()
+    managed = tomlkit.parse(managed_path.read_text())
+
+    for key in owned_keys:
+        current.pop(key, None)
+    for table_name, keys in managed_table_keys.items():
+        table = current.get(table_name)
+        if table is not None:
+            for key in keys:
+                table.pop(key, None)
+    for key, value in managed.items():
+        if key in managed_table_keys:
+            table = current.get(key)
+            if table is None:
+                table = tomlkit.table()
+                current[key] = table
+            for option, option_value in value.items():
+                table[option] = option_value
+        else:
+            current[key] = value
+
+    file_descriptor, temporary_name = tempfile.mkstemp(dir=target.parent, prefix=".codex-config-")
+    try:
+        with os.fdopen(file_descriptor, "w") as temporary_file:
+            temporary_file.write(tomlkit.dumps(current))
+        os.chmod(temporary_name, mode)
+        os.replace(temporary_name, target)
+    except BaseException:
+        os.unlink(temporary_name)
+        raise
+  '';
+  codexConfigMerge = pkgs.writeShellApplication {
+    name = "codex-config-merge";
+    runtimeInputs = [ tomlkitPython ];
+    text = ''
+      python ${codexConfigMergeScript} "$1" "$2"
+    '';
+  };
+
   # Cross-project knowledge: one Obsidian vault, separate from the personal
   # notes vault, used by claude-obsidian from every project.
   brain = "${config.home.homeDirectory}/brain";
@@ -116,6 +201,8 @@ let
         env = settings.env // {
           CLAUDE_OBSIDIAN_VAULT = brain; # skills write here from any project
           CLAUDE_OBSIDIAN_SESSION_CONTEXT = "1"; # inject the vault's bounded wiki/hot.md at session start, /clear, compaction
+          # Explicit consent is required because ~/brain is outside project roots.
+          CLAUDE_OBSIDIAN_SESSION_CONTEXT_VAULT = brain;
         };
         extraKnownMarketplaces = lib.mapAttrs (_: repo: {
           source = {
@@ -209,6 +296,8 @@ in
   # Tools the plugins' hooks, skills and scripts call at runtime.
   home.packages = [
     claude-plugins-sync
+    codexReview
+    pkgs.codex
     python
     pkgs.nodejs # ponytail hooks, frontend-slides PDF export, npx-based MCP servers
     pkgs.uv # graphify
@@ -223,9 +312,11 @@ in
   # Personal instructions for every session. A rules file, not
   # ~/.claude/CLAUDE.md, because graphify writes into that one.
   home.file.".claude/rules/personal.md".source = ./personal.md;
+  home.file.".codex/AGENTS.md".source = ./codex/AGENTS.md;
 
   # Goal -> merged code: the factory skill and its two agents (docs/claude-code.md, "Factory").
   home.file.".claude/skills/factory/SKILL.md".source = ./skills/factory/SKILL.md;
+  home.file.".claude/skills/consult-codex/SKILL.md".source = ./skills/consult-codex/SKILL.md;
   home.file.".claude/agents/implementer.md".source = ./agents/implementer.md;
   home.file.".claude/agents/reviewer.md".source = ./agents/reviewer.md;
 
@@ -242,6 +333,14 @@ in
       echo "claude-code: $settings is not valid JSON, left unchanged" >&2
     fi
     rm -f "$tmp"
+  '';
+
+  # Nix owns Codex's global defaults; project trust and unrelated local keys
+  # stay in the writable config file. Authentication remains Codex-managed.
+  home.activation.codexConfig = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+    run ${lib.getExe codexConfigMerge} \
+      "${config.home.homeDirectory}/.codex/config.toml" \
+      "${codexToml}"
   '';
 
   # Runs at login and again whenever the declared lists change (new unit
