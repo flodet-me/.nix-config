@@ -1,3 +1,4 @@
+[ -z "${JAIL:-}" ] || die "on the host only, not inside a jail (this is jail $JAIL)"
 for v in "${!GIT_@}"; do unset "$v"; done # GIT_DIR and friends would redirect git
 [ $# -gt 0 ] && [ -d "$1" ] || die "usage: jail-push DIR [git push arguments] (DIR: an existing directory in the repository)"
 resolve "$1"

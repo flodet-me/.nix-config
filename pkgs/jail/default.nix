@@ -17,6 +17,7 @@
   iproute2,
   jq,
   passt,
+  shellcheck,
   systemd,
   tmux,
   util-linux,
@@ -166,10 +167,12 @@ let
         bubblewrap
         coreutils
         diffutils
+        findutils
         git
         gnugrep
         iproute2
         systemd
+        util-linux
       ]
       {
         inherit
@@ -183,6 +186,7 @@ let
           codexShared
           codexState
           ;
+        jailPush = jail-push;
       };
 
   # git-upload-pack / git-receive-pack for jail-push, with only that one
@@ -205,8 +209,23 @@ symlinkJoin {
     jail
     jail-push
   ];
-  # the user guide, also inside every jail (/run/current-system/sw/share/doc)
-  postBuild = "install -Dm644 ${./README.md} $out/share/doc/jail/README.md";
+  # the user guide, also inside every jail (/run/current-system/sw/share/doc);
+  # bash completion under both names (bash-completion loads it by command
+  # name), zsh's the same through its bash emulation
+  postBuild = ''
+    install -Dm644 ${./README.md} $out/share/doc/jail/README.md
+    ${lib.getExe shellcheck} -s bash ${./completions/jail.bash}
+    c=$out/share/bash-completion/completions
+    install -Dm644 ${./completions/jail.bash} $c/jail.bash
+    ln -s jail.bash $c/jail-push.bash
+    mkdir -p $out/share/zsh/site-functions
+    cat >$out/share/zsh/site-functions/_jail_zsh <<EOF
+    #compdef jail jail-push
+    autoload -U +X bashcompinit && bashcompinit
+    source $c/jail.bash
+    if [[ \$service == jail-push ]]; then _bash_complete -F _jail_push; else _bash_complete -F _jail; fi
+    EOF
+  '';
   meta = {
     description = "One bubblewrap jail per git repository, and jail-push to push from outside it";
     mainProgram = "jail";
