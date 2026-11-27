@@ -93,6 +93,10 @@
         rc = f"rc=0; printf '{answer}\\n' | timeout 60 script -qec {shlex.quote(j)} /dev/null || rc=$?; echo rc=$rc; "
         return alice(rc + ("test $rc = 0" if ok else "test $rc != 0 && test $rc != 124"))
 
+    def refuses(cmd):
+        # fails with its messages, and does not hang
+        return alice(f"rc=0; timeout 60 {cmd} </dev/null 2>&1 || rc=$?; echo rc=$rc; test $rc != 0 && test $rc != 124")
+
     alice("""
       git config --global user.name a
       git config --global user.email a@example.com
@@ -150,6 +154,117 @@
         for p in [".claude/new", ".claude/projects/p", ".claude/shell-snapshots", ".claude/plugins/data/p/m",
                   ".codex/sessions", ".cache/nix/x"]:
             alice(f"test ! -e ~/{p}")
+
+    with subtest("a bare-repository container: one jail for all worktrees, jail-push per worktree"):
+        alice("""
+          git init -q --bare ~/cremote.git
+          git init -q ~/cseed && cd ~/cseed && echo seed > s && git add s && git commit -qm seed
+          git push -q ~/cremote.git main
+          # made as the real ones are
+          mkdir ~/cont && cd ~/cont
+          git clone -q --bare ~/cremote.git .bare
+          printf 'gitdir: ./.bare\\n' > .git
+          git worktree add -q main
+          git worktree add -q -b feature feature
+          git -c worktree.useRelativePaths=true worktree add -q -b rel rel
+          grep -q '^gitdir: \\.\\./\\.bare/worktrees/rel$' rel/.git
+          mkdir .claude var rel/sub
+        """)
+        gc = "git -c user.name=a -c user.email=a@example.com"
+        # git works inside in every worktree; the URL is recorded at the first start
+        out = start(f'test "$PWD" = /home/alice/cont/main && test -d ../var && {gc} commit -qm m --allow-empty'
+                    f' && git status --short && cd ../feature && {gc} commit -qm f --allow-empty', repo="~/cont/main")
+        assert "jail-push /home/alice/cont pushes to /home/alice/cremote.git" in out, out
+        jail(f'test "$PWD" = /home/alice/cont && cd rel && {gc} commit -qm r --allow-empty && git -C ../main log --oneline | grep -q " m$"',
+             repo="~/cont")
+        # gitdir: without ./ is the same
+        alice("printf 'gitdir: .bare\\n' > ~/cont/.git")
+        jail("git status >/dev/null", repo="~/cont/feature")
+        alice("printf 'gitdir: ./.bare\\n' > ~/cont/.git")
+
+        # the container and its worktrees share one jail
+        csock = "$(echo /run/user/1000/jails/cont-*/tmux.sock)"
+        terminal("termw", repo="/home/alice/cont/feature")
+        machine.wait_until_succeeds(f"su - alice -c 'tmux -S {csock} list-clients' | grep -q .", timeout=60)
+        terminal("termr", repo="/home/alice/cont")
+        machine.wait_until_succeeds(f"test \"$(su - alice -c 'tmux -S {csock} list-clients' | wc -l)\" = 2", timeout=60)
+        alice('test "$(systemctl --user list-units --plain --no-legend "jail-cont-*" | wc -l)" = 1')
+        alice("test \"$(ls ~/.local/share/jails | grep -c '^cont-')\" = 1 && ! ls ~/.local/share/jails | grep -qE '^(main|feature|rel)-'")
+        alice("systemctl --user stop 'jail-cont-*' termw termr")
+        machine.wait_until_succeeds("! pgrep -u alice '^(xdg-dbus-proxy|passt|pasta)'", timeout=30)
+
+        # jail-push: the worktree's branch only; the bare HEAD's from the container
+        remote = "git --git-dir ~/cremote.git rev-parse"
+        bare = "git --git-dir ~/cont/.bare rev-parse"
+        alice("jail-push ~/cont/feature </dev/null")
+        alice(f'test "$({remote} feature)" = "$({bare} feature)" && test "$({remote} main)" = "$(git -C ~/cseed rev-parse main)"'
+              f' && test "$({bare} main)" != "$({remote} main)"')
+        alice("jail-push ~/cont </dev/null")
+        alice(f'test "$({remote} main)" = "$({bare} main)" && ! {remote} -q --verify rel')
+        alice("jail-push ~/cont/rel/sub </dev/null")
+        alice(f'test "$({remote} rel)" = "$({bare} rel)"')
+        jail(f"{gc} -C main commit -qm m2 --allow-empty", repo="~/cont")
+        alice("jail-push ~/cont/var </dev/null")
+        alice(f'test "$({remote} main)" = "$({bare} main)"')
+
+        # a worktree whose .git points elsewhere: no branch of its own, a named one is pushed
+        alice("cd ~/cont && git worktree add -q -b other other")
+        for gd in ["/home/alice/cremote.git", "../../cseed/.git", "../.bare/worktrees/../../../cseed/.git", "/home/alice/cont/.bare"]:
+            alice(f"printf 'gitdir: %s\\n' {shlex.quote(gd)} > ~/cont/other/.git")
+            assert "name the branch" in refuses("jail-push ~/cont/other"), gd
+        alice(f"! {remote} -q --verify other")
+        alice(f'jail-push ~/cont/other other </dev/null && test "$({remote} other)" = "$({bare} other)"')
+
+        # a normal repository: a linked worktree and a submodule resolve to it, jail-push pushes its HEAD
+        alice("""
+          git init -q --bare ~/nremote.git
+          git init -q ~/norm && cd ~/norm && echo n > f && git add f && git commit -qm n
+          git remote add origin /home/alice/nremote.git
+          git worktree add -q -b wtb wt
+          git -c protocol.file.allow=always submodule --quiet add /home/alice/cseed sub
+          git commit -qm sub
+        """)
+        for d in ["wt", "sub"]:
+            jail(f'test "$PWD" = /home/alice/norm/{d} && test -e /home/alice/norm/f && git status >/dev/null', repo=f"~/norm/{d}")
+        alice("! ls ~/.local/share/jails | grep -qE '^(wt|sub)-'")
+        alice("jail-push ~/norm/wt </dev/null")
+        alice('test "$(git --git-dir ~/nremote.git rev-parse main)" = "$(git -C ~/norm rev-parse main)"'
+              " && ! git --git-dir ~/nremote.git rev-parse -q --verify wtb")
+
+        # a container .git that is not gitdir: ./NAME of a bare repository in it: refused
+        alice("""
+          mkdir ~/bad && cd ~/bad
+          git clone -q --bare ~/cremote.git .bare
+          printf 'gitdir: ./.bare\\n' > .git
+          git worktree add -q main
+        """)
+        jail("git status >/dev/null", repo="~/bad/main")  # the control
+        refs = alice("git --git-dir ~/cremote.git for-each-ref")
+        bad = {
+            "printf 'gitdir: ../cremote.git\\n' > .git": "not inside a git repository",
+            "printf 'gitdir: /home/alice/cremote.git\\n' > .git": "not inside a git repository",
+            "printf 'gitdir: /home/alice/bad/.bare\\n' > .git": "not inside a git repository",
+            "printf 'gitdir: ..\\n' > .git": "not one directory name",
+            "printf 'gitdir: ./\\n' > .git": "not one directory name",
+            "mv .bare bare && ln -s /home/alice/cremote.git .bare": "not a bare repository directory",
+            "mv .bare bare && mkdir .bare": "not a bare repository directory",
+            "mv .bare bare && mkfifo .bare": "not a bare repository directory",
+            "rm .git && mkfifo .git": "not inside a git repository",
+        }
+        for make, why in bad.items():
+            alice(f"cd ~/bad && {make}")
+            for cmd in ["jail ~/bad/main -- true", "jail ~/bad -- true", "jail-push ~/bad main"]:
+                out = refuses(cmd)
+                assert why in out, (make, cmd, out)
+            alice("cd ~/bad && rm -rf .git && printf 'gitdir: ./.bare\\n' > .git && if [ -d bare ]; then rm -rf .bare && mv bare .bare; fi")
+        assert alice("git --git-dir ~/cremote.git for-each-ref") == refs
+
+        # a FIFO instead of a worktree's git directory: no wait on it
+        alice("mv ~/cont/.bare/worktrees/rel ~/relgit && mkfifo ~/cont/.bare/worktrees/rel")
+        assert "name the branch" in refuses("jail-push ~/cont/rel")
+        # a link instead of worktrees: the worktree's HEAD is not read through it
+        alice("mv ~/cont/.bare/worktrees ~/wtcopy && ln -s ~/wtcopy ~/cont/.bare/worktrees")
+        assert "name the branch" in refuses("jail-push ~/cont/feature")
 
     with subtest("~/.claude.json: login and MCP servers copied in, nothing back"):
         jail("grep -q oauthAccount ~/.claude.json && grep -q mcpServers ~/.claude.json && ! grep -q hostproject ~/.claude.json")

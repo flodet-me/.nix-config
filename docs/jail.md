@@ -17,10 +17,20 @@ jail-push ~/Projects/foo main --force-with-lease   # other git push arguments
 
 - `DIR` defaults to the current directory for `jail`; `jail-push` needs it
   (an existing directory). The jail covers the nearest directory above it
-  with a real `.git` directory, so worktrees and submodules inside a
-  repository use that repository's jail. A repository created inside a jail
+  with a real `.git` directory, or a container's `.git` file (below), so
+  worktrees and submodules inside a repository use that repository's jail. A
+  repository created inside a jail
   (nested, or a new folder) gets its own jail on its first `jail` start, and
   the URL printed then may come from jailed code: check it.
+- A container of worktrees around a bare repository (`<root>/.bare`,
+  `<root>/.git` a file `gitdir: ./.bare`, worktrees such as `<root>/main`
+  made with `git worktree add`) has one jail for the container and all its
+  worktrees: `jail <root>` and `jail <root>/main` are the same jail, with the
+  whole container bound at its path, so git works in every worktree.
+  `<root>/.git` must be a regular file `gitdir: ./<name>` (or `gitdir:
+  <name>`), `<name>` one directory directly in `<root>` that is a bare
+  repository (`HEAD`, `objects/`, `refs/`), not a link; anything else there is
+  refused or not taken as a container. `.jail` is `<root>/.jail`.
 - The first `jail` starts a user unit `jail-<name>` (`<name>`: folder name
   plus a hash of its path) with a tmux server inside. Detach with the tmux
   prefix + `d`; the jail ends when its last tmux window closes, or with
@@ -57,7 +67,8 @@ The environment is built, not inherited: `HOME`, `USER`, `LOGNAME`, `PATH`
 
 ## Per-repository config (.jail)
 
-A `.jail` at the repository root (the directory `jail` resolves) asks for
+A `.jail` at the repository root (the directory `jail` resolves; in a
+container of worktrees the container, not a worktree) asks for
 more than the defaults:
 
 ```sh
@@ -192,11 +203,18 @@ fake one in the writable socket directory, can make a client run a command
   your normal git and SSH (YubiKey) outside the jail.
 - Never runs git in the repository: `remote.origin.url` and `HEAD` are read as
   data (`git config --no-includes` on a copy, so a planted `include.path`
-  reads nothing), and `git-upload-pack` runs in a sandbox with only `.git` bound
-  read-only (no network, no home), so planted `core.fsmonitor`,
-  `core.sshCommand`, hooks or symlinks in `.git` reach nothing. `.git` must be
-  a real directory, `.git/config` and `.git/HEAD` regular files (read without
-  following links, at most 64 KiB, no wait on a FIFO). URLs with control
+  reads nothing), and `git-upload-pack` runs in a sandbox with only `.git` (a
+  container's bare repository) bound read-only (no network, no home), so
+  planted `core.fsmonitor`, `core.sshCommand`, hooks or symlinks in it reach
+  nothing. `.git` must be a real directory or a container's `.git` file as
+  above, `config` and `HEAD` in it regular files (read without following
+  links, at most 64 KiB, no wait on a FIFO).
+- Without a branch it pushes the current one: `HEAD` of the repository, or
+  in a container the HEAD of the worktree `DIR` is in (the bare repository's
+  from the container itself or a folder outside the worktrees). The
+  worktree's `.git` must name exactly `<root>/<name>/worktrees/<n>` (the
+  absolute path, or git's relative form with `worktree.useRelativePaths`);
+  otherwise, or if `worktrees` is a link, name the branch. URLs with control
   characters are refused, and URLs are printed quoted.
 - The push URL is recorded when `jail` first starts for the repository, before
   any jailed code ran for it, and stored in the mirror; later changes in the
@@ -253,7 +271,21 @@ unrecorded one and refuses without a terminal, keeps its stored URL, refuses
 non-repository URLs and URLs with control characters, a missing `DIR`, a
 symlinked `.git`, a `.git/config` or `HEAD` that is a link to another
 repository's or a FIFO, and an `include.path` to another repository's config, and runs a local remote's hooks
-sandboxed; two terminals share
+sandboxed; a container of worktrees (made with `git clone --bare`, a
+`gitdir: ./.bare` file and `git worktree add`) has one jail, state and unit
+from the container and from a worktree, git commits inside in each worktree,
+the URL is recorded from the bare repository at the first start, `jail-push`
+from a worktree pushes only its branch (also from a relative-path worktree and
+a subfolder), from the container or a folder outside the worktrees the bare
+HEAD's, and from a worktree whose `.git` points elsewhere (another repository,
+the bare repository itself, a `..` path out of it), whose git directory is a
+FIFO (no wait) or whose `worktrees` is a link nothing without a named branch;
+a container `.git` naming another repository, an absolute or `..` path, `./`,
+a link, an empty directory or a FIFO instead of the bare repository, or a
+FIFO as `.git` (no wait on either) is refused by `jail` and `jail-push`, from the container and
+from a worktree; a linked worktree and a submodule of a normal repository use
+its jail, and `jail-push` from the worktree pushes the repository's HEAD;
+two terminals share
 one tmux server and one unit, the shell in it is jailed, and a
 `detach-client -E` command does not run on the host, the shared jail reaches
 the Notifications stand-in and the second node and starts again after a stop;
