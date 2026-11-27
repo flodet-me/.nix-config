@@ -117,6 +117,12 @@ lives in `WINVM_HOME` (`winvm home` prints it):
   unknown commands do not.
 - Removing a home: stop its VMs, then `rm -r` it (that removes the subvolume
   too, once empty; an empty subvolume also goes with `rmdir`).
+- In a repository jail (`pkgs/jail`) `WINVM_HOME` is the jail's own; with
+  the `.jail` line `winvm` it has your built base images and SSH key
+  read-only, so `build`, `commit` and `destroy --all` stay on the host
+  ([jail README](../jail/README.md#windows-vms)).
+- Without a PipeWire socket (a jail, an ssh login) `start` leaves out the
+  audio device.
 
 **Changing winvm**: edit it here in nix-config, then try it without switching:
 

@@ -310,6 +310,60 @@ ends in `| containers`); every other jail starts as above, the tree
   --external` sees no other instance's containers (transient state) and
   deletes the layers they use.
 
+## Windows VMs
+
+Why and the alternatives: [ADR 0007](adr/0007-jail-containers.md), "Windows
+VMs". winvm's code is in the store and `/dev/kvm` is in every jail already;
+the jail decides only where its data is.
+
+- **Every jail:** `WINVM_HOME=~/.cache/winvm` (`--setenv`, so it wins over
+  a `~/.config/winvm/home` with the host's path, as home-manager writes it). On the host that is
+  `~/.cache/jails/<name>/winvm`: outside the hourly `/home` snapshots, gone
+  with `jail reset --all`, kept by `--home`. bwrap or winvm
+  makes the directory: a plain one, not the btrfs subvolume with `chattr +C`
+  winvm makes on the host (ADR 0006).
+- **With `winvm`** (`with_winvm`, after the approved `.jail` is parsed): the
+  host's home as winvm finds it (`$WINVM_HOME` of the `jail` call, else the
+  first line of `${XDG_CONFIG_HOME:-~/.config}/winvm/home`, refused if not
+  absolute, else `${XDG_DATA_HOME:-~/.local/share}/winvm`); of its
+  `state/images`, `state/id_ed25519` and `state/id_ed25519.pub`, each that
+  exists goes through `realpath -e` and `bind_path ... ro` (so not in the
+  repository, the cache or the jails' state; a refusal stops the start:
+  `jail: winvm: PATH: why`) and is bound read-only by fd (`jail-binds`
+  `ro:DEST`) at the same name under the jail's `~/.cache/winvm/state`. The
+  rest of the host's home (`vms`, `runs`, `captures`, `cache`, `iso`,
+  `config.local.env`, `images/*.local.env`) is not in the jail. Without
+  images on the host the line binds nothing. `in_effect` ends in `| winvm`.
+- **Mount points:** bwrap leaves the empty `state/images`, `id_ed25519` and
+  `.pub` it binds onto in the cache. A later start that binds nothing there
+  (no line, no host key) leaves them: an empty key file that winvm takes as
+  its key. Jailed code can replace them (or `state`) with links, which
+  bwrap follows inside the jail: the images then appear where the link
+  points, in the jail only, read-only as before. Both go with `jail reset
+  --all` or by deleting `~/.cache/jails/<name>/winvm/state` (stopped jail).
+- **winvm in a read-only images folder:** `build`, `commit` and `destroy
+  --all` check that `state/images` (and the image's folder) is writable
+  before they change anything and otherwise stop naming it. `build` also
+  stops in any jail (`$JAIL` set): hours and ~20 GB per jail. Every other
+  command writes only the VM's folder, `runs/` and `captures/` and reads the
+  base image, `efivars.base.fd` and `tpm.base`; `winvm` writes the base
+  images nowhere else.
+- **Overlays:** a VM's `disk.qcow2` names its base by the jail-side path
+  (`/home/<user>/.cache/winvm/state/images/<image>/base.qcow2`): it runs in
+  that jail only. A host `build --force` or `commit` changes the base under
+  it (the bind is the folder, not the file): `winvm reset` or a new VM.
+- **Start:** QEMU (KVM, swtpm, user-mode network with `hostfwd` on
+  `127.0.0.1`) needs nothing more. There is no PipeWire socket in the jail:
+  `winvm start` then leaves out the audio device (`no PipeWire socket`)
+  instead of QEMU refusing to start. No display: `--headless`, no `rdp` or
+  `view` inside.
+- **Ports:** SSH `2222` + slot, RDP `33890` + slot on the jail's
+  `127.0.0.1`; the slot is fixed in `state/vms/<name>/slot` (0 for
+  `default`, else the lowest free from 1). A `.jail` `port` forwards one to
+  the host's `127.0.0.1`. A host VM in the same slot holds that port on the
+  host: the shared jail does not start, a one-off skips the forward.
+  `RDP_PORT`/`SSH_PORT` in the jail's `config.local.env` move the base.
+
 ## jail push
 
 - `jail push [DIR] [ARGS...]` runs `jail-push DIR [ARGS...]`, the same
@@ -506,6 +560,26 @@ it (a swap after the check) and the jail holds no fd beyond 0 to 2
 the liveness check is covered by construction, the same sandbox, not by a
 test). Every negative check has
 a positive control outside the jail.
+
+Windows VMs (a fake host home `~/winvm-host`, named by
+`~/.config/winvm/home`, with a 16 MiB qcow2 as `win10`'s base, a dummy key
+and a host VM): every jail's `WINVM_HOME` and `winvm home` are
+`~/.cache/winvm`, without the line it is empty there and `winvm list` sees
+no VMs; `jail config` and the start show `| winvm`; with it the base image
+and both key files are readable, and creating, appending, replacing,
+removing and `chmod` there fail; the host VM and `~/winvm-host` are not
+visible; `winvm images` sees the build, `winvm new` makes a VM whose disk's
+backing file is the jail-side path, in `~/.cache/jails/<name>/winvm`;
+`winvm build` stops with `read-only here`; swtpm starts; with KVM, `winvm
+start --headless` runs the VM without audio, its SSH and RDP forwards on
+the jail's `127.0.0.1`, and `stop --force` ends it; `destroy` removes it;
+the host home is unchanged (`find -printf` of names, sizes, times, modes
+before and after); a stand-in RDP listener on the jail's `127.0.0.1:33891`
+is reached from the host through `port 33891`; the host home comes from
+`WINVM_HOME`, else the config file, else `~/.local/share/winvm`; a host
+home without images binds nothing (the jail's `state/images` is empty and
+writable) and `winvm build` still stops (`not in a jail`); one in the
+repository is refused; a repository under `/tmp` gets a jail.
 
 Containers (the end of the test, `localhost/jailtest`, a busybox image built
 by `dockerTools` and loaded with `podman load`, offline): a jail without the

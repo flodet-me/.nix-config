@@ -2,9 +2,11 @@
 
 Date: 2026-11-27. Status: accepted; host hardening and the jail implemented
 ([jail.md](../jail.md)), network namespace and D-Bus proxy implemented,
-per-repository `.jail` implemented. winvm binds (`.jail` binding a folder of the jail home at a host
-path) are not planned: skipped by the user on 2026-11-27; the design stays in
-[agent-isolation.md](../agent-isolation.md#vms-and-windows-development).
+per-repository `.jail` implemented, containers and Windows VMs (the `.jail`
+lines `containers` and `winvm`) implemented ([ADR 0007](0007-jail-containers.md),
+goal G-12). The earlier winvm design (`.jail` binding a folder of the jail
+home at a host path) was skipped by the user on 2026-11-27; G-12 replaced it
+with the jail's own `WINVM_HOME` and the host's base images read-only.
 
 ## Context
 
