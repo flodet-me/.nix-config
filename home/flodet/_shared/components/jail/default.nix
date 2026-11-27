@@ -225,9 +225,10 @@ let
       # host's nameserver. Inside pasta's user namespace we are root: bwrap
       # maps back to our ids and drops every capability, as it does when
       # started by a normal user. Not exec: the proxy's pipe must stay open.
-      # pasta dies with this script, even by SIGKILL (pdeathsig); env resets
-      # SIGINT, ignored in a background job, and pasta's ignored SIGPIPE.
-      setpriv --pdeathsig KILL env --default-signal \
+      # pasta dies with this script, even by SIGKILL (pdeathsig); the outer env
+      # resets SIGINT, ignored in a background job (nohup's HUP stays ignored),
+      # the inner one every signal for the jailed program (pasta ignores SIGPIPE).
+      setpriv --pdeathsig KILL env --default-signal=INT \
         pasta --config-net --quiet -t none -u none -T none -U none --no-map-gw --dns-forward 169.254.1.1 \
         -- env --default-signal ${bwrap} --uid "$(id -u)" --gid "$(id -g)" --cap-drop ALL "$@" <&0 &
       pid=$!

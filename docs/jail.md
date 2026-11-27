@@ -77,7 +77,9 @@ The environment is built, not inherited: `HOME`, `USER`, `LOGNAME`, `PATH`
   (the `jail-<name>` unit, or the one-off command): a signal to it (TERM,
   Ctrl-C's INT, HUP) reaches pasta, and pasta has `jail-run`'s death as its
   own (`setpriv --pdeathsig KILL`, so also after a SIGKILL); pasta's end ends
-  the jail. The proxy ends when `jail-run`'s pipe to it closes and removes
+  the jail. `nohup`'s HUP stays ignored, so `nohup jail DIR -- CMD &`
+  survives a closed terminal; a script's background job starts with INT
+  ignored, so stop such a jail with TERM. The proxy ends when `jail-run`'s pipe to it closes and removes
   its socket. Jailed programs start with no signal ignored (`env
   --default-signal`: a background start ignores SIGINT, pasta ignores
   SIGPIPE). The namespace has no name on disk, so nothing stale is
@@ -195,7 +197,7 @@ a positive control outside the jail.
   `0.0.0.0` or `[::]` answers on every host address, for example Docker's
   `docker0` (`172.17.0.1`), libvirt's `virbr0` (`192.168.122.1`), Tailscale or
   the LAN address; only one bound to `127.0.0.1` or `::1` is out of reach. The one deliberate path to host loopback is pasta's DNS
-  forwarder to your nameserver on port 53. There is no egress allowlist.
+  forwarder to your nameserver on ports 53 and 853. There is no egress allowlist.
 - The namespace copies the host's addresses and routes when the jail starts
   (offline: a link-local fallback) and keeps them: after a network change
   (another Wi-Fi, a VPN), restart the jail if outbound or DNS misbehave.
