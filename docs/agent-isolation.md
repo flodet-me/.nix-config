@@ -1,7 +1,7 @@
 # Agent isolation
 
-Status: design agreed, not implemented. Findings verified on `desktop` on
-2026-11-27.
+Status: design agreed; steps 1 and 2 implemented (step 2: [jail.md](jail.md)).
+Findings verified on `desktop` on 2026-11-27.
 
 ## Goal
 
@@ -76,7 +76,8 @@ outside it.
      `/home` snapshots).
    - Agents never get the libvirt system socket; virt-manager stays outside.
    - `sudo` stays for you; inside the jail `no_new_privs` disables it.
-2. **`jail <repo>`** (home-manager module, `writeShellApplication` around
+2. **`jail <repo>`** (implemented: [jail.md](jail.md), VM test
+   `checks.x86_64-linux.jail`; home-manager module, `writeShellApplication` around
    `bwrap`) opens a shell in the jail of that repository. The first call
    starts a tmux server inside the jail, later calls attach to it, so every
    terminal of one repository shares one jail (processes, network, VMs).
@@ -101,9 +102,10 @@ outside it.
    - **Push** stays outside and must not read the repository's config
      (`core.sshCommand`, `url.*.insteadOf`, hooks run code):
      `jail-push <repo>` fetches into a mirror the jail cannot write
-     (`~/.local/share/jails/<repo>.git`) and pushes from there. To verify:
-     that `git fetch` from a local path runs nothing from the source
-     repository's config.
+     (`~/.local/share/jails/<name>/mirror.git`) and pushes from there.
+     `git-upload-pack` honours no code-running repository config
+     (`uploadpack.packObjectsHook` only from protected config, `git help
+     config`), and runs in a sandbox with only `.git` bound anyway.
    - GUI IDEs (Rider, VS Code) on a jailed repository: only inside the jail
      with the Wayland socket bound (Rider natively on Wayland; never the X11
      socket, which lets any client read all input). Otherwise use nvim.
@@ -125,12 +127,12 @@ worked; `/run/user/1000`, `systemd-run --user`, the Docker and libvirt sockets
 unreachable. Also tested: read-only binds of `.git/hooks` inside the writable
 repository do not hold (`mv .git .git.x && git init`), which is why your own
 tools move into the jail rather than the agent getting read-only islands.
-Not tested yet: `claude`, `codex`, zsh and nvim inside the jail, a real winvm
-boot, `pasta`, `xdg-dbus-proxy`, the push mirror.
+Not tested yet: a real winvm boot, `pasta`, `xdg-dbus-proxy`, an interactive
+`claude`/`codex` session inside the jail (`claude --version`, zsh, `graphify`
+checked by hand).
 
-Implementation checks: a NixOS VM test that runs `jail` as the user and
-asserts the table above (hidden paths absent, `sudo` refused, `/dev/kvm`
-opens, `nix build` works, `jail-push` ignores a planted `core.sshCommand`).
+The VM test `checks.x86_64-linux.jail` asserts the table above for step 2
+(list in [jail.md](jail.md), "Tested").
 
 ## VMs and Windows development
 

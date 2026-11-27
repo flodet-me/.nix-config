@@ -204,7 +204,7 @@ let
       pkgs.git
     ];
     text = common + ''
-      while read -r v; do unset "$v"; done < <(compgen -e | grep '^GIT_' || true)
+      for v in "''${!GIT_@}"; do unset "$v"; done # GIT_DIR and friends would redirect git
       dir=$PWD
       if [ $# -gt 0 ] && [ -d "$1" ]; then
         dir=$1

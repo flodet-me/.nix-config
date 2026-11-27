@@ -57,7 +57,7 @@
       git config --global user.name a
       git config --global user.email a@example.com
       git config --global init.defaultBranch main
-      mkdir -p Nextcloud brain/inbox .cache/nix .cache/other .claude/skills .claude/rules .claude/agents .codex .local/bin
+      mkdir -p Nextcloud brain/inbox .cache/nix .cache/docker .claude/skills .claude/rules .claude/agents .codex .local/bin
       echo secret > Nextcloud/secret
       echo note > brain/note
       echo '{}' > .claude/settings.json
@@ -70,8 +70,8 @@
     """)
 
     with subtest("only the repository, brain and shared state are visible"):
-        alice("cat ~/Nextcloud/secret && test -d ~/.cache/other")
-        jail("test ! -e ~/Nextcloud && test ! -e ~/.cache/other && test ! -e ~/.gitconfig")
+        alice("cat ~/Nextcloud/secret && test -d ~/.cache/docker")
+        jail("test ! -e ~/Nextcloud && test ! -e ~/.cache/docker && test ! -e ~/.gitconfig")
         jail('test "$HOME" = /home/alice && test "$PWD" = /home/alice/repo')
         jail("cat ~/brain/note")
         jail("touch ~/brain/x", ok=False)
@@ -136,7 +136,7 @@
         alice("! ls /tmp/marker-* 2>/dev/null")
 
         # the URL is stored on first use: a later change in the repository is ignored
-        jail("git -C ~/repo commit -qam two --allow-empty && git -C ~/repo config remote.origin.url /home/alice/other.git")
+        jail("git -C ~/repo -c user.name=a -c user.email=a@example.com commit -qm two --allow-empty && git -C ~/repo config remote.origin.url /home/alice/other.git")
         alice("cd / && jail-push ~/repo")
         alice('test "$(git --git-dir ~/remote.git rev-parse main)" = "$(cat ~/repo/.git/refs/heads/main)"')
         alice("test -z \"$(git --git-dir ~/other.git for-each-ref)\"")
