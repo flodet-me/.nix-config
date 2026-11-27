@@ -17,7 +17,7 @@ if [ -z "$url" ]; then
   url=$(origin_url) || die "$root has no readable remote.origin.url"
   printf -v qurl %q "$url"
   valid_url "$url" || die "refusing remote.origin.url $qurl: $bad_url"
-  [ -t 0 ] || die "no push URL stored for $root; run jail-push on a terminal to confirm $qurl"
+  [ -t 0 ] || die "no push URL stored for $root; run jail push on a terminal to confirm $qurl"
   printf 'jail-push: no push URL stored for %s; jailed code may have set this one:\n  %s\nType yes to push there from now on: ' "$root" "$qurl" >&2
   read -r answer || true
   [ "$answer" = yes ] || die "not confirmed"
@@ -34,11 +34,11 @@ if [ $# -eq 0 ]; then
     # in a container's worktree: the branch checked out there
     at=$wt
     { hd=$(worktree_gitdir) && open_gitdir "$hd" && head=$(read_git_file HEAD | head -n 1); } ||
-      die "$wt/.git does not name a worktree in $gitdir/worktrees: name the branch, e.g. jail-push $wt main"
+      die "$wt/.git does not name a worktree in $gitdir/worktrees: name the branch, e.g. jail push $wt main"
   fi
   case $head in
     "ref: refs/heads/"?*) branch=${head#ref: refs/heads/} ;;
-    *) die "$at has a detached HEAD: name the branch, e.g. jail-push $at main" ;;
+    *) die "$at has a detached HEAD: name the branch, e.g. jail push $at main" ;;
   esac
   g check-ref-format --branch "$branch" >/dev/null || die "bad branch name in $hd/HEAD: $branch"
   set -- "refs/heads/$branch"
