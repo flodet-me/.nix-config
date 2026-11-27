@@ -105,7 +105,10 @@ outside it.
    - **Push** stays outside and must not read the repository's config
      (`core.sshCommand`, `url.*.insteadOf`, hooks run code):
      `jail-push <repo>` fetches into a mirror the jail cannot write
-     (`~/.local/share/jails/<name>/mirror.git`) and pushes from there.
+     (`~/.local/share/jails/<name>/mirror.git`) and pushes from there, to the
+     URL `jail` recorded before jailed code first ran for the repository (or,
+     without one, a URL you confirm on a terminal). `.git/config` and `HEAD`
+     are read as data, never through a link.
      `git-upload-pack` honours no code-running repository config
      (`uploadpack.packObjectsHook` only from protected config, `git help
      config`), and runs in a sandbox with only `.git` bound anyway.

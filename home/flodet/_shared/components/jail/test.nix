@@ -49,6 +49,12 @@
         full = "su - alice -c " + shlex.quote("export XDG_RUNTIME_DIR=/run/user/1000; set -e; " + cmd)
         return machine.succeed(full) if ok else machine.fail(full)
 
+    def push_confirmed(repo, ok=True):
+        # jail-push on a terminal, answering its question about an unstored URL;
+        # a refusal must be a refusal, not a hang
+        rc = f"rc=0; printf 'yes\\n' | timeout 60 script -qec 'jail-push {repo}' /dev/null || rc=$?; echo rc=$rc; "
+        return alice(rc + ("test $rc = 0" if ok else "test $rc != 0 && test $rc != 124"))
+
     def jail(cmd, ok=True, repo="~/repo"):
         # host variables that must not reach the jail
         env = "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus SSH_AUTH_SOCK=/run/user/1000/gnupg/S.gpg-agent.ssh"
@@ -58,6 +64,16 @@
       git config --global user.name a
       git config --global user.email a@example.com
       git config --global init.defaultBranch main
+      git config --global protocol.ext.allow always # only jail-push may refuse ext::
+      # ssh for ssh://localhost URLs: runs the remote command here, and marks that it ran
+      git config --global core.sshCommand /home/alice/fakessh
+      cat > ~/fakessh <<'EOF'
+    #!/bin/sh
+    : > /tmp/ssh-global
+    for a; do last=$a; done
+    exec sh -c "$last"
+    EOF
+      chmod +x ~/fakessh
       mkdir -p Nextcloud brain/inbox .cache/nix .cache/docker .local/bin
       mkdir -p .claude/skills .claude/rules .claude/agents .claude/plugins/data/p .claude/projects .codex/rules
       echo secret > Nextcloud/secret
@@ -112,6 +128,10 @@
         jail("test ! -L ~/.claude.json && grep -q oauthAccount ~/.claude.json && ! grep -q leak ~/.claude.json")
         alice("""test "$(cat ~/target)" = '{"leak":1}' && cmp ~/.claude.json ~/claude.json.orig""")
 
+    with subtest("a link planted at a mount point does not stop the next start"):
+        alice("cd ~/.local/share/jails/repo-*/home && mv .codex codex-old && ln -s /nowhere .codex")
+        jail("grep -q host ~/.codex/config.toml")
+
     with subtest("home-manager dotfiles are mirrored into the jail home"):
         jail("grep -q from-home-manager ~/probe")
         alice("test -d ~/.local/share/jails/repo-*/home")
@@ -157,15 +177,18 @@
           git config core.fsmonitor ~/fsmonitor
           git config core.sshCommand ~/mark
           git config uploadpack.packObjectsHook ~/mark
-          git remote add origin /home/alice/remote.git
+          git remote add origin ssh://localhost/home/alice/remote.git
           # control: the planted hooks are live for a plain git outside
           git checkout -q -b probe && git checkout -q main && git status >/dev/null
           ls /tmp/marker-post-checkout /tmp/marker-fsmonitor
           rm -f /tmp/marker-*
         """)
-        alice("jail-push ~/repo")
+        # ~/repo ran jailed code before it had a remote: the URL must be confirmed on a terminal
+        alice("jail-push ~/repo </dev/null", ok=False)
+        alice("test -z \"$(git --git-dir ~/remote.git for-each-ref)\"")
+        push_confirmed("~/repo")
         alice('test "$(git --git-dir ~/remote.git rev-parse main)" = "$(cat ~/repo/.git/refs/heads/main)"')
-        alice("! ls /tmp/marker-* 2>/dev/null")
+        alice("test -e /tmp/ssh-global && ! ls /tmp/marker-* 2>/dev/null")  # the global sshCommand ran, the planted one not
 
         # the URL is stored on first use: a later change in the repository is ignored
         jail("git -C ~/repo -c user.name=a -c user.email=a@example.com commit -qm two --allow-empty && git -C ~/repo config remote.origin.url /home/alice/other.git")
@@ -174,12 +197,39 @@
         alice("test -z \"$(git --git-dir ~/other.git for-each-ref)\"")
         alice("! ls /tmp/marker-* 2>/dev/null")
 
+    with subtest("jail records the URL when it first starts, before jailed code runs"):
+        alice("""
+          git init -q --bare ~/remote5.git
+          git init -q ~/repo5 && cd ~/repo5 && git commit -q --allow-empty -m one
+          git remote add origin ssh://localhost/home/alice/remote5.git
+        """)
+        jail("git config remote.origin.url /home/alice/other.git", repo="~/repo5")
+        alice("jail-push ~/repo5 </dev/null")
+        alice("git --git-dir ~/remote5.git rev-parse main && test -z \"$(git --git-dir ~/other.git for-each-ref)\"")
+
     with subtest("jail-push refuses unsafe remotes and repositories"):
         alice("git init -q ~/repo2 && cd ~/repo2 && git commit -q --allow-empty -m one && git remote add origin x")
+        # control: ext:: runs for a plain git here
+        alice("git ls-remote 'ext::sh -c touch% /tmp/ext-control' || true; test -e /tmp/ext-control")
         for url in ["ext::sh -c touch% /tmp/marker-ext", "--upload-pack=touch /tmp/marker-opt", "fd::3", "file:///home/alice/remote.git", "/home/alice/Nextcloud", "-oProxyCommand=touch@x:y"]:
             alice(f"git -C ~/repo2 config -- remote.origin.url {shlex.quote(url)}")
-            alice("jail-push ~/repo2", ok=False)
+            push_confirmed("~/repo2", ok=False)
         alice("! ls /tmp/marker-* 2>/dev/null")
+        # .git/config or HEAD as a link (to another repository's) or a FIFO
+        alice("""
+          git init -q --bare ~/victim-remote.git
+          git init -q ~/victim && cd ~/victim && git commit -q --allow-empty -m one
+          git remote add origin /home/alice/victim-remote.git
+          git init -q ~/repo6 && cd ~/repo6 && git commit -q --allow-empty -m one
+          git remote add origin /home/alice/other.git
+          cp -r ~/repo6 ~/repo7 && cp -r ~/repo6 ~/repo8
+          ln -sf ~/victim/.git/config ~/repo6/.git/config
+          rm ~/repo7/.git/config && mkfifo ~/repo7/.git/config
+          ln -sf ~/victim/.git/HEAD ~/repo8/.git/HEAD
+        """)
+        for r in ["repo6", "repo7", "repo8"]:
+            push_confirmed(f"~/{r}", ok=False)
+        alice("test -z \"$(git --git-dir ~/victim-remote.git for-each-ref)\" && test -z \"$(git --git-dir ~/other.git for-each-ref)\"")
         # a .git that points elsewhere (could hand out another repository)
         alice("git init -q ~/repo3 && cd ~/repo3 && git commit -q --allow-empty -m one && git remote add origin /home/alice/other.git")
         alice("mv ~/repo3/.git ~/repo3.git && ln -s ~/repo3.git ~/repo3/.git")
@@ -193,7 +243,7 @@
           cp ~/mark ~/repo4/evil.git/hooks/pre-receive
           git remote add origin /home/alice/repo4/evil.git
         """)
-        alice("jail-push ~/repo4")
+        push_confirmed("~/repo4")
         alice("git --git-dir ~/repo4/evil.git rev-parse main")
         alice("! ls /tmp/marker-* 2>/dev/null")
 

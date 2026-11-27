@@ -24,6 +24,39 @@ let
       printf '%s\n' "$d"
     }
 
+    # The repository's .git as fd 3, checked to be the real directory: a link
+    # swapped in later cannot redirect the reads below.
+    open_gitdir() {
+      exec 3<"$1/.git" && [ "$(readlink /proc/self/fd/3)" = "$1/.git" ] ||
+        { echo "''${0##*/}: $1/.git is not a plain directory" >&2; return 1; }
+    }
+    # A file in it as data: a regular file, never through a link, no wait on
+    # a FIFO, at most 64 KiB.
+    read_git_file() {
+      local f=/proc/self/fd/3/$1
+      [ -f "$f" ] && [ ! -L "$f" ] || { echo "''${0##*/}: .git/$1 is not a regular file" >&2; return 1; }
+      dd if="$f" iflag=nofollow,nonblock bs=65536 count=1 status=none
+    }
+    # remote.origin.url; with --file, includes are off (git help config)
+    origin_url() {
+      local cfg
+      cfg=$(read_git_file config) && printf '%s\n' "$cfg" | git config --file - --get remote.origin.url
+    }
+    # Accepted push URLs: ssh, https, scp-like, or an existing bare repository.
+    valid_url() {
+      local host='[A-Za-z0-9][A-Za-z0-9.-]*' user='[A-Za-z0-9_][A-Za-z0-9._~-]*'
+      local ssh="^ssh://($user@)?$host(:[0-9]+)?/[^[:space:]]*$"
+      local https="^https://$host(:[0-9]+)?/[^[:space:]]*$"
+      local scp="^$user@$host:[A-Za-z0-9._~/][^[:space:]]*$"
+      [[ $1 =~ $ssh || $1 =~ $https || $1 =~ $scp ]] && return 0
+      [[ $1 = /* && $1 != *[[:space:]]* ]] && [ -f "$1/HEAD" ] && [ -d "$1/objects" ] && [ -d "$1/refs" ]
+    }
+    bad_url="use ssh://, https://, user@host:path or the absolute path of a bare repository"
+    # the mirror outside the jail that jail-push pushes from, with its URL
+    store_url() {
+      { [ -d "$1" ] || git init -q --bare "$1"; } && git --git-dir="$1" config remote.origin.url "$2"
+    }
+
     # basename plus a short hash of the path: ~/.local/share/jails/<name>
     jail_name() {
       local base=''${1##*/}
@@ -124,13 +157,26 @@ let
       h=/tmp/home
       files=$1
       shift
+      fail() { echo "jail: preparing the jail home failed at: $1" >&2; exit 1; }
+      # bwrap cannot mount on or below a symlink: drop links the jail made there
+      unlink_mounts() {
+        local m p c parts
+        for m in "$@"; do
+          p=$h
+          IFS=/ read -ra parts <<<"$m"
+          for c in "''${parts[@]}"; do
+            p=$p/$c
+            [ ! -L "$p" ] || rm -f "$p"
+          done
+        done
+      }
+      unlink_mounts "$@" || fail "removing links at mount points"
       # home-manager's dotfiles as links into the store; files the jail made
       # stay, and so do mount points of a running jail (replacing one would
       # detach that mount in the jail)
-      find "$h" -type l -lname '/nix/store/*-home-manager-files/*' -delete
-      cp -rs --update=none --no-preserve=mode "$files/." "$h/"
-      # bwrap cannot mount on a symlink, and home-manager links some of them
-      for m in "$@"; do [ ! -L "$h/$m" ] || rm -f "$h/$m"; done
+      find "$h" -type l -lname '/nix/store/*-home-manager-files/*' -delete || fail "removing old home-manager links"
+      cp -rs --update=none --no-preserve=mode "$files/." "$h/" || fail "linking home-manager files"
+      unlink_mounts "$@" || fail "removing home-manager links at mount points"
 
       # ~/.claude.json: login and MCP servers from the host, the jail's own
       # project state stays; nothing goes back
@@ -138,11 +184,11 @@ let
       f=$h/.claude.json
       host='{hasCompletedOnboarding, lastOnboardingVersion, lastReleaseNotesSeen, oauthAccount, userID, mcpServers} | with_entries(select(.value != null))'
       if [ -f "$f" ] && jq -e 'type == "object"' "$f" >/dev/null 2>&1; then
-        jq --slurpfile h /tmp/host.json ". + (\$h[0] | $host)" "$f" >/tmp/new
+        jq --slurpfile h /tmp/host.json ". + (\$h[0] | $host)" "$f" >/tmp/new || fail "merging ~/.claude.json"
       else
-        jq "$host" /tmp/host.json >/tmp/new
+        jq "$host" /tmp/host.json >/tmp/new || fail "reading your ~/.claude.json"
       fi
-      cp --remove-destination /tmp/new "$f"
+      cp --remove-destination /tmp/new "$f" || fail "writing ~/.claude.json"
     '';
   };
 
@@ -151,6 +197,7 @@ let
     runtimeInputs = [
       pkgs.bubblewrap
       pkgs.coreutils
+      pkgs.git
       pkgs.systemd
     ];
     text = common + ''
@@ -175,6 +222,17 @@ let
       name=$(jail_name "$root")
       state=$HOME/.local/share/jails/$name
       jhome=$state/home
+      if [ ! -e "$state" ]; then
+        # First start: no jailed code has run for this repository yet, so its
+        # push URL is still yours. Later ones jail-push asks you to confirm.
+        if open_gitdir "$root" && url=$(origin_url) && valid_url "$url"; then
+          store_url "$state/mirror.git" "$url" || die "cannot store the push URL in $state/mirror.git"
+          echo "jail: jail-push $root pushes to $url"
+        else
+          echo "jail: no push URL recorded for $root (none, or refused: $bad_url); jail-push asks on first use" >&2
+        fi
+        exec 3<&-
+      fi
       mkdir -p "$jhome"
 
       # On every start: dotfiles, mount points, ~/.claude.json (prepareHome).
@@ -186,7 +244,7 @@ let
         bwrap --unshare-all --die-with-parent --clearenv --ro-bind /nix /nix \
           --proc /proc --dev /dev --tmpfs /tmp "''${host[@]}" --bind "$jhome" /tmp/home \
           -- ${prepareHome}/bin/jail-prepare-home "$files" "''${mounts[@]#"$HOME"/}" ||
-          die "could not prepare $jhome"
+          die "could not prepare $jhome; to start over, reset its home (docs/jail.md, Reset)"
       }
 
       # I3 replaces this with a pasta network namespace.
@@ -347,23 +405,18 @@ let
       cd /
       g() { git --git-dir="$mirror" "$@"; }
 
-      # Accepted push URLs: ssh, https, scp-like, or an existing bare repository.
-      valid_url() {
-        local host='[A-Za-z0-9][A-Za-z0-9.-]*' user='[A-Za-z0-9_][A-Za-z0-9._~-]*'
-        local ssh="^ssh://($user@)?$host(:[0-9]+)?/[^[:space:]]*$"
-        local https="^https://$host(:[0-9]+)?/[^[:space:]]*$"
-        local scp="^$user@$host:[A-Za-z0-9._~/][^[:space:]]*$"
-        [[ $1 =~ $ssh || $1 =~ $https || $1 =~ $scp ]] && return 0
-        [[ $1 = /* && $1 != *[[:space:]]* ]] && [ -f "$1/HEAD" ] && [ -d "$1/objects" ] && [ -d "$1/refs" ]
-      }
 
-      [ -d "$mirror" ] || { mkdir -p "$state" && git init -q --bare "$mirror"; } || die "cannot create $mirror"
-      url=$(g config --get remote.origin.url || true)
+      open_gitdir "$root" || exit 1
+      url=$( [ -d "$mirror" ] && g config --get remote.origin.url || true)
       if [ -z "$url" ]; then
-        # read as data: with --file, includes are off by default (git help config)
-        url=$(git config --file "$gitdir/config" --get remote.origin.url) || die "$root has no remote.origin.url"
-        valid_url "$url" || die "refusing remote.origin.url '$url': use ssh://, https://, user@host:path or the absolute path of a bare repository"
-        g config remote.origin.url "$url"
+        # Not recorded when the jail first started: jailed code may have set it.
+        url=$(origin_url) || die "$root has no readable remote.origin.url"
+        valid_url "$url" || die "refusing remote.origin.url '$url': $bad_url"
+        [ -t 0 ] || die "no push URL stored for $root; run jail-push on a terminal to confirm '$url'"
+        printf 'jail-push: no push URL stored for %s; jailed code may have set this one:\n  %s\nType yes to push there from now on: ' "$root" "$url" >&2
+        read -r answer || true
+        [ "$answer" = yes ] || die "not confirmed"
+        { mkdir -p "$state" && store_url "$mirror" "$url"; } || die "cannot store the push URL in $mirror"
         echo "jail-push: $root pushes to $url from now on (stored in $mirror/config)"
       fi
 
@@ -371,7 +424,7 @@ let
         "$gitdir" '+refs/heads/*:refs/heads/*' || die "fetching $root into $mirror failed"
 
       if [ $# -eq 0 ]; then
-        head=$(head -c 256 "$gitdir/HEAD" | head -n 1)
+        head=$(read_git_file HEAD | head -n 1) || die "cannot read $gitdir/HEAD"
         case $head in
           "ref: refs/heads/"?*) branch=''${head#ref: refs/heads/} ;;
           *) die "$root has a detached HEAD: name the branch, e.g. jail-push $root main" ;;

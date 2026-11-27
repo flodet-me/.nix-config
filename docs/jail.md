@@ -22,6 +22,10 @@ jail-push ~/Projects/foo main --force-with-lease   # other git push arguments
   plus a hash of its path) with a tmux server inside. Detach with the tmux
   prefix + `d`; the jail ends when its last tmux window closes, or with
   `systemctl --user stop jail-<name>`.
+- Once a repository has a jail, work on it only inside: a host shell, editor
+  or IDE runs code the jail wrote (a git prompt runs `core.fsmonitor`,
+  direnv's `use flake` runs the flake's shell hook, VS Code runs tasks and
+  extensions). `jail-push` is the one command meant for outside.
 
 ## What the jail sees
 
@@ -60,12 +64,16 @@ fake one in the writable socket directory, can make a client run a command
   data, and `git-upload-pack` runs in a sandbox with only `.git` bound
   read-only (no network, no home), so planted `core.fsmonitor`,
   `core.sshCommand`, hooks or symlinks in `.git` reach nothing. `.git` must be
-  a real directory.
-- The push URL is taken from `remote.origin.url` on the first push, printed and
-  stored in the mirror; later changes in the repository are ignored. Allowed:
-  `ssh://`, `https://`, `user@host:path`, or the absolute path of a bare
-  repository (pushed through a sandboxed `git-receive-pack`, so its hooks run
-  without network or home). To change it:
+  a real directory, `.git/config` and `.git/HEAD` regular files (read without
+  following links, at most 64 KiB, no wait on a FIFO).
+- The push URL is recorded when `jail` first starts for the repository, before
+  any jailed code ran for it, and stored in the mirror; later changes in the
+  repository are ignored. If none was recorded then (no remote yet, or one
+  refused), the first `jail-push` shows `remote.origin.url`, which jailed code
+  may have written, and pushes only after you type `yes` on a terminal.
+  Allowed: `ssh://`, `https://`, `user@host:path`, or the absolute path of a
+  bare repository (pushed through a sandboxed `git-receive-pack`, so its hooks
+  run without network or home). To change it:
   `git --git-dir ~/.local/share/jails/<name>/mirror.git remote set-url origin <url>`.
 
 ## Reset
@@ -91,10 +99,15 @@ keeps the jail's projects, the host file stays unchanged, also with a link
 planted in its place; home-manager files linked;
 `/usr/bin/env` works; `sudo`, `systemd-run --user`, the session bus and
 gpg-agent unavailable; `nix build` through the daemon; `/dev/kvm` inside iff
-outside; `jail-push` pushes without running planted hooks, `core.fsmonitor`,
-`core.sshCommand` or `uploadpack.packObjectsHook`, keeps its stored URL,
-refuses `ext::`, `fd::`, `file://`, option-like and non-repository URLs and a
-symlinked `.git`, and runs a local remote's hooks sandboxed; two terminals share
+outside; a link planted at a mount point does not stop the next start;
+`jail-push` pushes over ssh without running planted hooks, `core.fsmonitor`,
+`core.sshCommand` (the global one runs) or `uploadpack.packObjectsHook`,
+uses the URL `jail` recorded at its first start, asks on a terminal for an
+unrecorded one and refuses without a terminal, keeps its stored URL, refuses
+`ext::` (allowed in the test's git config), `fd::`, `file://`, option-like and
+non-repository URLs, a symlinked `.git`, and a `.git/config` or `HEAD` that
+is a link to another repository's or a FIFO, and runs a local remote's hooks
+sandboxed; two terminals share
 one tmux server and one unit, the shell in it is jailed, and a
 `detach-client -E` command does not run on the host (a fake server answering
 the liveness check is covered by construction, the same sandbox, not by a
@@ -124,8 +137,14 @@ a positive control outside the jail.
   old one until it restarts.
 - Home-manager files at paths the jail replaced with its own stay the jail's
   (reset the jail home to get them back).
-- No `/sys`, `/run/opengl-driver`, Wayland or X11: GUI programs and GPU compute
-  do not run inside.
+- No `/sys`, `/run/opengl-driver`, Wayland or X11 sockets in the file system:
+  GUI programs and GPU compute do not run inside. The network is shared until
+  design step 3, so abstract sockets stay reachable, among them Xwayland's
+  `@/tmp/.X11-unix/X0`; only the X cookie, which the jail does not have,
+  protects it.
+- A tmux server inside the jail (or a fake one in the socket directory) can
+  draw anything in your terminal, also a prompt that looks like the host's;
+  it cannot type into other programs (TIOCSTI is off or blocked).
 - Home-manager's files are linked when a jail starts; after a switch, restart
   the jail to pick them up.
 - A tmux server with the jail stays alive while a window is open, also with no
