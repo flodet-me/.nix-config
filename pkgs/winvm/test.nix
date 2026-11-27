@@ -52,6 +52,17 @@ runCommand "winvm-test"
     check "the default WINVM_HOME is ~/.local/share/winvm" \
       has "^$HOME/.local/share/winvm\$" env -u WINVM_HOME winvm home
 
+    check "home works with an invalid WINVM_VM" has "^$WINVM_HOME\$" env WINVM_VM=Bad winvm home
+
+    # A WINVM_HOME made by hand on btrfs, not a subvolume: winvm says so.
+    if [[ $(stat -f -c %T "$TMPDIR") == btrfs ]]; then
+      mkdir "$TMPDIR/by-hand"
+      check "a hand-made WINVM_HOME on btrfs gets a note" \
+        has 'not a btrfs subvolume' env WINVM_HOME="$TMPDIR/by-hand" winvm recipes new x
+    else
+      echo "skip  hand-made WINVM_HOME note (build dir not on btrfs)"
+    fi
+
     # Writes go to WINVM_HOME.
     check "recipes new writes to WINVM_HOME" w recipes new mine
     check "the new recipe is editable" test -w "$WINVM_HOME/recipes/mine/recipe.env"

@@ -101,7 +101,9 @@ lives in `WINVM_HOME` (`winvm home` prints it):
   snapshots (btrbk) do not contain nested subvolumes, so VM images stay out of
   them. It also gets `chattr +C` (no copy-on-write, the usual setting for VM
   disk images; it only takes on an empty directory). The laptop uses this
-  default.
+  default. Let winvm create it (`winvm recipes new NAME` or the first
+  `build`) before you put `config.local.env` there: a directory made with
+  `mkdir` is a plain one inside the snapshots (winvm says so).
 - desktop: `WINVM_HOME=~/Projects/windows-vm` (home-manager,
   `home/flodet/desktop/default.nix`), the old checkout with its data: on the
   data disk, not snapshotted, erased by a reinstall. The copies of

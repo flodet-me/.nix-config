@@ -175,7 +175,12 @@ migrate_images() {
 # Copy-on-write off (chattr +C) for the disk images; it only takes on an empty
 # directory, and everything created inside inherits it.
 init_home() {
-    [[ -d $WINVM_HOME ]] && return 0
+    if [[ -d $WINVM_HOME ]]; then
+        # made by hand (mkdir for config.local.env) before any VM: still in the snapshots
+        [[ ! -d $STATE && $(stat -f -c %T "$WINVM_HOME") == btrfs && $(stat -c %i "$WINVM_HOME") != 256 ]] &&
+            note "$WINVM_HOME is not a btrfs subvolume: VM images would be in the snapshots of its parent; move it away and let winvm create it, then move your files back in"
+        return 0
+    fi
     mkdir -p "$(dirname "$WINVM_HOME")"
     if btrfs subvolume create "$WINVM_HOME" >/dev/null 2>&1; then info "created $WINVM_HOME (btrfs subvolume)"
     else mkdir "$WINVM_HOME"; info "created $WINVM_HOME"; fi
@@ -2800,19 +2805,22 @@ case $cmd in
     *) for a in "$@"; do [[ $a == -h || $a == --help ]] && { help_cmd "$cmd"; exit 0; }; done ;;
 esac
 
+# These only print; the completion calls winvm home on every Tab.
+case $cmd in
+    completion) cmd_completion "$@"; exit 0 ;;
+    home) echo "$WINVM_HOME"; exit 0 ;;
+esac
 migrate_layout
 migrate_images
 select_vm "$vm_name"
 # Commands that only read leave a missing WINVM_HOME missing.
 case $cmd in
-    help|-h|--help|completion|home|images|list|status|recipes|ssh-config) ;;
+    help|-h|--help|images|list|status|recipes|ssh-config) ;;
     *) init_home ;;
 esac
 case $cmd in
     fetch|build|start|stop|reset|commit|seal|new|apply|recipes|ssh|scp|rdp|wait|status|list|images|destroy|debug|uitest|run|crashes|screenshot|netcap|proxy|trace|usb|info|ps|kill|service|apps|events|ports|windows|key|reboot|deploy|vscode|rider) "cmd_$cmd" "$@" ;;
     ssh-config) cmd_ssh_config "$@" ;;
-    completion) cmd_completion "$@" ;;
-    home) echo "$WINVM_HOME" ;;
     snapshot|snap) cmd_snapshot "$@" ;;
     help) help_cmd "${1:-}" ;;
     -h|--help) usage ;;
