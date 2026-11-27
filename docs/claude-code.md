@@ -290,6 +290,14 @@ home-manager; the ownership rules are in `personal.md` ("Deciding").
   `commit.gpgsign=false` and `tag.gpgsign=false`, which beat every git config
   file. Your own shell keeps your signed identity; Claude's commits are told
   apart by author (`git log --author='Merge Goblin'`).
+- command-and-control's `agent-*` worktrees (`.bare/worktrees/agent-*`)
+  commit as `Claude agent <noreply@anthropic.com>`, unsigned, for anything
+  run there without Claude's `env`. It is an `includeIf` with inline contents
+  in `components/git/default.nix`, so its file is in the Nix store and git
+  reads no config from inside the repository the agent can write to.
+  `~/.gitconfig` (the old `includeIf` pointing at
+  `.bare/claude-agent.gitconfig`) is no longer needed: delete it, and that
+  file in the repository too.
 - A project's own CLAUDE.md rules that reserve a decision for a person win:
   those items stop at ready-to-merge.
 - `continue the factory` resumes, `factory status` summarizes.
