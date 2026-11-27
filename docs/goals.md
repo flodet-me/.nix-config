@@ -1,6 +1,6 @@
 # Goals
 
-## G-1 Agent isolation: repository jail  (status: open)
+## G-1 Agent isolation: repository jail  (status: done)
 
 Goal: "ok" — implement the agreed design of docs/agent-isolation.md and docs/adr/0001-repository-jail.md: (1) host hardening: trusted-users root on workstations, rootless Docker; (2) `jail` + `jail-push` with a NixOS VM test; (3) pasta network namespace + notification-only D-Bus proxy; (4) winvm binds.
 Accept:
@@ -22,7 +22,7 @@ Assumptions:
 | I1 host-hardening | trusted-users root on workstations, rootless Docker, docs | done | 067e623 |
 | I2 jail | `jail` / `jail-push`, tmux-shared jail per repo, VM test `checks.jail`, docs | done | 015d25b |
 | I3 jail-net | pasta netns (no host loopback), xdg-dbus-proxy for notifications, test | done | c39dcb7 |
-| I3b jail-config | per-repository `.jail` file read by `jail` on start: features (ports forwarded host 127.0.0.1→jail; I4 adds winvm) and extra read-only / read-write directories, approved on the host like `direnv allow` and used from the approved copy, test, docs | open | |
+| I3b jail-config | per-repository `.jail` file read by `jail` on start: features (ports forwarded host 127.0.0.1→jail; I4 adds winvm) and extra read-only / read-write directories, approved on the host like `direnv allow` and used from the approved copy, test, docs | done | d44f42a |
 | I4 jail-winvm | winvm binds and `winvm` wrapper inside the jail, test | skipped (user) | |
 
 ## G-2 LLM token tools  (status: done)
