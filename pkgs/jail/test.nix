@@ -142,6 +142,8 @@
         alice("cat ~/Nextcloud/secret && test -d ~/.cache/docker")
         jail("test ! -e ~/Nextcloud && test ! -e ~/.cache/docker && test ! -e ~/.gitconfig")
         jail('test "$HOME" = /home/alice && test "$PWD" = /home/alice/repo')
+        # the host's name, resolvable (pasta's own name is not: zsh's hostname --fqdn failed)
+        jail('test "$(cat /proc/sys/kernel/hostname)" = machine && getent ahosts machine')
         jail("cat ~/brain/note && grep -q host ~/.claude/CLAUDE.md ~/.codex/config.toml && grep -q from-home-manager ~/.codex/AGENTS.md")
         jail("touch ~/brain/inbox/x ~/repo/w")
         alice("test -e ~/brain/inbox/x && test -e ~/repo/w")

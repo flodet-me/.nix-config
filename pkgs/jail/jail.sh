@@ -55,9 +55,12 @@ prepare() {
     die "could not prepare $jhome; to start over, reset its home (docs/jail.md, Reset)"
 }
 
-# jail-run's pasta namespace: --share-net keeps it
+# jail-run's pasta namespace: --share-net keeps it. The host's name, not
+# pasta's pasta-<host>: /etc/hosts resolves it (no nscd, no myhostname inside),
+# so `hostname --fqdn` in /etc/zshrc does not fail.
 args=(
   --unshare-all --share-net --die-with-parent --new-session --clearenv
+  --hostname "$(</proc/sys/kernel/hostname)"
   --ro-bind /nix /nix
   --bind /nix/var/nix/daemon-socket /nix/var/nix/daemon-socket
   --ro-bind /etc /etc
