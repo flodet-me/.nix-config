@@ -59,3 +59,20 @@ Assumptions:
 | Item | What | Status | Commit |
 |---|---|---|---|
 | I1 bare-layout | container root detection, jail-push branch per worktree, safe gitfile reads, test, docs | done | ed33928 |
+
+## G-4 Review before switch  (status: open)
+
+Goal: (from the agentic-OS proposal, item 2: "do it but not with yubikey requirement for sudo") show what changed since the running system before it is switched, so an agent changing its own rules in this repository is seen.
+Accept:
+- Every host records the flake revision it was built from: `nixos-version --configuration-revision` on a built system prints the commit (`self.rev`, or `self.dirtyRev` for a dirty tree).
+- A dev-shell script `switch-review [REV]` (default: the running system's revision, `-dirty` stripped) prints, for this repository: the commits `REV..HEAD`, uncommitted changes, and the full diff of security-relevant paths (Claude Code config, jail, users, nix settings, server hardening, impermanence, sops/keys, flake inputs, overlays, pkgs, scripts) plus the changed lines elsewhere that match security keywords (sudo, polkit, groups, trusted users, wrappers, permissions, hooks); an unknown or missing revision is said plainly with a fallback.
+- It runs git on the repository safely (the repository may have been written from a jail): no pager, no external diff or textconv, no fsmonitor, no hooks, no includes of attacker config.
+- `update` shows the review, then asks before `nh os switch` runs; the review alone never switches.
+- `checks.x86_64-linux.scripts` builds it (shellcheck); a test shows a change to a security path and a keyword line appear and an unrelated change does not; docs (docs/claude-code.md or docs/security-updates.md, AGENTS.md command list) updated; Gate green.
+Not in scope: YubiKey for sudo (user: no), blocking a switch automatically, signing commits.
+Assumptions:
+- Informational, the human decides: the review lists, it never fails a switch.
+
+| Item | What | Status | Commit |
+|---|---|---|---|
+| I1 switch-review | configurationRevision, switch-review script, update alias, test, docs | open | |
