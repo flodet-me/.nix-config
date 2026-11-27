@@ -24,7 +24,7 @@ Assumptions:
 | I3 jail-net | pasta netns (no host loopback), xdg-dbus-proxy for notifications, test | open | |
 | I4 jail-winvm | winvm binds and `winvm` wrapper inside the jail, test | open | |
 
-## G-2 LLM token tools  (status: open)
+## G-2 LLM token tools  (status: done)
 
 Goal: "do it and keep ownership in nix" — add ccusage, ast-grep and rtk declaratively, with the rtk Claude Code hook on trial, compared via `rtk gain` after a week.
 Accept:
@@ -41,4 +41,4 @@ Assumptions:
 
 | Item | What | Status | Commit |
 |---|---|---|---|
-| I1 token-tools | ccusage, ast-grep, rtk + Nix-owned rtk hook/config/instructions, test, docs | open | |
+| I1 token-tools | ccusage, ast-grep, rtk + Nix-owned rtk hook/config/instructions, test, docs | done | f052e8a |
