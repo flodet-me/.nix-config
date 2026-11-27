@@ -295,14 +295,14 @@
 
     with subtest("the jail's ~/.cache is ~/.cache/jails/<name>, outside the jail home"):
         jail("echo c > ~/.cache/probe")
-        alice("grep -q c ~/.cache/jails/repo-*/probe && test ! -e ~/.local/share/jails/repo-*/home/.cache/probe && test ! -e ~/.cache/probe")
+        alice("grep -q c ~/.cache/jails/repo-*/probe && test ! -e ~/.cache/probe && cd ~/.local/share/jails/repo-*/home && test ! -e .cache/probe")
         # a link planted at the mount point does not stop the next start
         alice("cd ~/.local/share/jails/repo-*/home && rm -r .cache && ln -s /nowhere .cache")
         jail("grep -q c ~/.cache/probe")
         # a cache from before the move stays where it was, unused, and says so once
         alice("git init -q ~/repom")
         jail("true", repo="~/repom")
-        alice("rm -rf ~/.cache/jails/repom-* && touch ~/.local/share/jails/repom-*/home/.cache/old")
+        alice("rm -r ~/.cache/jails/repom-* && cd ~/.local/share/jails/repom-*/home/.cache && touch old")
         out = start("test ! -e ~/.cache/old && touch ~/.cache/new", repo="~/repom")
         assert "is no longer used" in out, out
         assert "no longer used" not in start("true", repo="~/repom")
