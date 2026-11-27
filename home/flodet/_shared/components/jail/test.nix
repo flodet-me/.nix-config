@@ -351,9 +351,10 @@
         """)
         alice("test -d ~/data-ro && test -d ~/data-rw && cat ~/secret")
         # not approved yet: nothing applied, without a terminal or when refused
-        assert "is not applied" in start("test ! -e ~/data-ro && test ! -e ~/data-rw")
+        out = start("test ! -e ~/data-ro && test ! -e ~/data-rw")
+        assert "is not applied (it changed, and there is no terminal" in out, out
         out = start("test ! -e ~/data-ro", answer="no")
-        assert "port 8090" in out and "is not applied" in out, out
+        assert "port 8090" in out and "is not applied (not approved)" in out, out
         # approved: the folders, then used without asking
         start("cat ~/data-ro/f && ! touch ~/data-ro/x 2>/dev/null && touch ~/data-rw/x", answer="yes")
         alice("test -e ~/data-rw/x && test ! -e ~/data-ro/x")
@@ -398,14 +399,19 @@
         alice("git init -q ~/repoe && ln -s ~/repoc/.jail ~/repoe/.jail")
         out = start("test ! -e ~/data-ro", answer="yes", repo="~/repoe")
         assert "not a regular file" in out and "is not applied" in out, out
-        for p in ["~/data-link", "/", "/home", "~", "~/.local", "~/.local/share/jails", "/etc", "/nix/store", "/run/user",
-                  "/proc", "/tmp", "~/repoe", "~/repoe/.git", "relative", "~/missing"]:
-            alice(f"rm -f ~/repoe/.jail && echo 'ro {p}' > ~/repoe/.jail")
+        refused = {
+            "ro ~/data-link": "goes through a symlink", "ro /": "is or contains /home/alice", "ro /home": "is or contains /home/alice",
+            "rw ~": "is or contains /home/alice", "rw ~/.local": "is or contains /home/alice/.local/share/jails",
+            "ro ~/.local/share/jails": "is or contains /home/alice/.local/share/jails", "ro /etc": "is in /etc",
+            "ro /nix/store": "is in /nix", "rw /run/user": "is in /run", "ro /proc": "is in /proc", "rw /tmp": "is /tmp",
+            "rw ~/repoe": "is or contains /home/alice/repoe", "rw ~/repoe/.git": "is in the repository",
+            "ro relative": "not an absolute path", "ro ~/missing": "does not exist",
+            "port 80": "a port is", "port 70000": "a port is", "port 8o": "a port is", "bind /tmp": "unknown keyword",
+        }
+        for line, why in refused.items():
+            alice(f"rm -f ~/repoe/.jail && printf '# x\\n%s\\n' {shlex.quote(line)} > ~/repoe/.jail")
             out = start("test ! -e ~/data-ro", answer="yes", repo="~/repoe")
-            assert "line 1" in out and "is not applied" in out, out
-        for line in ["port 80", "port 70000", "port 8o", "bind /tmp"]:
-            alice(f"echo {shlex.quote(line)} > ~/repoe/.jail")
-            assert "line 1" in start("true", answer="yes", repo="~/repoe")
+            assert f".jail line 2: {line}: {why}" in out and "is not applied" in out, out
         alice("! ls ~/.local/share/jails/repoe-*/jail.approved")
         machine.wait_until_succeeds("! pgrep -u alice '^(xdg-dbus-proxy|passt|pasta)'", timeout=30)
 

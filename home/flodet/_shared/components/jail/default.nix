@@ -196,7 +196,9 @@ let
   # Runs `bwrap ARGS...` in a network namespace of its own (pasta, as rootless
   # Podman does) and, with a BUS path, after starting a D-Bus proxy there that
   # lets the jail talk to org.freedesktop.Notifications only. Both last exactly
-  # as long as this script. Args: BUS (a socket path, or empty), bwrap's args.
+  # as long as this script. Args: BUS (a socket path, or empty), PORTS (TCP
+  # ports forwarded from host 127.0.0.1 to the jail's, comma-separated, or
+  # empty), bwrap's args.
   jailRun = pkgs.writeShellApplication {
     name = "jail-run";
     runtimeInputs = [
@@ -207,7 +209,9 @@ let
     ];
     text = ''
       bus=$1
-      shift
+      tcp=(-t none)
+      [ -z "$2" ] || tcp=(--host-lo-to-ns-lo -t "127.0.0.1/$2")
+      shift 2
       # the proxy leaves its socket behind when stopped by a signal
       cleanup() { [ -z "$bus" ] || rm -f "$bus"; }
       trap cleanup EXIT
@@ -219,8 +223,9 @@ let
           --filter --talk=org.freedesktop.Notifications)
         read -r -N1 -t 10 -u "$ready" _ || { echo "jail: starting the D-Bus proxy failed" >&2; exit 1; }
       fi
-      # Nothing forwarded into the namespace or out to the host's ports, the
-      # host's loopback not mapped to the gateway; DNS goes to pasta's
+      # Only PORTS forwarded into the namespace (host 127.0.0.1 to its
+      # 127.0.0.1), nothing out to the host's ports, the host's loopback not
+      # mapped to the gateway; DNS goes to pasta's
       # forwarder at 169.254.1.1 (the jail's resolv.conf), which asks the
       # host's nameserver. Inside pasta's user namespace we are root: bwrap
       # maps back to our ids and drops every capability, as it does when
@@ -229,7 +234,7 @@ let
       # resets SIGINT, ignored in a background job (nohup's HUP stays ignored),
       # the inner one every signal for the jailed program (pasta ignores SIGPIPE).
       setpriv --pdeathsig KILL env --default-signal=INT \
-        pasta --config-net --quiet -t none -u none -T none -U none --no-map-gw --dns-forward 169.254.1.1 \
+        pasta --config-net --quiet "''${tcp[@]}" -u none -T none -U none --no-map-gw --dns-forward 169.254.1.1 \
         -- env --default-signal ${bwrap} --uid "$(id -u)" --gid "$(id -g)" --cap-drop ALL "$@" <&0 &
       pid=$!
       # A signal to this script (kill, systemctl stop) goes on to pasta, whose
@@ -256,8 +261,10 @@ let
     runtimeInputs = [
       pkgs.bubblewrap
       pkgs.coreutils
+      pkgs.diffutils
       pkgs.git
       pkgs.gnugrep
+      pkgs.iproute2
       pkgs.systemd
     ];
     text = common + ''
@@ -364,6 +371,124 @@ let
         args+=(--ro-bind "$state/resolv.conf" "$(readlink -f /etc/resolv.conf)")
       fi
 
+      # Per-repository config, .jail (docs/jail.md). Jailed code can write it,
+      # so only the copy you approved on a terminal is applied; it is read as
+      # data like .git/config and stored where the jail cannot see it.
+      ports=() portspec=
+      esc() { printf '%s' "$1" | cat -v; } # control characters and high bytes as text
+      # $1 is $2 or below it
+      within() { [ "$1" = "$2" ] || [ "$2" = / ] || [[ $1 == "$2"/* ]]; }
+      # A path for ro/rw, or why not: absolute (~/ is your home), no symlink
+      # on the way, none of what the jail must not get.
+      bind_path() {
+        local p=$1 real x
+        # shellcheck disable=SC2088 # a literal ~ from the file
+        case $p in "~") p=$HOME ;; "~/"*) p=$HOME/''${p#"~/"} ;; esac
+        [[ $p == /* ]] || { echo "not an absolute path or ~/..."; return 1; }
+        while [[ $p == */ && $p != / ]]; do p=''${p%/}; done
+        real=$(realpath -e -- "$p" 2>/dev/null) || { echo "does not exist"; return 1; }
+        [ "$real" = "$p" ] || { echo "goes through a symlink or is not canonical (it is $(esc "$real"))"; return 1; }
+        [ -d "$p" ] || [ -f "$p" ] || { echo "is not a directory or regular file"; return 1; }
+        for x in /nix /run /proc /dev /etc /sys; do
+          ! within "$p" "$x" || { echo "is in $x"; return 1; }
+        done
+        [ "$p" != /tmp ] || { echo "is /tmp"; return 1; }
+        for x in "$HOME" "$HOME/.local/share/jails" "$root"; do
+          ! within "$x" "$p" || { echo "is or contains $x"; return 1; }
+        done
+        ! within "$p" "$HOME/.local/share/jails" || { echo "is in the jails' state"; return 1; }
+        ! within "$p" "$root" || { echo "is in the repository"; return 1; }
+        printf '%s\n' "$p"
+      }
+      # Applies a config's lines to args, mounts and ports; on the first bad
+      # line says which and why (stderr) and fails.
+      parse() {
+        local n=0 line key val p
+        while IFS= read -r line || [ -n "$line" ]; do
+          n=$((n + 1)) p=""
+          [[ ! $line =~ ^[[:space:]]*(#|$) ]] || continue
+          read -r key val <<<"$line" || true
+          if [[ $val == *[[:cntrl:]]* ]]; then
+            p="control characters"
+          else
+            case $key in
+              port)
+                if [[ $val =~ ^[1-9][0-9]{3,4}$ ]] && [ "$val" -le 65535 ]; then
+                  ports+=("$val")
+                else
+                  p="a port is a number from 1024 to 65535"
+                fi ;;
+              ro | rw)
+                if p=$(bind_path "$val"); then
+                  if [ "$key" = ro ]; then args+=(--ro-bind "$p" "$p"); else args+=(--bind "$p" "$p"); fi
+                  # a link the jail plants in its home at the mount point goes (prepare)
+                  [[ $p != "$HOME"/* ]] || mounts+=("$p")
+                  p=
+                fi ;;
+              # features: I4 adds winvm here
+              *) p="unknown keyword (port, ro, rw)" ;;
+            esac
+          fi
+          [ -z "$p" ] || { echo "jail: .jail line $n: $(esc "$line"): $p" >&2; return 1; }
+        done <<<"$1"
+      }
+      # The config to apply: the approved copy, or the repository's .jail once
+      # you approve it now. Args: shared or one-off (a taken port then is skipped).
+      load_config() {
+        local approved=$state/jail.approved f=/proc/self/fd/4/.jail conf="" new why="" answer p fwd=()
+        [ ! -e "$approved" ] || conf=$(cat "$approved") || die "cannot read $approved"
+        exec 4<"$root" && [ "$(readlink /proc/self/fd/4)" = "$root" ] || die "$root is not a plain directory"
+        if [ ! -e "$f" ] && [ ! -L "$f" ]; then
+          conf= # no .jail: nothing applied
+        elif [ -L "$f" ] || [ ! -f "$f" ]; then
+          why="it is not a regular file"
+        elif [ "$(stat -c %s "$f")" -gt 65536 ]; then
+          why="it is larger than 64 KiB"
+        elif ! new=$(dd if="$f" iflag=nofollow,nonblock bs=65536 count=1 status=none); then
+          why="it cannot be read"
+        elif [ "$new" != "$conf" ]; then
+          if ! (parse "$new"); then
+            why="see the line above"
+          elif [ ! -t 0 ]; then
+            why="it changed, and there is no terminal to approve it"
+          else
+            if [ -n "$conf" ]; then
+              echo "jail: $root/.jail changed since you approved it:"
+              { diff -u --label approved --label .jail <(printf '%s\n' "$conf") <(printf '%s\n' "$new") || true; } | cat -v
+            else
+              echo "jail: $root/.jail asks for:"
+              printf '%s\n' "$new" | cat -v
+            fi >&2
+            printf 'Type yes to apply it (a running shared jail keeps its config until it restarts): ' >&2
+            read -r answer || true
+            if [ "$answer" = yes ]; then
+              { printf '%s\n' "$new" >"$approved.new" && mv "$approved.new" "$approved"; } || die "cannot store $approved"
+              conf=$new
+            else
+              why="not approved"
+            fi
+          fi
+        fi
+        exec 4<&-
+        if [ -n "$why" ]; then
+          printf 'jail: %s/.jail is not applied (%s); %s. To review it, start jail on a terminal.\n' "$root" "$why" \
+            "$([ -n "$conf" ] && echo "using the copy you approved last" || echo "nothing approved yet")" >&2
+        fi
+        parse "$conf" || die "the approved .jail ($approved) no longer applies: change .jail and start jail on a terminal"
+        # host 127.0.0.1:PORT, forwarded by jail-run's pasta
+        for p in "''${ports[@]}"; do
+          why=$(ss -Htln "sport = :$p") || die "cannot check port $p (ss)"
+          if [ -z "$why" ]; then
+            fwd+=("$p")
+          elif [ "$1" = shared ]; then
+            die "port $p: 127.0.0.1:$p is in use on the host; free it and start the jail again"
+          else
+            echo "jail: port $p: 127.0.0.1:$p is in use on the host (by this repository's shared jail?), not forwarded" >&2
+          fi
+        done
+        portspec=$(IFS=,; echo "''${fwd[*]}")
+      }
+
       # The environment is built, not inherited: no agent sockets or tokens.
       # Only plain settings pass through.
       env=(
@@ -388,9 +513,10 @@ let
       }
 
       if [ $# -gt 0 ]; then
+        load_config one-off
         prepare
         bind_bus "$run/jails/$name.bus-$$"
-        exec ${jailRun}/bin/jail-run "$bus" "''${args[@]}" "''${env[@]}" -- "$@"
+        exec ${jailRun}/bin/jail-run "$bus" "$portspec" "''${args[@]}" "''${env[@]}" -- "$@"
       fi
 
       # Shared jail: one tmux server inside per repository, every terminal attaches.
@@ -419,13 +545,14 @@ let
       alive() { client has-session -t main 2>/dev/null; }
 
       if ! alive; then
+        load_config shared
         prepare
         bind_bus "$run/jails/$name.bus"
         # The jail's main process keeps the namespace alive while the session lives.
         # shellcheck disable=SC2016 # expanded by the inner shell
         keepalive='"$1" -S "$2" new-session -d -s main && while "$1" -S "$2" has-session -t main 2>/dev/null; do ${pkgs.coreutils}/bin/sleep 2; done'
         systemd-run --user --quiet --collect --expand-environment=no --unit="jail-$name" -- \
-          ${jailRun}/bin/jail-run "$bus" "''${args[@]}" --bind "$sockdir" "$sockdir" "''${env[@]}" -- \
+          ${jailRun}/bin/jail-run "$bus" "$portspec" "''${args[@]}" --bind "$sockdir" "$sockdir" "''${env[@]}" -- \
           ${pkgs.runtimeShell} -c "$keepalive" sh ${tmux} "$sock" ||
           echo "jail: jail-$name did not start, maybe it is starting already" >&2
         for _ in $(seq 50); do alive && break; sleep 0.2; done
