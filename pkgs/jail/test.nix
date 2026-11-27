@@ -1183,7 +1183,7 @@
         alice("WINVM_HOME=/home/alice/winvm-none jail ~/repow2 -- sh -c"
               " 'test -z \"$(ls -A $WINVM_HOME/state/images)\" && mkdir $WINVM_HOME/state/images/x'")
         # building stays on the host
-        jail("! winvm build --image win10 2> err && grep -q 'not in a jail' err", repo="~/repow2")
+        alice("WINVM_HOME=/home/alice/winvm-none jail ~/repow2 -- sh -c '! winvm build --image win10 2> err && grep -q \"not in a jail\" err'")
         # one in the repository: refused, it is read-write there
         alice("mkdir -p ~/repow/wh/state/images")
         out = refuses(f"env WINVM_HOME=/home/alice/repow/wh jail {w} -- true")
