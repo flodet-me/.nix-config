@@ -1,8 +1,10 @@
 # 0001: One bubblewrap jail per repository for agents and your own tools
 
 Date: 2026-11-27. Status: accepted; host hardening and the jail implemented
-([jail.md](../jail.md)), network namespace and D-Bus proxy implemented, per-repository `.jail`
-implemented, winvm binds open.
+([jail.md](../jail.md)), network namespace and D-Bus proxy implemented,
+per-repository `.jail` implemented. winvm binds (`.jail` binding a folder of the jail home at a host
+path) are not planned: skipped by the user on 2026-11-27; the design stays in
+[agent-isolation.md](../agent-isolation.md#vms-and-windows-development).
 
 ## Context
 
@@ -40,7 +42,7 @@ is kept for untrusted third-party code.
 - `act` and other Docker users move to rootless Docker; containers inside a
   jail are still open.
 - What a repository needs beyond the defaults (ports from host `127.0.0.1`
-  into the jail, extra `ro`/`rw` folders, later winvm) lives in its own
+  into the jail, extra `ro`/`rw` folders) lives in its own
   `.jail`, not in home-manager, since `jail` is repository-agnostic. Jailed
   code can write that file, so only a copy approved on a terminal applies,
   stored outside the jail; ports never go from the jail to the host.
