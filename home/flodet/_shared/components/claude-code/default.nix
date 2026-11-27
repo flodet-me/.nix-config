@@ -255,14 +255,7 @@ let
   rtkConfig = (pkgs.formats.toml { }).generate "rtk-config.toml" {
     telemetry.enabled = false;
     retriever.mode = "sqlite"; # recovery: elided output stays recallable (`rtk recall`)
-    # Their rewrite (`rtk read <file>`) would dodge the Read denies Claude Code
-    # applies to cat/head paths, and rtk misses globbed Bash denies such as
-    # `cat ~/.ssh/*`; managedSettings below fails the build on such a rewrite.
     hooks.suppress_hook_warning = true; # rtk does not recognize the wrapper below as its hook
-    hooks.exclude_commands = [
-      "cat"
-      "head"
-    ];
   };
 
   untestedSettings = pkgs.writeText "claude-managed-settings.json" (
