@@ -50,6 +50,9 @@
     }
   ];
 
+  # repository jail (pkgs/jail, docs/jail.md); per-user at runtime
+  environment.systemPackages = [ pkgs.jail ];
+
   # QMK/Vial keyboards and the headset
   hardware.keyboard.qmk.enable = true;
   services.udev.packages = [

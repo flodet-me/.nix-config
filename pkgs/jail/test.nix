@@ -1,6 +1,7 @@
-# NixOS VM test of the jail module (docs/jail.md): a normal user with
-# home-manager runs `jail` and `jail-push`. Every "absent inside" assertion
-# has a positive control outside, so it cannot pass vacuously.
+# NixOS VM test of the jail package (docs/jail.md): a normal user with
+# home-manager (jail reads its generation) runs `jail` and `jail-push`.
+# Every "absent inside" assertion has a positive control outside, so it
+# cannot pass vacuously.
 { home-manager }:
 {
   name = "jail";
@@ -35,6 +36,7 @@
       };
       programs.gnupg.agent.enable = true; # its socket is the control for "no gpg-agent"
       environment.systemPackages = [
+        (pkgs.callPackage ./. { }) # as on the workstations
         pkgs.git
         pkgs.tmux
         pkgs.socat
@@ -51,7 +53,6 @@
         useGlobalPkgs = true;
         useUserPackages = true;
         users.alice = {
-          imports = [ ./. ];
           home.stateVersion = "26.05";
           home.file.probe.text = "from-home-manager";
           home.file.".codex/AGENTS.md".text = "from-home-manager"; # also bound read-only
@@ -83,7 +84,7 @@
 
     def terminal(unit, repo="/home/alice/repo"):
         # the shared jail of repo in a terminal that stays open
-        alice(f"systemd-run --user --quiet --unit={unit} -E TERM=xterm sh -c 'sleep 600 | /run/current-system/sw/bin/script -qfc \"/etc/profiles/per-user/alice/bin/jail {repo}\" /dev/null'")
+        alice(f"systemd-run --user --quiet --unit={unit} -E TERM=xterm sh -c 'sleep 600 | /run/current-system/sw/bin/script -qfc \"/run/current-system/sw/bin/jail {repo}\" /dev/null'")
 
     def start(cmd, answer=None, repo="~/repoc", ok=True, shared=False):
         # jail with its messages (stderr): without a terminal, or on one typing answer

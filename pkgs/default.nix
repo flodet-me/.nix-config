@@ -1,4 +1,6 @@
-# Custom packages (none yet). Exposed as flake packages and as pkgs.* through
+# Custom packages. Exposed as flake packages and as pkgs.* through
 # overlays/default.nix `additions`; called with `{ pkgs }`.
-_: {
+{ pkgs }:
+{
+  jail = pkgs.callPackage ./jail { }; # docs/jail.md
 }
