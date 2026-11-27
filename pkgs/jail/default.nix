@@ -1,4 +1,4 @@
-# `jail` and `jail-push` (docs/jail.md, design: docs/agent-isolation.md,
+# `jail` and `jail-push` (user guide: ./README.md; docs/jail.md, design: docs/agent-isolation.md,
 # ADR 0001): one bubblewrap jail per git repository, shared by your shell,
 # Neovim and the agents; pushes leave through a mirror outside the jail.
 # Scripts: ./*.sh, @name@ replaced by store paths below. VM test: ./test.nix
@@ -205,6 +205,8 @@ symlinkJoin {
     jail
     jail-push
   ];
+  # the user guide, also inside every jail (/run/current-system/sw/share/doc)
+  postBuild = "install -Dm644 ${./README.md} $out/share/doc/jail/README.md";
   meta = {
     description = "One bubblewrap jail per git repository, and jail-push to push from outside it";
     mainProgram = "jail";

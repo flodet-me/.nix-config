@@ -1,5 +1,14 @@
-usage="usage: jail [DIR] [-- CMD...]"
+readme=/run/current-system/sw/share/doc/jail/README.md
+usage="usage: jail [DIR] [-- CMD...]   a shell (or CMD) in DIR's repository jail
+       jail config [DIR]          check DIR's .jail; approves nothing (a directory named config: jail ./config)
+Guide: $readme"
 dir=$PWD
+config="" nohost=""
+if [ "${1-}" = config ]; then
+  config=1
+  shift
+  [ $# -le 1 ] && [ "${1-}" != -- ] || die "$usage"
+fi
 if [ $# -gt 0 ] && [ "$1" != -- ]; then
   case $1 in -h | --help) echo "$usage"; exit 0 ;; esac
   dir=$1
@@ -8,114 +17,6 @@ fi
 if [ $# -gt 0 ]; then
   [ "$1" = -- ] && [ $# -gt 1 ] || die "$usage"
   shift
-fi
-
-resolve "$dir"
-cwd=$(cd "$dir" && pwd -P)
-case $HOME in /home/?*) ;; *) die "HOME must be under /home: $HOME" ;; esac
-case "$HOME/" in "$root"/*) die "$root contains your home directory" ;; esac
-run=${XDG_RUNTIME_DIR:?jail: XDG_RUNTIME_DIR is not set}
-user=$(id -un)
-name=$(jail_name "$root")
-state=$HOME/.local/share/jails/$name
-jhome=$state/home
-if [ ! -e "$state" ]; then
-  # First start: no jailed code has run for this repository yet, so its
-  # push URL is still yours. Later ones jail-push asks you to confirm.
-  if open_gitdir "$gitdir" && url=$(origin_url) && valid_url "$url"; then
-    store_url "$state/mirror.git" "$url" || die "cannot store the push URL in $state/mirror.git"
-    printf 'jail: jail-push %s pushes to %q\n' "$root" "$url"
-  else
-    echo "jail: no push URL recorded for $root (none, or refused: $bad_url); jail-push asks on first use" >&2
-  fi
-  exec 3<&-
-fi
-mkdir -p "$jhome"
-# The jail's ~/.cache, outside the /home snapshots (~/.cache is a subvolume
-# of its own). Before, it was in the jail home: that one stays, unused
-# (prepare links home-manager's files under .cache in there on every start).
-cache=$HOME/.cache/jails/$name
-if [ ! -e "$cache" ] && [ -d "$jhome/.cache" ] && [ ! -L "$jhome/.cache" ] &&
-  [ -n "$(find "$jhome/.cache" ! -type d ! -lname '/nix/store/*-home-manager-files/*' -print -quit)" ]; then
-  echo "jail: the jail's cache is now $cache; the old one, $jhome/.cache, is no longer used (delete it while the jail is stopped)" >&2
-fi
-mkdir -p "$cache" || die "cannot create $cache"
-
-# On every start: dotfiles, mount points, ~/.claude.json (prepareHome).
-prepare() {
-  local gen=$HOME/.local/state/home-manager/gcroots/current-home files host=()
-  files=$(readlink -f "$gen/home-files") && [ -d "$files" ] ||
-    die "no home-manager generation at $gen (home-manager not activated yet?)"
-  vars=$(readlink -f "$gen/home-path/etc/profile.d/hm-session-vars.sh") && [ -f "$vars" ] ||
-    die "no hm-session-vars.sh in the home-manager generation at $gen"
-  [ ! -f "$HOME/.claude.json" ] || host=(--ro-bind "$HOME/.claude.json" /tmp/host.json)
-  bwrap --unshare-all --die-with-parent --clearenv --ro-bind /nix /nix \
-    --proc /proc --dev /dev --tmpfs /tmp "${host[@]}" --bind "$jhome" /tmp/home \
-    -- @prepareHome@/bin/jail-prepare-home "$files" "${mounts[@]#"$HOME"/}" ||
-    die "could not prepare $jhome; to start over, reset its home (docs/jail.md, Reset)"
-}
-
-# jail-run's pasta namespace: --share-net keeps it. The host's name, not
-# pasta's pasta-<host>: /etc/hosts resolves it (no nscd, no myhostname inside),
-# so `hostname --fqdn` in /etc/zshrc does not fail.
-args=(
-  --unshare-all --share-net --die-with-parent --new-session --clearenv
-  --hostname "$(</proc/sys/kernel/hostname)"
-  --ro-bind /nix /nix
-  --bind /nix/var/nix/daemon-socket /nix/var/nix/daemon-socket
-  --ro-bind /etc /etc
-  --ro-bind-try /bin /bin
-  --ro-bind-try /usr /usr
-  --ro-bind-try /lib64 /lib64
-  --ro-bind-try /run/current-system /run/current-system
-  --proc /proc
-  --dev /dev
-  --dev-bind-try /dev/kvm /dev/kvm
-  --tmpfs /tmp
-  --perms 0700 --tmpfs "$run"
-  --tmpfs /home
-  --bind "$jhome" "$HOME"
-)
-# same path inside, only if it exists
-bind() { [ -e "$2" ] && args+=("$1" "$2" "$2") || true; }
-bind --ro-bind "$HOME/brain"
-bind --bind "$HOME/brain/inbox"
-# ~/.claude, ~/.codex: the jail's own directories, so state, temp files
-# and new names stay in the jail; host entries on top (see the patterns).
-host_entries() {
-  local e n
-  for e in "$HOME/$1"/* "$HOME/$1"/.*; do
-    n=${e##*/}
-    [ -e "$e" ] && [ "$n" != . ] && [ "$n" != .. ] || continue
-    if [[ $n == @($2) ]]; then args+=(--bind "$e" "$e")
-    elif [[ $n != @($3) ]]; then args+=(--ro-bind "$e" "$e")
-    else continue; fi
-    mounts+=("$e")
-  done
-}
-mounts=()
-host_entries .claude '@claudeShared@' '@claudeState@'
-host_entries .codex '@codexShared@' '@codexState@'
-# plugin state, where plugins also install their dependencies: per jail
-if [ -d "$HOME/.claude/plugins/data" ]; then
-  mkdir -p "$state/claude-plugin-data"
-  args+=(--bind "$state/claude-plugin-data" "$HOME/.claude/plugins/data")
-fi
-bind --ro-bind "$HOME/.local/bin" # graphify
-bind --ro-bind "$HOME/.local/share/uv/tools" # its venv
-# the repository, the cache and .jail's paths: opened and checked by jail-binds, bound by fd here
-fdbinds=(rw "$root" "rw:$HOME/.cache" "$cache")
-mounts+=("$HOME/.cache")
-args+=(--args 5 --chdir "$cwd")
-# DNS through pasta (jail-run): the host's resolv.conf (it may name
-# 127.0.0.53) with only its search and options lines. Written outside
-# the jail's reach and replaced whole, a running jail keeps its copy.
-if [ -e /etc/resolv.conf ]; then
-  if ! { { grep -E '^(search|domain|options)([[:space:]]|$)' /etc/resolv.conf || true; echo "nameserver 169.254.1.1"; } >"$state/resolv.conf.$$" &&
-    mv "$state/resolv.conf.$$" "$state/resolv.conf"; }; then
-    die "cannot write $state/resolv.conf"
-  fi
-  args+=(--ro-bind "$state/resolv.conf" "$(readlink -f /etc/resolv.conf)")
 fi
 
 # Per-repository config, .jail (docs/jail.md). Jailed code can write it,
@@ -133,9 +34,12 @@ bind_path() {
   case $p in "~") p=$HOME ;; "~/"*) p=$HOME/${p#"~/"} ;; esac
   [[ $p == /* ]] || { echo "not an absolute path or ~/..."; return 1; }
   while [[ $p == */ && $p != / ]]; do p=${p%/}; done
-  real=$(realpath -e -- "$p" 2>/dev/null) || { echo "does not exist"; return 1; }
-  [ "$real" = "$p" ] || { echo "goes through a symlink or is not canonical (it is $(esc "$real"))"; return 1; }
-  [ -d "$p" ] || [ -f "$p" ] || { echo "is not a directory or regular file"; return 1; }
+  # jail config inside a jail does not see the host's paths
+  if [ -z "$nohost" ]; then
+    real=$(realpath -e -- "$p" 2>/dev/null) || { echo "does not exist"; return 1; }
+    [ "$real" = "$p" ] || { echo "goes through a symlink or is not canonical (it is $(esc "$real"))"; return 1; }
+    [ -d "$p" ] || [ -f "$p" ] || { echo "is not a directory or regular file"; return 1; }
+  fi
   # /.snapshots and /persist hold copies of the home and the host state
   for x in /nix /run /proc /dev /etc /sys /.snapshots /persist; do
     ! within "$p" "$x" || { echo "is in $x"; return 1; }
@@ -200,20 +104,206 @@ in_effect() {
   done
   echo "ports ${ports[*]:-none} | ro${ro:- none} | rw${rw:- none}"
 }
-# The config to apply: the approved copy, or the repository's .jail once
-# you approve it now. Args: shared or one-off (a taken port then is skipped).
-load_config() {
-  local approved=$state/jail.approved f=/proc/self/fd/4/.jail conf="" new why="" answer p summary fwd=()
-  [ ! -e "$approved" ] || conf=$(cat "$approved") || die "cannot read $approved"
-  exec 4<"$root" && [ "$(readlink /proc/self/fd/4)" = "$root" ] || die "$root is not a plain directory"
+# the repository as fd 4, checked to be that directory
+open_root() { exec 4<"$root" && [ "$(readlink /proc/self/fd/4)" = "$root" ] || die "$root is not a plain directory"; }
+# The repository's .jail (through fd 4) as data into new. Fails with why
+# set when it is refused, with why empty when there is none.
+read_jail() {
+  local f=/proc/self/fd/4/.jail
+  new="" why=""
   if [ ! -e "$f" ] && [ ! -L "$f" ]; then
-    conf= # no .jail: nothing applied
+    return 1
   elif [ -L "$f" ] || [ ! -f "$f" ]; then
     why="it is not a regular file"
   elif [ "$(stat -c %s "$f")" -gt 65536 ]; then
     why="it is larger than 64 KiB"
-  elif ! new=$(dd if="$f" iflag=nofollow,nonblock bs=65536 count=1 status=none); then
+  elif new=$(dd if="$f" iflag=nofollow,nonblock bs=65536 count=1 status=none); then
+    return 0
+  else
     why="it cannot be read"
+  fi
+  return 1
+}
+sha() { printf %s "$1" | sha256sum | cut -d" " -f1; }
+resolve "$dir"
+cwd=$(cd "$dir" && pwd -P)
+case $HOME in /home/?*) ;; *) die "HOME must be under /home: $HOME" ;; esac
+case "$HOME/" in "$root"/*) die "$root contains your home directory" ;; esac
+name=$(jail_name "$root")
+state=$HOME/.local/share/jails/$name
+
+# jail config: .jail read and checked as a start does; nothing approved,
+# nothing written. Inside a jail (JAIL, set by the start below) what is
+# in effect comes from the start's environment.
+if [ -n "$config" ]; then
+  fdbinds=() mounts=() rc=0 inside=""
+  [ -z "${JAIL:-}" ] || inside=1 nohost=1
+  hint="To apply it: on a host terminal, systemctl --user stop jail-$name (this ends every shell in that jail), then jail $root; it shows the change and applies it once you type yes."
+  echo "jail config: $root/.jail"
+  open_root
+  if read_jail; then
+    if add=$(parse "$new" && in_effect 0); then
+      echo "would add: $add"
+    else
+      echo "jail config: that line is refused; a start would not apply this .jail"
+      rc=1
+    fi
+  elif [ -n "$why" ]; then
+    echo "jail config: .jail is not applied: $why"
+    rc=1
+  else
+    echo "would add: nothing (no .jail; the next start applies nothing)"
+  fi
+  exec 4<&-
+  [ -z "$inside" ] || echo "not checked inside a jail (they need the host's paths): whether each ro/rw path exists, is a directory or regular file, and has no symlink, . or .. in it; the host checks that when you approve"
+  # compared only when a start would apply .jail
+  cmp=
+  [ "$rc" != 0 ] || [ -z "$new" ] || cmp=1
+  if [ -n "$inside" ]; then
+    if [ "$JAIL" != "$name" ]; then
+      echo "in effect: not known here: this is jail $JAIL, and $root has a jail of its own"
+    elif [ -z "${JAIL_IN_EFFECT:-}" ]; then
+      echo "in effect: not known (this jail started before jail config: restart it)"
+    else
+      echo "in effect in this jail: $JAIL_IN_EFFECT"
+      if [ -z "$cmp" ]; then :
+      elif [ "$(sha "$new")" = "${JAIL_APPLIED_SHA256:-}" ]; then
+        echo ".jail matches what is in effect in this jail"
+      else
+        echo ".jail differs from what is in effect in this jail: pending your approval at the next start"
+        echo "$hint"
+      fi
+    fi
+  else
+    approved=$state/jail.approved conf=""
+    if [ ! -e "$approved" ]; then
+      echo "approved: nothing yet"
+    else
+      conf=$(cat "$approved") || die "cannot read $approved"
+      if s=$(parse "$conf" && in_effect 0); then
+        echo "approved: $s"
+      else
+        echo "approved: $approved no longer applies (the line above); the next start stops until .jail changes and you approve it"
+      fi
+    fi
+    if [ -z "$cmp" ]; then :
+    elif [ "$new" = "$conf" ]; then
+      echo ".jail matches the approved copy (applied at the next start; a running shared jail keeps what it started with)"
+    else
+      echo ".jail differs from the approved copy: pending your approval"
+      echo "$hint"
+    fi
+  fi
+  exit "$rc"
+fi
+
+run=${XDG_RUNTIME_DIR:?jail: XDG_RUNTIME_DIR is not set}
+user=$(id -un)
+jhome=$state/home
+if [ ! -e "$state" ]; then
+  # First start: no jailed code has run for this repository yet, so its
+  # push URL is still yours. Later ones jail-push asks you to confirm.
+  if open_gitdir "$gitdir" && url=$(origin_url) && valid_url "$url"; then
+    store_url "$state/mirror.git" "$url" || die "cannot store the push URL in $state/mirror.git"
+    printf 'jail: jail-push %s pushes to %q\n' "$root" "$url"
+  else
+    echo "jail: no push URL recorded for $root (none, or refused: $bad_url); jail-push asks on first use" >&2
+  fi
+  exec 3<&-
+fi
+mkdir -p "$jhome"
+# The jail's ~/.cache, outside the /home snapshots (~/.cache is a subvolume
+# of its own). Before, it was in the jail home: that one stays, unused
+# (prepare links home-manager's files under .cache in there on every start).
+cache=$HOME/.cache/jails/$name
+if [ ! -e "$cache" ] && [ -d "$jhome/.cache" ] && [ ! -L "$jhome/.cache" ] &&
+  [ -n "$(find "$jhome/.cache" ! -type d ! -lname '/nix/store/*-home-manager-files/*' -print -quit)" ]; then
+  echo "jail: the jail's cache is now $cache; the old one, $jhome/.cache, is no longer used (delete it while the jail is stopped)" >&2
+fi
+mkdir -p "$cache" || die "cannot create $cache"
+
+# On every start: dotfiles, mount points, ~/.claude.json (prepareHome).
+prepare() {
+  local gen=$HOME/.local/state/home-manager/gcroots/current-home files host=()
+  files=$(readlink -f "$gen/home-files") && [ -d "$files" ] ||
+    die "no home-manager generation at $gen (home-manager not activated yet?)"
+  vars=$(readlink -f "$gen/home-path/etc/profile.d/hm-session-vars.sh") && [ -f "$vars" ] ||
+    die "no hm-session-vars.sh in the home-manager generation at $gen"
+  [ ! -f "$HOME/.claude.json" ] || host=(--ro-bind "$HOME/.claude.json" /tmp/host.json)
+  bwrap --unshare-all --die-with-parent --clearenv --ro-bind /nix /nix \
+    --proc /proc --dev /dev --tmpfs /tmp "${host[@]}" --bind "$jhome" /tmp/home \
+    -- @prepareHome@/bin/jail-prepare-home "$files" "${mounts[@]#"$HOME"/}" ||
+    die "could not prepare $jhome; to start over, reset its home ($readme, Reset)"
+}
+
+# jail-run's pasta namespace: --share-net keeps it
+args=(
+  --unshare-all --share-net --die-with-parent --new-session --clearenv
+  --ro-bind /nix /nix
+  --bind /nix/var/nix/daemon-socket /nix/var/nix/daemon-socket
+  --ro-bind /etc /etc
+  --ro-bind-try /bin /bin
+  --ro-bind-try /usr /usr
+  --ro-bind-try /lib64 /lib64
+  --ro-bind-try /run/current-system /run/current-system
+  --proc /proc
+  --dev /dev
+  --dev-bind-try /dev/kvm /dev/kvm
+  --tmpfs /tmp
+  --perms 0700 --tmpfs "$run"
+  --tmpfs /home
+  --bind "$jhome" "$HOME"
+)
+# same path inside, only if it exists
+bind() { [ -e "$2" ] && args+=("$1" "$2" "$2") || true; }
+bind --ro-bind "$HOME/brain"
+bind --bind "$HOME/brain/inbox"
+# ~/.claude, ~/.codex: the jail's own directories, so state, temp files
+# and new names stay in the jail; host entries on top (see the patterns).
+host_entries() {
+  local e n
+  for e in "$HOME/$1"/* "$HOME/$1"/.*; do
+    n=${e##*/}
+    [ -e "$e" ] && [ "$n" != . ] && [ "$n" != .. ] || continue
+    if [[ $n == @($2) ]]; then args+=(--bind "$e" "$e")
+    elif [[ $n != @($3) ]]; then args+=(--ro-bind "$e" "$e")
+    else continue; fi
+    mounts+=("$e")
+  done
+}
+mounts=()
+host_entries .claude '@claudeShared@' '@claudeState@'
+host_entries .codex '@codexShared@' '@codexState@'
+# plugin state, where plugins also install their dependencies: per jail
+if [ -d "$HOME/.claude/plugins/data" ]; then
+  mkdir -p "$state/claude-plugin-data"
+  args+=(--bind "$state/claude-plugin-data" "$HOME/.claude/plugins/data")
+fi
+bind --ro-bind "$HOME/.local/bin" # graphify
+bind --ro-bind "$HOME/.local/share/uv/tools" # its venv
+# the repository, the cache and .jail's paths: opened and checked by jail-binds, bound by fd here
+fdbinds=(rw "$root" "rw:$HOME/.cache" "$cache")
+mounts+=("$HOME/.cache")
+args+=(--args 5 --chdir "$cwd")
+# DNS through pasta (jail-run): the host's resolv.conf (it may name
+# 127.0.0.53) with only its search and options lines. Written outside
+# the jail's reach and replaced whole, a running jail keeps its copy.
+if [ -e /etc/resolv.conf ]; then
+  if ! { { grep -E '^(search|domain|options)([[:space:]]|$)' /etc/resolv.conf || true; echo "nameserver 169.254.1.1"; } >"$state/resolv.conf.$$" &&
+    mv "$state/resolv.conf.$$" "$state/resolv.conf"; }; then
+    die "cannot write $state/resolv.conf"
+  fi
+  args+=(--ro-bind "$state/resolv.conf" "$(readlink -f /etc/resolv.conf)")
+fi
+
+# The config to apply: the approved copy, or the repository's .jail once
+# you approve it now. Args: shared or one-off (a taken port then is skipped).
+load_config() {
+  local approved=$state/jail.approved conf="" new why="" answer p summary fwd=() base
+  [ ! -e "$approved" ] || conf=$(cat "$approved") || die "cannot read $approved"
+  open_root
+  if ! read_jail; then
+    [ -n "$why" ] || conf= # no .jail: nothing applied
   elif [ "$new" != "$conf" ]; then
     # what the file amounts to, shown below the diff
     if ! summary=$(
@@ -247,6 +337,7 @@ load_config() {
     printf 'jail: %s/.jail is not applied (%s); %s. To review it, start jail on a terminal.\n' "$root" "$why" \
       "$([ -n "$conf" ] && echo "using the copy you approved last" || echo "nothing approved yet")" >&2
   fi
+  base=${#fdbinds[@]}
   parse "$conf" || die "the approved .jail ($approved) no longer applies: change .jail and start jail on a terminal"
   # host 127.0.0.1:PORT, forwarded by jail-run's pasta
   for p in "${ports[@]}"; do
@@ -260,6 +351,8 @@ load_config() {
     fi
   done
   portspec=$(IFS=,; echo "${fwd[*]}")
+  # for jail config inside: what this jail got, and from which .jail
+  env+=(--setenv JAIL_IN_EFFECT "$(ports=("${fwd[@]}") && in_effect "$base")" --setenv JAIL_APPLIED_SHA256 "$(sha "$conf")")
 }
 
 # The environment is built, not inherited: no agent sockets or tokens.
