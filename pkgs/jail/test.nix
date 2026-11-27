@@ -572,6 +572,11 @@
         machine.wait_until_succeeds(f"su - alice -c 'tmux -S {sockc} list-clients' | grep -q .", timeout=60)
         alice(f"tmux -S {sockc} send-keys -t main 'socat TCP-LISTEN:8090,bind=127.0.0.1,fork SYSTEM:pwd &' Enter")
         machine.wait_until_succeeds("su - alice -c 'socat -u TCP:127.0.0.1:8090 -' | grep -q repoc", timeout=30)
+        # its shells know what is in effect (jail config)
+        alice(f"tmux -S {sockc} send-keys -t main 'jail config > ~/repoc/probe-cfg 2>&1; echo done >> ~/repoc/probe-cfg' Enter")
+        machine.wait_until_succeeds("grep -q done /home/alice/repoc/probe-cfg", timeout=30)
+        out = alice("cat ~/repoc/probe-cfg")
+        assert "in effect in this jail: ports 8090 8091 | ro /home/alice/data-ro | rw /home/alice/data-rw" in out, out
         alice("systemctl --user stop 'jail-repoc-*' termc")
 
         # jailed code edits .jail: not applied without approval, the approved copy stays
@@ -624,6 +629,70 @@
         out = start("true", repo="~/repoe", ok=False)
         assert ".jail line 1: ro ~/gone: does not exist" in out and "no longer applies" in out, out
         machine.wait_until_succeeds("! pgrep -u alice '^(xdg-dbus-proxy|passt|pasta)'", timeout=30)
+
+    with subtest("jail config checks .jail inside a jail and on the host, and writes nothing"):
+        readme = "/run/current-system/sw/share/doc/jail/README.md"
+        out = alice("jail --help")
+        assert readme in out and "jail config [DIR]" in out, out
+        jail(f"grep -q '^# jail' {readme} && grep -q 'jail config' {readme}")
+        alice("""
+          mkdir -p ~/cfg-ro && git init -q ~/repof && cd ~/repof && git commit -q --allow-empty -m one
+          printf 'port 8095\\nro ~/cfg-ro\\n' > .jail
+          git init -q ~/repog && echo 'port 8097' > ~/repog/.jail
+        """)
+        # a repository without a jail: checked, and no state or cache made for it
+        out = alice("jail config ~/repog 2>&1")
+        assert "would add: ports 8097 | ro none | rw none" in out and "approved: nothing yet" in out, out
+        assert ".jail differs from the approved copy" in out, out
+        alice("! ls -d ~/.local/share/jails/repog-* ~/.cache/jails/repog-* 2>/dev/null")
+        # on the host: the approved copy, and nothing written
+        start("true", answer="yes", repo="~/repof")
+        snap = "find ~/.local/share/jails/repof-* ~/.cache/jails/repof-* -printf '%p %s %T@\\n' | sort"
+        before = alice(snap)
+        out = alice("jail config ~/repof 2>&1")
+        assert alice(snap) == before
+        assert "would add: ports 8095 | ro /home/alice/cfg-ro | rw none" in out, out
+        assert "approved: ports 8095 | ro /home/alice/cfg-ro | rw none" in out, out
+        assert ".jail matches the approved copy" in out, out
+
+        def inside(cmd):
+            # jail config inside a one-off jail of repof, its output apart from the start's
+            start(f"{cmd} rc=0; jail config > ~/repof/cfg.out 2>&1 || rc=$?; echo rc=$rc >> ~/repof/cfg.out", repo="~/repof")
+            return alice("cat ~/repof/cfg.out")
+
+        out = inside("")
+        assert "jail config: /home/alice/repof/.jail" in out, out
+        assert "would add: ports 8095 | ro /home/alice/cfg-ro | rw none" in out, out
+        assert "in effect in this jail: ports 8095 | ro /home/alice/cfg-ro | rw none" in out, out
+        assert ".jail matches what is in effect in this jail" in out and "not checked inside a jail" in out, out
+        assert "rc=0" in out, out
+        # edited inside: pending, and how it gets applied
+        out = inside("printf 'port 8096\\n' >> .jail &&")
+        assert "would add: ports 8095 8096 | ro /home/alice/cfg-ro | rw none" in out, out
+        assert "in effect in this jail: ports 8095 | ro /home/alice/cfg-ro | rw none" in out, out
+        assert ".jail differs from what is in effect in this jail" in out, out
+        assert "systemctl --user stop jail-repof-" in out and "type yes" in out and "rc=0" in out, out
+        assert ".jail differs from the approved copy" in alice("jail config ~/repof 2>&1")
+        # a bad line: named, non-zero, also on the host
+        out = inside("printf 'port 80\\n' >> .jail &&")
+        assert ".jail line 4: port 80: a port is" in out and "rc=1" in out, out
+        out = alice("rc=0; jail config ~/repof 2>&1 || rc=$?; echo rc=$rc")
+        assert ".jail line 4: port 80: a port is" in out and "rc=1" in out, out
+        # inside as well: a linked .jail, and a path with .. (checked without the host's paths)
+        out = inside("mv .jail .jail.real && ln -s .jail.real .jail &&")
+        assert "is not applied: it is not a regular file" in out and "rc=1" in out, out
+        out = inside("rm .jail && printf 'rw ~/x/../.ssh\\n' > .jail &&")
+        assert ".jail line 1: rw ~/x/../.ssh: is not canonical" in out and "rc=1" in out, out
+        # an empty .jail is not a missing one: against the approved copy it is pending
+        out = inside(": > .jail &&")
+        assert ".jail differs from what is in effect in this jail" in out and "rc=0" in out, out
+        assert ".jail differs from the approved copy" in alice("jail config ~/repof 2>&1")
+        # a nested repository has a jail of its own: this jail's config is not its
+        out = inside("rm -rf sub && git init -q sub && cd sub &&")
+        assert "has a jail of its own" in out and "in effect in this jail" not in out, out
+        # nothing approved or stored from inside
+        alice("printf 'port 8095\\nro ~/cfg-ro\\n' | cmp - ~/.local/share/jails/repof-*/jail.approved")
+        alice("! ls ~/.local/share/jails/repof-*/jail.approved.new ~/.local/share/jails/repof-*/home/.local/share/jails 2>/dev/null")
 
     with subtest("terminals of one repository share one jail"):
         sock = "$(echo /run/user/1000/jails/repo-*/tmux.sock)"

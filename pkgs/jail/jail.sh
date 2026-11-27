@@ -1,5 +1,14 @@
-usage="usage: jail [DIR] [-- CMD...]"
+readme=/run/current-system/sw/share/doc/jail/README.md
+usage="usage: jail [DIR] [-- CMD...]   a shell (or CMD) in DIR's repository jail
+       jail config [DIR]          check DIR's .jail; approves nothing (a directory named config: jail ./config)
+Guide: $readme"
 dir=$PWD
+config="" nohost=""
+if [ "${1-}" = config ]; then
+  config=1
+  shift
+  [ $# -le 1 ] && [ "${1-}" != -- ] || die "$usage"
+fi
 if [ $# -gt 0 ] && [ "$1" != -- ]; then
   case $1 in -h | --help) echo "$usage"; exit 0 ;; esac
   dir=$1
@@ -10,14 +19,187 @@ if [ $# -gt 0 ]; then
   shift
 fi
 
+# Per-repository config, .jail (docs/jail.md). Jailed code can write it,
+# so only the copy you approved on a terminal is applied; it is read as
+# data like .git/config and stored where the jail cannot see it.
+ports=() portspec=
+esc() { printf '%s' "$1" | cat -vT; } # control characters (also tab) and high bytes as text
+# $1 is $2 or below it
+within() { [ "$1" = "$2" ] || [ "$2" = / ] || [[ $1 == "$2"/* ]]; }
+# A path for ro/rw, or why not: absolute (~/ is your home), no symlink
+# on the way, none of what the jail must not get.
+bind_path() {
+  local p=$1 real x
+  # shellcheck disable=SC2088 # a literal ~ from the file
+  case $p in "~") p=$HOME ;; "~/"*) p=$HOME/${p#"~/"} ;; esac
+  [[ $p == /* ]] || { echo "not an absolute path or ~/..."; return 1; }
+  while [[ $p == */ && $p != / ]]; do p=${p%/}; done
+  # jail config inside a jail does not see the host's paths
+  if [ -z "$nohost" ]; then
+    real=$(realpath -e -- "$p" 2>/dev/null) || { echo "does not exist"; return 1; }
+    [ "$real" = "$p" ] || { echo "goes through a symlink or is not canonical (it is $(esc "$real"))"; return 1; }
+    [ -d "$p" ] || [ -f "$p" ] || { echo "is not a directory or regular file"; return 1; }
+  else
+    # without the host's paths: at least no . or .. (the comparisons below are textual)
+    real=$(realpath -sm -- "$p") && [ "$real" = "$p" ] || { echo "is not canonical (it is $(esc "$real"))"; return 1; }
+  fi
+  # /.snapshots and /persist hold copies of the home and the host state
+  for x in /nix /run /proc /dev /etc /sys /.snapshots /persist; do
+    ! within "$p" "$x" || { echo "is in $x"; return 1; }
+  done
+  [ "$p" != /tmp ] || { echo "is /tmp"; return 1; }
+  for x in "$HOME" "$HOME/.local/share/jails" "$HOME/.cache" "$root"; do
+    ! within "$x" "$p" || { echo "is or contains $x"; return 1; }
+  done
+  ! within "$p" "$HOME/.local/share/jails" || { echo "is in the jails' state"; return 1; }
+  # the jail's ~/.cache is its own (~/.cache/jails/<name>): a bind below it would land in there
+  ! within "$p" "$HOME/.cache" || { echo "is in $HOME/.cache, the jail has its own"; return 1; }
+  ! within "$p" "$root" || { echo "is in the repository"; return 1; }
+  # keys, logins, transcripts; with rw also what your host session runs or loads
+  local sensitive=(.ssh .gnupg .claude .codex .claude.json .local/share/keyrings .password-store) ro_only=()
+  [ "$2" = ro ] || ro_only=(.config .local/state .local/bin brain)
+  for x in "${sensitive[@]}" "${ro_only[@]}"; do
+    if within "$p" "$HOME/$x" || within "$HOME/$x" "$p"; then
+      echo "overlaps $HOME/$x$([[ " ${ro_only[*]} " != *" $x "* ]] || echo " (ro only)")"
+      return 1
+    fi
+  done
+  printf '%s\n' "$p"
+}
+# Applies a config's lines to args, mounts and ports; on the first bad
+# line says which and why (stderr) and fails.
+parse() {
+  local n=0 line key val p
+  while IFS= read -r line || [ -n "$line" ]; do
+    n=$((n + 1)) p=""
+    [[ ! $line =~ ^[[:space:]]*(#|$) ]] || continue
+    read -r key val <<<"$line" || true
+    if [[ $val == *[[:cntrl:]]* ]]; then
+      p="control characters"
+    else
+      case $key in
+        port)
+          if [[ $val =~ ^[1-9][0-9]{3,4}$ ]] && [ "$val" -le 65535 ]; then
+            # pasta refuses a port given twice
+            [[ " ${ports[*]} " == *" $val "* ]] || ports+=("$val")
+          else
+            p="a port is a number from 1024 to 65535"
+          fi ;;
+        ro | rw)
+          if p=$(bind_path "$val" "$key"); then
+            fdbinds+=("$key" "$p")
+            # a link the jail plants in its home at the mount point goes (prepare)
+            [[ $p != "$HOME"/* ]] || mounts+=("$p")
+            p=
+          fi ;;
+        # features: I4 adds winvm here
+        *) p="unknown keyword (port, ro, rw)" ;;
+      esac
+    fi
+    [ -z "$p" ] || { echo "jail: .jail line $n: $(esc "$line"): $p" >&2; return 1; }
+  done <<<"$1"
+}
+# ports, then the ro and rw paths parse added after fdbinds' first $1 entries
+in_effect() {
+  local i ro="" rw=""
+  for ((i = $1; i < ${#fdbinds[@]}; i += 2)); do
+    if [ "${fdbinds[i]}" = ro ]; then ro+=" $(esc "${fdbinds[i + 1]}")"; else rw+=" $(esc "${fdbinds[i + 1]}")"; fi
+  done
+  echo "ports ${ports[*]:-none} | ro${ro:- none} | rw${rw:- none}"
+}
+# the repository as fd 4, checked to be that directory
+open_root() { exec 4<"$root" && [ "$(readlink /proc/self/fd/4)" = "$root" ] || die "$root is not a plain directory"; }
+# The repository's .jail (through fd 4) as data into new. Fails with why
+# set when it is refused, with why empty when there is none.
+read_jail() {
+  local f=/proc/self/fd/4/.jail
+  new="" why=""
+  if [ ! -e "$f" ] && [ ! -L "$f" ]; then
+    return 1
+  elif [ -L "$f" ] || [ ! -f "$f" ]; then
+    why="it is not a regular file"
+  elif [ "$(stat -c %s "$f")" -gt 65536 ]; then
+    why="it is larger than 64 KiB"
+  elif new=$(dd if="$f" iflag=nofollow,nonblock bs=65536 count=1 status=none); then
+    return 0
+  else
+    why="it cannot be read"
+  fi
+  return 1
+}
+sha() { printf %s "$1" | sha256sum | cut -d" " -f1; }
 resolve "$dir"
 cwd=$(cd "$dir" && pwd -P)
 case $HOME in /home/?*) ;; *) die "HOME must be under /home: $HOME" ;; esac
 case "$HOME/" in "$root"/*) die "$root contains your home directory" ;; esac
-run=${XDG_RUNTIME_DIR:?jail: XDG_RUNTIME_DIR is not set}
-user=$(id -un)
 name=$(jail_name "$root")
 state=$HOME/.local/share/jails/$name
+
+# jail config: .jail read and checked as a start does; nothing approved,
+# nothing written. Inside a jail (JAIL, set by the start below) what is
+# in effect comes from the start's environment.
+if [ -n "$config" ]; then
+  fdbinds=() mounts=() rc=0 inside="" cmp=""
+  [ -z "${JAIL:-}" ] || inside=1 nohost=1
+  hint="To apply it: on a host terminal, systemctl --user stop jail-$name (this ends every shell in that jail), then jail $root; it shows the change and applies it once you type yes."
+  echo "jail config: $root/.jail"
+  open_root
+  if read_jail; then
+    if add=$(parse "$new" && in_effect 0); then
+      echo "would add: $add"
+      cmp=1 # a start would apply it, also an empty one
+    else
+      echo "jail config: that line is refused; a start would not apply this .jail"
+      rc=1
+    fi
+  elif [ -n "$why" ]; then
+    echo "jail config: .jail is not applied: $why"
+    rc=1
+  else
+    echo "would add: nothing (no .jail; the next start applies nothing)"
+  fi
+  exec 4<&-
+  [ -z "$inside" ] || echo "not checked inside a jail (they need the host's paths): whether each ro/rw path exists, is a directory or regular file, and has no symlink in it; the host checks that when you approve"
+  if [ -n "$inside" ]; then
+    if [ "$JAIL" != "$name" ]; then
+      echo "in effect: not known here: this is jail $JAIL, and $root has a jail of its own"
+    elif [ -z "${JAIL_IN_EFFECT:-}" ]; then
+      echo "in effect: not known (this jail started before jail config: restart it)"
+    else
+      echo "in effect in this jail: $JAIL_IN_EFFECT"
+      if [ -z "$cmp" ]; then :
+      elif [ "$(sha "$new")" = "${JAIL_APPLIED_SHA256:-}" ]; then
+        echo ".jail matches what is in effect in this jail"
+      else
+        echo ".jail differs from what is in effect in this jail: pending your approval at the next start"
+        echo "$hint"
+      fi
+    fi
+  else
+    approved=$state/jail.approved conf=""
+    if [ ! -e "$approved" ]; then
+      echo "approved: nothing yet"
+    else
+      conf=$(cat "$approved") || die "cannot read $approved"
+      if s=$(parse "$conf" && in_effect 0); then
+        echo "approved: $s"
+      else
+        echo "approved: $approved no longer applies (the line above); the next start stops until .jail changes and you approve it"
+      fi
+    fi
+    if [ -z "$cmp" ]; then :
+    elif [ "$new" = "$conf" ]; then
+      echo ".jail matches the approved copy (applied at the next start; a running shared jail keeps what it started with)"
+    else
+      echo ".jail differs from the approved copy: pending your approval"
+      echo "$hint"
+    fi
+  fi
+  exit "$rc"
+fi
+
+run=${XDG_RUNTIME_DIR:?jail: XDG_RUNTIME_DIR is not set}
+user=$(id -un)
 jhome=$state/home
 if [ ! -e "$state" ]; then
   # First start: no jailed code has run for this repository yet, so its
@@ -52,7 +234,7 @@ prepare() {
   bwrap --unshare-all --die-with-parent --clearenv --ro-bind /nix /nix \
     --proc /proc --dev /dev --tmpfs /tmp "${host[@]}" --bind "$jhome" /tmp/home \
     -- @prepareHome@/bin/jail-prepare-home "$files" "${mounts[@]#"$HOME"/}" ||
-    die "could not prepare $jhome; to start over, reset its home (docs/jail.md, Reset)"
+    die "could not prepare $jhome; to start over, reset its home ($readme, Reset)"
 }
 
 # jail-run's pasta namespace: --share-net keeps it. The host's name, not
@@ -118,102 +300,14 @@ if [ -e /etc/resolv.conf ]; then
   args+=(--ro-bind "$state/resolv.conf" "$(readlink -f /etc/resolv.conf)")
 fi
 
-# Per-repository config, .jail (docs/jail.md). Jailed code can write it,
-# so only the copy you approved on a terminal is applied; it is read as
-# data like .git/config and stored where the jail cannot see it.
-ports=() portspec=
-esc() { printf '%s' "$1" | cat -vT; } # control characters (also tab) and high bytes as text
-# $1 is $2 or below it
-within() { [ "$1" = "$2" ] || [ "$2" = / ] || [[ $1 == "$2"/* ]]; }
-# A path for ro/rw, or why not: absolute (~/ is your home), no symlink
-# on the way, none of what the jail must not get.
-bind_path() {
-  local p=$1 real x
-  # shellcheck disable=SC2088 # a literal ~ from the file
-  case $p in "~") p=$HOME ;; "~/"*) p=$HOME/${p#"~/"} ;; esac
-  [[ $p == /* ]] || { echo "not an absolute path or ~/..."; return 1; }
-  while [[ $p == */ && $p != / ]]; do p=${p%/}; done
-  real=$(realpath -e -- "$p" 2>/dev/null) || { echo "does not exist"; return 1; }
-  [ "$real" = "$p" ] || { echo "goes through a symlink or is not canonical (it is $(esc "$real"))"; return 1; }
-  [ -d "$p" ] || [ -f "$p" ] || { echo "is not a directory or regular file"; return 1; }
-  # /.snapshots and /persist hold copies of the home and the host state
-  for x in /nix /run /proc /dev /etc /sys /.snapshots /persist; do
-    ! within "$p" "$x" || { echo "is in $x"; return 1; }
-  done
-  [ "$p" != /tmp ] || { echo "is /tmp"; return 1; }
-  for x in "$HOME" "$HOME/.local/share/jails" "$HOME/.cache" "$root"; do
-    ! within "$x" "$p" || { echo "is or contains $x"; return 1; }
-  done
-  ! within "$p" "$HOME/.local/share/jails" || { echo "is in the jails' state"; return 1; }
-  # the jail's ~/.cache is its own (~/.cache/jails/<name>): a bind below it would land in there
-  ! within "$p" "$HOME/.cache" || { echo "is in $HOME/.cache, the jail has its own"; return 1; }
-  ! within "$p" "$root" || { echo "is in the repository"; return 1; }
-  # keys, logins, transcripts; with rw also what your host session runs or loads
-  local sensitive=(.ssh .gnupg .claude .codex .claude.json .local/share/keyrings .password-store) ro_only=()
-  [ "$2" = ro ] || ro_only=(.config .local/state .local/bin brain)
-  for x in "${sensitive[@]}" "${ro_only[@]}"; do
-    if within "$p" "$HOME/$x" || within "$HOME/$x" "$p"; then
-      echo "overlaps $HOME/$x$([[ " ${ro_only[*]} " != *" $x "* ]] || echo " (ro only)")"
-      return 1
-    fi
-  done
-  printf '%s\n' "$p"
-}
-# Applies a config's lines to args, mounts and ports; on the first bad
-# line says which and why (stderr) and fails.
-parse() {
-  local n=0 line key val p
-  while IFS= read -r line || [ -n "$line" ]; do
-    n=$((n + 1)) p=""
-    [[ ! $line =~ ^[[:space:]]*(#|$) ]] || continue
-    read -r key val <<<"$line" || true
-    if [[ $val == *[[:cntrl:]]* ]]; then
-      p="control characters"
-    else
-      case $key in
-        port)
-          if [[ $val =~ ^[1-9][0-9]{3,4}$ ]] && [ "$val" -le 65535 ]; then
-            # pasta refuses a port given twice
-            [[ " ${ports[*]} " == *" $val "* ]] || ports+=("$val")
-          else
-            p="a port is a number from 1024 to 65535"
-          fi ;;
-        ro | rw)
-          if p=$(bind_path "$val" "$key"); then
-            fdbinds+=("$key" "$p")
-            # a link the jail plants in its home at the mount point goes (prepare)
-            [[ $p != "$HOME"/* ]] || mounts+=("$p")
-            p=
-          fi ;;
-        # features: I4 adds winvm here
-        *) p="unknown keyword (port, ro, rw)" ;;
-      esac
-    fi
-    [ -z "$p" ] || { echo "jail: .jail line $n: $(esc "$line"): $p" >&2; return 1; }
-  done <<<"$1"
-}
-# ports, then the ro and rw paths parse added after fdbinds' first $1 entries
-in_effect() {
-  local i ro="" rw=""
-  for ((i = $1; i < ${#fdbinds[@]}; i += 2)); do
-    if [ "${fdbinds[i]}" = ro ]; then ro+=" $(esc "${fdbinds[i + 1]}")"; else rw+=" $(esc "${fdbinds[i + 1]}")"; fi
-  done
-  echo "ports ${ports[*]:-none} | ro${ro:- none} | rw${rw:- none}"
-}
 # The config to apply: the approved copy, or the repository's .jail once
 # you approve it now. Args: shared or one-off (a taken port then is skipped).
 load_config() {
-  local approved=$state/jail.approved f=/proc/self/fd/4/.jail conf="" new why="" answer p summary fwd=()
+  local approved=$state/jail.approved conf="" new why="" answer p summary fwd=() base
   [ ! -e "$approved" ] || conf=$(cat "$approved") || die "cannot read $approved"
-  exec 4<"$root" && [ "$(readlink /proc/self/fd/4)" = "$root" ] || die "$root is not a plain directory"
-  if [ ! -e "$f" ] && [ ! -L "$f" ]; then
-    conf= # no .jail: nothing applied
-  elif [ -L "$f" ] || [ ! -f "$f" ]; then
-    why="it is not a regular file"
-  elif [ "$(stat -c %s "$f")" -gt 65536 ]; then
-    why="it is larger than 64 KiB"
-  elif ! new=$(dd if="$f" iflag=nofollow,nonblock bs=65536 count=1 status=none); then
-    why="it cannot be read"
+  open_root
+  if ! read_jail; then
+    [ -n "$why" ] || conf= # no .jail: nothing applied
   elif [ "$new" != "$conf" ]; then
     # what the file amounts to, shown below the diff
     if ! summary=$(
@@ -247,6 +341,7 @@ load_config() {
     printf 'jail: %s/.jail is not applied (%s); %s. To review it, start jail on a terminal.\n' "$root" "$why" \
       "$([ -n "$conf" ] && echo "using the copy you approved last" || echo "nothing approved yet")" >&2
   fi
+  base=${#fdbinds[@]}
   parse "$conf" || die "the approved .jail ($approved) no longer applies: change .jail and start jail on a terminal"
   # host 127.0.0.1:PORT, forwarded by jail-run's pasta
   for p in "${ports[@]}"; do
@@ -260,6 +355,8 @@ load_config() {
     fi
   done
   portspec=$(IFS=,; echo "${fwd[*]}")
+  # for jail config inside: what this jail got, and from which .jail
+  env+=(--setenv JAIL_IN_EFFECT "$(ports=("${fwd[@]}") && in_effect "$base")" --setenv JAIL_APPLIED_SHA256 "$(sha "$conf")")
 }
 
 # The environment is built, not inherited: no agent sockets or tokens.

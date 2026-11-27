@@ -269,6 +269,8 @@ in
   # Personal instructions for every session. A rules file, not
   # ~/.claude/CLAUDE.md, because graphify writes into that one.
   home.file.".claude/rules/personal.md".source = ./personal.md;
+  # what to do in a repository jail (pkgs/jail): worded for $JAIL, like codex/AGENTS.md
+  home.file.".claude/rules/jail.md".source = ./jail.md;
   home.file.".codex/AGENTS.md".source = ./codex/AGENTS.md;
   home.file.".codex/jail.config.toml".source = ./codex/jail.config.toml;
 
