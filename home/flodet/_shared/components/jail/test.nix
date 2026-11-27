@@ -167,9 +167,10 @@
         alice("systemd-run --user --wait --quiet true")
         jail("systemd-run --user --wait --quiet true", ok=False)
         alice("test -S /run/user/1000/bus && find /run/user/1000 -type s | grep -q gnupg")
-        # the one socket is the D-Bus proxy's (see "D-Bus: Notifications only")
+        # the one socket is the D-Bus proxy's (see "D-Bus: Notifications only"); not
+        # -type s: find takes the type of the mount point bwrap made, a file
         jail('test "$XDG_RUNTIME_DIR" = /run/user/1000 && test "$DBUS_SESSION_BUS_ADDRESS" = unix:path=/run/user/1000/bus && test -z "''${SSH_AUTH_SOCK:-}"')
-        jail('test "$(find /run/user /run/wrappers -type s 2>/dev/null)" = /run/user/1000/bus && test ! -e /run/wrappers')
+        jail('test "$(find /run/user /run/wrappers ! -type d 2>/dev/null)" = /run/user/1000/bus && test -S /run/user/1000/bus && test ! -e /run/wrappers')
 
     with subtest("own network: outbound and DNS work, host loopback does not"):
         server.wait_for_unit("remote-listener.service")
@@ -198,8 +199,8 @@
         jail(notify)
         jail(other, ok=False)
         jail("systemd-run --user --wait --quiet true", ok=False)
-        # [x], [p]: the pattern must not match the shell that runs pgrep
-        machine.wait_until_succeeds("! pgrep -u alice -f '/bin/([x]dg-dbus-proxy|[p]asta)'", timeout=10)
+        # by process name (pasta runs as passt.avx2 or pasta), not by command line
+        machine.wait_until_succeeds("! pgrep -u alice '^(xdg-dbus-proxy|passt|pasta)'", timeout=10)
 
     with subtest("nix build through the daemon"):
         alice("""cat > ~/repo/t.nix <<'EOF'
@@ -340,9 +341,9 @@
         # the shared jail has its network and D-Bus proxy too, both end with it
         alice(f"tmux -S {sock} send-keys -t main '{notify} && socat -u TCP:server:8000 - > ~/repo/probe3' Enter")
         machine.wait_until_succeeds("grep -q remote /home/alice/repo/probe3", timeout=30)
-        alice("pgrep -u alice -f '/bin/[x]dg-dbus-proxy' && pgrep -u alice -f '/bin/[p]asta'")
+        alice("pgrep -u alice '^xdg-dbus-proxy$' && pgrep -u alice '^(passt|pasta)'")
         alice("systemctl --user stop 'jail-repo-*'")
-        alice("! pgrep -u alice -f '/bin/([x]dg-dbus-proxy|[p]asta)'")
+        alice("! pgrep -u alice '^(xdg-dbus-proxy|passt|pasta)'")
         alice("! ls /run/user/1000/jails/*bus* 2>/dev/null")
         # and it starts again
         terminal("term3")
