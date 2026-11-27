@@ -125,6 +125,10 @@
           [ "$status" = 0 ] && touch $out
           exit $status
         '';
+        # VM test: what a repository jail can see and do (docs/jail.md).
+        jail = pkgs.testers.runNixOSTest (
+          import ./home/flodet/_shared/components/jail/test.nix { inherit home-manager; }
+        );
       });
       # Machines. `user` adds home-manager (home/<username>/<host>).
       nixosConfigurations = {

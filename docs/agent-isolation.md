@@ -1,7 +1,7 @@
 # Agent isolation
 
-Status: design agreed, not implemented. Findings verified on `desktop` on
-2026-11-27.
+Status: design agreed; steps 1 and 2 implemented (step 2: [jail.md](jail.md)).
+Findings verified on `desktop` on 2026-11-27.
 
 ## Goal
 
@@ -14,7 +14,7 @@ repository and sees only what that needs:
 | the repository (read-write) | `~/Nextcloud`, `~/Documents`, `~/Pictures`, ... |
 | `~/brain` (read; `inbox/` writable) | other repositories |
 | `/nix/store`, the Nix daemon, its own caches | `~/.ssh`, `~/.gnupg`, gpg-agent, YubiKey |
-| its own login and config (`~/.claude`, `~/.codex`) | GNOME keyring / Secret Service, browser profiles |
+| the Claude and Codex login; their config read-only (`~/.claude`, `~/.codex`) | GNOME keyring / Secret Service, browser profiles |
 | network (model API, caches, registries) | session D-Bus, `systemd --user`, Nextcloud client |
 | `/dev/kvm`: QEMU VMs incl. Windows (winvm) | `/run/secrets`, Docker and libvirt system sockets |
 
@@ -76,7 +76,8 @@ outside it.
      `/home` snapshots).
    - Agents never get the libvirt system socket; virt-manager stays outside.
    - `sudo` stays for you; inside the jail `no_new_privs` disables it.
-2. **`jail <repo>`** (home-manager module, `writeShellApplication` around
+2. **`jail <repo>`** (implemented: [jail.md](jail.md), VM test
+   `checks.x86_64-linux.jail`; home-manager module, `writeShellApplication` around
    `bwrap`) opens a shell in the jail of that repository. The first call
    starts a tmux server inside the jail, later calls attach to it, so every
    terminal of one repository shares one jail (processes, network, VMs).
@@ -88,22 +89,29 @@ outside it.
      `~/.config/{nvim,git,direnv}`, `~/.local/share/nvim/site`).
    - Read-write: the repository, `~/brain/inbox`, the Nix daemon socket,
      `/dev/kvm`, a per-repository jail home (`~/.local/share/jails/<repo>`:
-     shell history, nvim state and `:trust` list, direnv allow list), the
-     shared caches (`~/.cache/nix`, `nuget`, `npm`, `cargo`), never `~/.cache`
-     wholesale: it holds rootless Docker's data (`~/.cache/docker`).
-   - `~/.claude`, `~/.claude.json`, `~/.codex` read-write and shared by all
-     jails (one login; transcripts of all repositories in one place, accepted),
-     except `~/.claude/settings.json`, `rules/`, `skills/`, `agents/`
-     read-only: a hook written there would run in every other jail.
+     shell history, nvim state and `:trust` list, direnv allow list, its own
+     caches; never the host's `~/.cache`: the Nix eval cache would feed the
+     host's evaluations, and rootless Docker's data is in `~/.cache/docker`).
+   - Shared with the host only the login (`~/.claude/.credentials.json`,
+     `~/.codex/auth.json`). Every other host entry of `~/.claude` and
+     `~/.codex` read-only (config, instructions, plugins, hooks, scripts);
+     their state (transcripts, memory, plans, shell snapshots, plugin data)
+     and `~/.claude.json` per jail, the latter seeded with the login and MCP
+     servers on each start. Nothing written in a jail runs outside it or in
+     another jail.
    - No `/run/user/1000`, no session bus, no gpg-agent, no SSH keys.
      Desktop notifications through
      `xdg-dbus-proxy --talk=org.freedesktop.Notifications` only.
    - **Push** stays outside and must not read the repository's config
      (`core.sshCommand`, `url.*.insteadOf`, hooks run code):
      `jail-push <repo>` fetches into a mirror the jail cannot write
-     (`~/.local/share/jails/<repo>.git`) and pushes from there. To verify:
-     that `git fetch` from a local path runs nothing from the source
-     repository's config.
+     (`~/.local/share/jails/<name>/mirror.git`) and pushes from there, to the
+     URL `jail` recorded before jailed code first ran for the repository (or,
+     without one, a URL you confirm on a terminal). `.git/config` and `HEAD`
+     are read as data, never through a link.
+     `git-upload-pack` honours no code-running repository config
+     (`uploadpack.packObjectsHook` only from protected config, `git help
+     config`), and runs in a sandbox with only `.git` bound anyway.
    - GUI IDEs (Rider, VS Code) on a jailed repository: only inside the jail
      with the Wayland socket bound (Rider natively on Wayland; never the X11
      socket, which lets any client read all input). Otherwise use nvim.
@@ -125,12 +133,12 @@ worked; `/run/user/1000`, `systemd-run --user`, the Docker and libvirt sockets
 unreachable. Also tested: read-only binds of `.git/hooks` inside the writable
 repository do not hold (`mv .git .git.x && git init`), which is why your own
 tools move into the jail rather than the agent getting read-only islands.
-Not tested yet: `claude`, `codex`, zsh and nvim inside the jail, a real winvm
-boot, `pasta`, `xdg-dbus-proxy`, the push mirror.
+Not tested yet: a real winvm boot, `pasta`, `xdg-dbus-proxy`, an interactive
+`claude`/`codex` session inside the jail (`claude --version`, zsh, `graphify`
+checked by hand).
 
-Implementation checks: a NixOS VM test that runs `jail` as the user and
-asserts the table above (hidden paths absent, `sudo` refused, `/dev/kvm`
-opens, `nix build` works, `jail-push` ignores a planted `core.sshCommand`).
+The VM test `checks.x86_64-linux.jail` asserts the table above for step 2
+(list in [jail.md](jail.md), "Tested").
 
 ## VMs and Windows development
 
