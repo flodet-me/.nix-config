@@ -141,7 +141,7 @@ Assumptions:
 |---|---|---|---|
 | I1 one-check-source | `nix run .#check` / `.#gate`, docs point to them | done | 5c9978c |
 | I2 easyeffects-fetch | presets fetched pinned, only those in use | done | e189a98 |
-| I3 adrs-after-the-fact | ADRs 0002-0005 | open | |
+| I3 adrs-after-the-fact | ADRs 0002-0005 | done | 1775158 |
 | I4 goals-trim | goals.md open goals only, ADR 0001 status | open | |
 
 ## G-8 jail README and .jail help inside a jail  (status: open)
