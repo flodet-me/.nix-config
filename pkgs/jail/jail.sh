@@ -27,7 +27,15 @@ case $cmd in
 esac
 if [ "$cmd" = push ]; then
   # DIR: the first argument if it is a directory; one that looks like a path must be one
-  case ${1-} in /* | . | .. | ./* | ../*) [ -d "$1" ] || die "no such directory: $1" ;; esac
+  case ${1-} in
+    /* | . | .. | ./* | ../*) [ -d "$1" ] || die "no such directory: $1" ;;
+    *)
+      # a folder here that is also a branch of this repository's mirror: say which
+      if [ $# -gt 0 ] && [ -d "$1" ] && n=$(resolve "$PWD" 2>/dev/null && jail_name "$root") &&
+        git --git-dir="$jails/$n/mirror.git" show-ref --verify -q "refs/heads/$1" 2>/dev/null; then
+        die "push: $1 is a folder here and a branch: jail push ./$1 (the folder) or jail push . $1 (the branch)"
+      fi ;;
+  esac
   if [ $# -gt 0 ] && [ -d "$1" ]; then dir=$1 && shift; fi
   exec @jailPush@/bin/jail-push "$dir" "$@"
 elif [ -n "$cmd" ]; then
@@ -63,7 +71,7 @@ fi
 # so only the copy you approved on a terminal is applied; it is read as
 # data like .git/config and stored where the jail cannot see it.
 ports=() portspec=
-esc() { printf '%s' "$1" | cat -vT; } # control characters (also tab) and high bytes as text
+esc() { printf '%s' "${1//$'\n'/^J}" | cat -vT; } # control characters (also tab, newline) and high bytes as text
 # $1 is $2 or below it
 within() { [ "$1" = "$2" ] || [ "$2" = / ] || [[ $1 == "$2"/* ]]; }
 # A path for ro/rw, or why not: absolute (~/ is your home), no symlink
@@ -273,9 +281,12 @@ fi
 if [ "$cmd" = reset ]; then
   target "$arg"
   [ -d "$state" ] && [ ! -L "$state" ] || die "no jail state at $state"
-  ! active || die "jail-$name runs; stop it first: jail stop $name"
-  offs=$(oneoffs) n=$(count "$name")
-  [ "$n" = 0 ] || die "$n one-off jail(s) of $name run; end them first"
+  idle() {
+    ! active || die "jail-$name runs; stop it first: jail stop $name"
+    offs=$(oneoffs) n=$(count "$name")
+    [ "$n" = 0 ] || die "$n one-off jail(s) of $name run; end them first"
+  }
+  idle
   case $flag in
     --approved) del=("$state/jail.approved") ;;
     --home) del=("$state/home" "$state/claude-plugin-data") ;;
@@ -291,8 +302,13 @@ if [ "$cmd" = reset ]; then
   printf 'Delete them? [y/N] ' >&2
   read -r a || true
   case $a in y | Y | yes) ;; *) die "not confirmed; nothing deleted" ;; esac
-  # rm needs write permission in read-only folders (Go's module cache); find follows no links
-  find "${there[@]}" -type d ! -perm -u=w -exec chmod u+w {} + || die "cannot make the folders in $name writable; nothing deleted"
+  # again, after the answer; a start holds the lock (shared) until its jail runs
+  exec 9>>"$state/lock" || die "cannot open $state/lock; nothing deleted"
+  flock -xn 9 || die "a jail start of $name is in progress; nothing deleted"
+  idle
+  # rm needs rwx in read-only folders (Go's module cache) or ones jailed code
+  # made unreadable: each fixed before find descends (\;); no links followed
+  find "${there[@]}" -type d ! -perm -u=rwx -exec chmod u+rwx {} \; || die "cannot make the folders in $name writable; nothing deleted"
   rm -rf -- "${there[@]}" || die "deleting failed part way; run jail reset again"
   echo "jail reset: deleted"
   exit 0
@@ -323,7 +339,7 @@ client() {
     --ro-bind /nix /nix --ro-bind /etc /etc \
     --ro-bind-try /run/current-system /run/current-system \
     --proc /proc --dev /dev --tmpfs /tmp --bind "$sockdir" "$sockdir" \
-    "${client_env[@]}" -- @tmux@/bin/tmux -S "$sock" "$@"
+    "${client_env[@]}" -- @tmux@/bin/tmux -S "$sock" "$@" 9>&-
 }
 alive() { client has-session -t main 2>/dev/null; }
 
@@ -334,8 +350,8 @@ alive() { client has-session -t main 2>/dev/null; }
 if [ "$cmd" = config ] || [ "$cmd" = status ]; then
   fdbinds=() mounts=() rc=0 inside="" cmp=""
   [ -z "${JAIL:-}" ] || inside=1 nohost=1
-  hint="To apply it: on a host terminal, systemctl --user stop jail-$name (this ends every shell in that jail), then jail $root; it shows the change and applies it once you type yes."
-  echo "jail config: $root/.jail"
+  hint="To apply it: on a host terminal, jail stop $(esc "$root") (this ends every shell in that jail), then jail $(esc "$root"); it shows the change and applies it once you type yes."
+  echo "jail config: $(esc "$root")/.jail"
   open_root
   if read_jail; then
     if add=$(parse "$new" && in_effect 0); then
@@ -409,7 +425,15 @@ fi
 
 user=$(id -un)
 jhome=$state/home
-if [ ! -e "$state" ]; then
+# Held (shared) until the jail runs, so jail reset does not delete what
+# this start prepares; closed before anything jailed gets it (9>&-).
+# shortcut: a one-off releases it just before its exec of jail-run, which
+# jail reset counts; a reset scanning in that instant misses it.
+first=""
+[ -e "$state" ] || first=1
+{ mkdir -p "$state" && exec 9>>"$state/lock"; } || die "cannot open $state/lock"
+flock -sn 9 || die "jail reset of $name runs; start again after it"
+if [ -n "$first" ]; then
   # First start: no jailed code has run for this repository yet, so its
   # push URL is still yours. Later ones jail push asks you to confirm.
   if open_gitdir "$gitdir" && url=$(origin_url) && valid_url "$url"; then
@@ -442,7 +466,7 @@ prepare() {
   [ ! -f "$HOME/.claude.json" ] || host=(--ro-bind "$HOME/.claude.json" /tmp/host.json)
   bwrap --unshare-all --die-with-parent --clearenv --ro-bind /nix /nix \
     --proc /proc --dev /dev --tmpfs /tmp "${host[@]}" --bind "$jhome" /tmp/home \
-    -- @prepareHome@/bin/jail-prepare-home "$files" "$root" "${mounts[@]#"$HOME"/}" ||
+    -- @prepareHome@/bin/jail-prepare-home "$files" "$root" "${mounts[@]#"$HOME"/}" 9>&- ||
     die "could not prepare $jhome; to start over, reset its home ($readme, Reset)"
 }
 
@@ -605,6 +629,7 @@ if [ $# -gt 0 ]; then
   # rebuilds PATH) sources them again
   # shellcheck disable=SC2016 # expanded by the inner shell
   session='. "$0" && unset __HM_SESS_VARS_SOURCED && exec "$@"'
+  exec 9>&-
   exec @jailRun@/bin/jail-run "$bus" "$portspec" "${fdbinds[@]}" -- "${args[@]}" "${env[@]}" -- \
     @runtimeShell@ -c "$session" "$vars" "$@"
 fi
@@ -622,10 +647,11 @@ if ! alive; then
   keepalive='"$1" -S "$2" new-session -d -s main && while "$1" -S "$2" has-session -t main 2>/dev/null; do @coreutils@/bin/sleep 2; done'
   systemd-run --user --quiet --collect --expand-environment=no --unit="jail-$name" -- \
     @jailRun@/bin/jail-run "$bus" "$portspec" "${fdbinds[@]}" -- "${args[@]}" --bind "$sockdir" "$sockdir" "${env[@]}" -- \
-    @runtimeShell@ -c "$keepalive" sh @tmux@/bin/tmux "$sock" ||
+    @runtimeShell@ -c "$keepalive" sh @tmux@/bin/tmux "$sock" 9>&- ||
     echo "jail: jail-$name did not start, maybe it is starting already" >&2
   for _ in $(seq 50); do alive && break; sleep 0.2; done
-  alive || die "jail-$name is not running: journalctl --user -u jail-$name; systemctl --user stop jail-$name before the next start"
+  alive || die "jail-$name is not running: journalctl --user -u jail-$name; jail stop $(esc "$root") before the next start"
 fi
+exec 9>&-
 # attach-session, never new-session -A: that would start a server outside the jail
 client attach-session -t main
