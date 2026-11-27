@@ -100,8 +100,10 @@ Both services run `scripts/nix-config-checkout` (`nix-config-checkout
 <target> <url> <push-url> [hook...]`). It never touches a `~/.nix-config`
 that has a `.git`, clones into `~/.nix-config-checkout` (removed by the next
 run if a run was killed), and swaps the clone in with one atomic rename, so a
-failed or interrupted run leaves the copy as it was and the service retries
-every minute. Only the workstation passes a hook (sops-sync, commit); servers
+run that fails or is killed before the swap leaves the copy as it was and the
+service retries every minute. Killed after the swap, `~/.nix-config` is a
+checkout already: delete a leftover `~/.nix-config-checkout` and, on a
+workstation, do the registration by hand (`sops-sync`, commit). Only the workstation passes a hook (sops-sync, commit); servers
 never commit. Its tests run when it is built (`checks.x86_64-linux.scripts`).
 
 If you restored a backup that contained a checkout, the installer puts the
