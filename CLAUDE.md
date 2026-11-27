@@ -6,8 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working in this
 
 ## Factory
 
-- Check: `nix build --no-link .#checks.x86_64-linux.formatting .#checks.x86_64-linux.scripts .#checks.x86_64-linux.sops-encrypted && nix flake check --no-build`
-- Gate: `nix flake check && for h in desktop laptop moon vps; do nix build --no-link ".#nixosConfigurations.$h.config.system.build.toplevel"; done`
+- Check: `nix run .#check` (add `--jail` for jail work; what it runs: `scripts/check/check.sh`)
+- Gate: `nix run .#gate`
 - Goals: `docs/goals.md`
 - Reserved for a human: `nixos-rebuild switch` / `nh os switch` on the running host, `sops` / YubiKey operations (`sops-sync`, `sops-register-host`), `git push`, `make-installer-stick`, `provision-server`, `nix flake update`
 - Skills: none
