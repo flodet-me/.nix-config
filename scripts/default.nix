@@ -63,6 +63,27 @@ rec {
     coreutils
   ]) { };
 
+  # Turns install-host's plain copy into a git checkout (docs/installer.md);
+  # its test runs while building it.
+  nix-config-checkout = pkgs.writeShellApplication {
+    name = "nix-config-checkout";
+    runtimeInputs = [
+      pkgs.git
+      pkgs.coreutils
+    ];
+    text = builtins.readFile ./nix-config-checkout/nix-config-checkout.sh;
+    derivationArgs = {
+      nativeBuildInputs = [
+        pkgs.git
+        pkgs.shellcheck
+      ];
+      postCheck = ''
+        shellcheck ${./nix-config-checkout/test.sh}
+        bash ${./nix-config-checkout/test.sh} "$target"
+      '';
+    };
+  };
+
   installer-vm = script "installer-vm" (with pkgs; [
     qemu_kvm
     git
