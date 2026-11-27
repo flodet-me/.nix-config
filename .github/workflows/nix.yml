@@ -39,39 +39,49 @@ jobs:
       - id: list
         run: echo "hosts=$(nix eval --json .#nixosConfigurations --apply builtins.attrNames)" >> "$GITHUB_OUTPUT"
 
-  format:
-    name: nixfmt --check
+  checks:
+    name: flake checks
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
+      # Also enables KVM where the runner has it and exports
+      # DETERMINATE_NIX_KVM (1 or 0).
       - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
         if: ${{ !env.ACT }} # act: the runner image has Nix (.github/act)
         with:
           extra-conf: ${{ env.NIX_EXTRA_CONF }}
 
-      - name: Check formatting
+      # Every flake check (formatting, scripts, sops-encrypted, ...) but the
+      # VM test: a new check is built without editing this file.
+      - name: Build the flake checks
         run: |
-          # `formatter` is a per-system attrset, so it must be qualified with
-          # the runner's system (e.g. formatter.x86_64-linux).
           sys="$(nix eval --impure --raw --expr builtins.currentSystem)"
-          fmt="$(nix build ".#formatter.$sys" --no-link --print-out-paths)"
-          git ls-files '*.nix' | xargs "$fmt/bin/nixfmt" --check
+          names="$(nix eval --raw ".#checks.$sys" --apply 'c: toString (builtins.attrNames (removeAttrs c [ "jail" ]))')"
+          targets=()
+          for n in $names; do targets+=(".#checks.$sys.$n"); done
+          nix build --print-build-logs --no-link "${targets[@]}"
 
-      - name: Check secrets are encrypted
+      - name: Jail VM test
+        if: ${{ !env.ACT }} # act: no KVM in the container
         run: |
+          if [ "${DETERMINATE_NIX_KVM:-0}" != 1 ]; then
+            echo "::notice title=jail VM test skipped::This runner has no KVM; run \`nix build .#checks.x86_64-linux.jail\` locally."
+            exit 0
+          fi
           sys="$(nix eval --impure --raw --expr builtins.currentSystem)"
-          nix build --print-build-logs ".#checks.$sys.sops-encrypted"
+          nix build --print-build-logs --no-link ".#checks.$sys.jail"
 
       - name: How to fix
         if: failure()
         run: |
           {
             echo "### checks failed"
-            echo "Formatting: \`nixfmt \$(git ls-files '*.nix')\`. Plaintext in a secrets file: encrypt it with \`sops\` (docs/secrets.md)."
+            echo "Reproduce one: \`nix build .#checks.x86_64-linux.<name>\` (the failing one is named in the log)."
+            echo "formatting: \`nixfmt \$(git ls-files '*.nix')\`. scripts: the shellcheck output is in the log. sops-encrypted: encrypt it with \`sops\` (docs/secrets.md). jail: docs/jail.md."
           } >> "$GITHUB_STEP_SUMMARY"
 
   installer:
