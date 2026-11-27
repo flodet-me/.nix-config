@@ -205,8 +205,11 @@ the human gate, and `update` shows you exactly what you are about to apply:
   replaced by a link out of the tree (`hosts/p -> /proc`) shows as a type
   change and its old files as deleted. Symlinks (with their target), special
   files, type and mode changes (exec bit), files with NUL bytes and inputs
-  locked to `path`, `file`, a `file:` git url or another type than their
-  `original` get their own loud list. Every diff is shown in full, never
+  locked to `path`, `file`, a url without `https://` or `ssh://` (a bare
+  path, `file:`) or another type than their `original` get their own loud
+  list. After the diff both lists are printed again, the changed files with
+  their diff line counts, so a long diff cannot scroll them away before nh
+  asks. Every diff is shown in full, never
   capped (a small change in a big file is a small diff). A file with NUL
   bytes is diffed as text with each run of NULs shown as one `^@`, and its
   first NUL's offset is listed: Nix reads a `.nix` file only up to there,

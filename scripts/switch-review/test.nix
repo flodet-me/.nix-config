@@ -73,7 +73,8 @@ pkgs.runCommand "switch-review-test"
     cat > new/flake.lock <<'EOF'
     {"nodes":{"root":{"inputs":{"nixpkgs":"nixpkgs","other":"other"}},
      "nixpkgs":{"locked":{"type":"path","path":"/home/x/evil","narHash":"sha256-x"},"original":{"type":"github","owner":"nixos","repo":"nixpkgs"}},
-     "other":{"locked":{"type":"git","url":"file:///home/x/repo","rev":"cccc"},"original":{"type":"git","url":"file:///home/x/repo"}}},
+     "other":{"locked":{"type":"git","url":"file:///home/x/repo","rev":"cccc"},"original":{"type":"git","url":"file:///home/x/repo"}},
+     "bare":{"locked":{"type":"git","url":"/home/x/bare","rev":"dddd"},"original":{"type":"git","url":"/home/x/bare"}}},
      "root":"root","version":7}
     EOF
     # names that are special as array subscripts
@@ -126,7 +127,14 @@ pkgs.runCommand "switch-review-test"
     has 'nixpkgs  path  /home/x/evil'
     has '!! input nixpkgs (new): locked path /home/x/evil, original github'
     has '!! input other (new): locked git file:///home/x/repo cccc, original git'
+    has '!! input bare (new): locked git /home/x/bare dddd, original git'
     hasnt '!! input nixpkgs (old)'
+    # the lists again after the (long) diff, right before nh asks
+    sed -n '/^== Full diff/,$p' out > after
+    grep -qF '== Again: changed files (diff lines) ==' after || fail "changed files not repeated"
+    grep -qE '^M home/big\.nix \([0-9]+ diff lines\)$' after || fail "no diff line count after the diff"
+    grep -qF '!! home/run.sh: mode 644 -> 755' after || fail "!! list not repeated"
+    grep -qF '!! input nixpkgs (new)' after || fail "input flags not repeated"
     has 'cr^Mname.nix'
     has 'esc^[name.nix'
     grep -q $'[\r\033]' out && fail "raw CR or ESC in the output"

@@ -69,12 +69,13 @@ inputs() {
         elif $l.url then "\($l.url) \($l.rev // "")"
         elif $l.path then $l.path else "" end)"' "$1"
 }
-# Inputs that lead to this machine's files, or are locked as another type.
+# Inputs that lead to this machine's files (a url without https:// or ssh://,
+# file:, a bare path), or are locked as another type.
 local_inputs() {
   jq -r --arg side "$2" '.root as $r | .nodes | to_entries[] | select(.key != $r)
     | .value.locked as $l | (.value.original.type // "none") as $o
     | select($l.type == "path" or $l.type == "file" or $o != $l.type
-        or ($l.type == "git" and (($l.url // "") | startswith("file:"))))
+        or ($l.url != null and ($l.url | test("^(https|ssh)://") | not)))
     | "input \(.key) (\($side)): locked \($l.type // "none") \($l.path // (($l.url // "") + (if $l.rev then " \($l.rev)" else "" end))), original \($o)"' "$1"
 }
 
@@ -84,7 +85,7 @@ list() { find "$1" -mindepth 1 -printf '%P\0'; }
 
 review() {
   local old new rel o n ko kn side
-  local -a files=() changed=() odd=() locals=()
+  local -a files=() changed=() odd=() locals=() counts=()
   local -A in_old=() in_new=()
   step "comparing $1 with $2"
   # Resolved roots: find lists a symlinked root itself, not what is in it.
@@ -167,13 +168,31 @@ review() {
   echo "== Full diff (all but docs/**/*.md) =="
   for ((i = 0; i < ${#changed[@]}; i += 2)); do
     rel=${changed[i + 1]}
+    counts[i]="names only"
     [[ $rel == docs/*.md ]] && continue
-    o=/dev/null n=/dev/null
-    [[ -n ${in_old[$rel]:-} && -f $old/$rel && ! -L $old/$rel ]] && o=$old/$rel
-    [[ -n ${in_new[$rel]:-} && -f $new/$rel && ! -L $new/$rel ]] && n=$new/$rel
     # Never capped: a small change in a big file is a small diff.
-    run1 diff -a -u --label "a/$(name "$rel")" --label "b/$(name "$rel")" <(tr -s '\0' <"$o") <(tr -s '\0' <"$n")
+    difffile "$rel"
+    counts[i]="$(difffile "$rel" | wc -l) diff lines"
   done
+  # Again where the prompt follows: a long diff scrolls the lists away.
+  echo
+  echo "== Again: changed files (diff lines) =="
+  for ((i = 0; i < ${#changed[@]}; i += 2)); do
+    echo "${changed[i]} $(name "${changed[i + 1]}") (${counts[i]})"
+  done
+  if ((${#odd[@]})); then
+    echo
+    echo "== Again: !! check these !! =="
+    printf '!! %s\n' "${odd[@]}"
+  fi
+}
+
+# The diff of one file, NUL runs squeezed (each shows as one ^@).
+difffile() {
+  local rel=$1 o=/dev/null n=/dev/null
+  [[ -n ${in_old[$rel]:-} && -f $old/$rel && ! -L $old/$rel ]] && o=$old/$rel
+  [[ -n ${in_new[$rel]:-} && -f $new/$rel && ! -L $new/$rel ]] && n=$new/$rel
+  run1 diff -a -u --label "a/$(name "$rel")" --label "b/$(name "$rel")" <(tr -s '\0' <"$o") <(tr -s '\0' <"$n")
 }
 
 # Everything printed (errors too) passes cat -v: CR, ESC, ... made visible.
