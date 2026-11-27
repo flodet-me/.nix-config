@@ -48,9 +48,10 @@ updates) deletes the VM. For anything you'll need again, write a recipe.
 
 ## The repeatable way: recipes
 
-A recipe is a folder in `recipes/` that turns a fresh VM into the special one.
-It is checked into git, so it survives image rebuilds and other people can use
-it too.
+A recipe is a folder that turns a fresh VM into the special one. The shipped
+ones are in `recipes/` (in git: nix-config's `pkgs/winvm/recipes/`), yours in
+`$WINVM_HOME/recipes/`; both survive image rebuilds. Move one of yours into
+`pkgs/winvm/recipes/` to ship it.
 
 ```sh
 winvm recipes                          # the recipes there are
@@ -90,7 +91,7 @@ What `winvm new NAME --recipe R` does (the recipe's output appears in your termi
 ### Writing your own
 
 ```sh
-winvm recipes new my-test              # copies recipes/_template to recipes/my-test
+winvm recipes new my-test              # copies recipes/_template to $WINVM_HOME/recipes/my-test
 ```
 
 A recipe folder contains:

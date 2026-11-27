@@ -3,4 +3,5 @@
 { pkgs }:
 {
   jail = pkgs.callPackage ./jail { }; # docs/jail.md
+  winvm = pkgs.callPackage ./winvm { }; # pkgs/winvm/README.md
 }

@@ -54,7 +54,7 @@ files stay in this directory.
 | | |
 |---|---|
 | Host | x86-64 Linux with KVM (`/dev/kvm` writable by your user) |
-| Software | [Nix](https://nixos.org/download) with flakes. `nix develop` provides QEMU, swtpm, OVMF, FreeRDP, ... |
+| Software | The `winvm` package of nix-config (`pkgs/winvm`): on PATH on the workstations, with QEMU, swtpm, OVMF, FreeRDP, ... ([Installed use](#installed-use-and-where-the-data-lives)) |
 | Disk | ~25 GB free per Windows version (base image ~20 GB) plus a few GB per VM |
 | RAM | 8 GB for the VM by default (`VM_RAM`) on top of what the host needs |
 | Windows host instead? | see [windows-host/](windows-host/README.md) (VirtualBox) |
@@ -62,12 +62,11 @@ files stay in this directory.
 ## Quick start
 
 ```sh
-nix develop                     # tools + tab completion for winvm
 winvm status                    # what exists, what's missing, the next command
 winvm build                     # Windows 10: install + provision + updates, 1-2 h
 winvm start --headless --wait   # boot, wait until Windows answers
 winvm ssh                       # PowerShell in the VM
-winvm rdp                       # desktop; clipboard; host folder share/ = \\tsclient\share
+winvm rdp                       # desktop; clipboard; host folder $WINVM_HOME/share = \\tsclient\share
 winvm reset                     # back to the freshly built state
 ```
 
@@ -76,6 +75,55 @@ winvm reset                     # back to the freshly built state
 then run `build` again ([details](#windows-versions)).
 
 Help: `winvm help`, `winvm <command> --help`. Login in the VM: `dev` / `dev`.
+
+## Installed use and where the data lives
+
+This directory is `pkgs/winvm` in nix-config (moved there from its own
+repository with its history, ADR 0006). The package puts the whole tree,
+read-only, into the Nix store (`share/winvm`), wraps `winvm` with its tools
+and `WINVM_OVMF_DIR`, and installs tab completion for bash and zsh. The
+workstations (desktop, laptop) have it on PATH (home-manager,
+`home/flodet/_shared/desktop.nix`).
+
+The code never changes at run time. Everything winvm writes or you configure
+lives in `WINVM_HOME` (`winvm home` prints it):
+
+| in `WINVM_HOME` | what |
+|---|---|
+| `state/images/NAME/`, `state/vms/NAME/`, `state/id_ed25519` | base images, VMs, the SSH key |
+| `iso/`, `cache/` | installation media, downloaded tools |
+| `share/`, `runs/`, `captures/` | RDP share, `winvm run` results, screenshots, pcaps, traces |
+| `config.local.env`, `images/NAME.local.env` | your settings |
+| `recipes/NAME/` | your own recipes (`winvm recipes new NAME`); a shipped recipe of the same name wins |
+
+- Default: `${XDG_DATA_HOME:-~/.local/share}/winvm`. The first command that
+  writes creates it, on btrfs as a subvolume of its own: the hourly `/home`
+  snapshots (btrbk) do not contain nested subvolumes, so VM images stay out of
+  them. It also gets `chattr +C` (no copy-on-write, the usual setting for VM
+  disk images; it only takes on an empty directory). The laptop uses this
+  default.
+- desktop: `WINVM_HOME=~/Projects/windows-vm` (home-manager,
+  `home/flodet/desktop/default.nix`), the old checkout with its data: on the
+  data disk, not snapshotted, erased by a reinstall. The copies of
+  `config.env`, `images/*.env`, `provision/` and `recipes/` still lying there
+  are ignored; only the local settings are read from it.
+- Command-only reads (`help`, `home`, `images`, `list`, `status`, `recipes`,
+  `ssh-config`, `completion`) do not create `WINVM_HOME`.
+
+**Changing winvm**: edit it here in nix-config, then try it without switching:
+
+```sh
+nix run .#winvm -- status                       # the working tree's winvm, your WINVM_HOME
+nix build .#checks.x86_64-linux.scripts         # shellcheck + the no-VM test (test.nix)
+WINVM=$(nix build --no-link --print-out-paths .#winvm)/bin/winvm pkgs/winvm/tests/smoke.sh
+```
+
+and switch to get it on PATH. Shipped settings (`config.env`, `images/*.env`,
+`provision/`, the recipes) change the same way; your own go in `WINVM_HOME`.
+
+`winvm vscode setup` / `rider setup` write store paths into the IDE files
+(`lib/ide/dap-pathmap.py`, `windows-host/vs/Winvm.targets`). After an update,
+once garbage collection removes the old package, run the setup again.
 
 ---
 
@@ -508,10 +556,10 @@ RAM snapshots only load with the same sound/USB setup they were saved with.
 
 ## Configuration
 
-Defaults: `config.env`. Your overrides: `config.local.env` (not in git).
+Defaults: `config.env` (in the package). Your overrides: `$WINVM_HOME/config.local.env`.
 
 ```sh
-# config.local.env
+# $WINVM_HOME/config.local.env
 IMAGE="win11"                         # default Windows version
 VM_RAM="12G"; VM_CPUS=6
 WIN_INPUT_LOCALE="de-DE"              # keyboard layout
@@ -546,7 +594,7 @@ Start with `winvm status`: it lists problems and the next command.
 |---|---|
 | `build`: ISO download refused | Microsoft's bot protection. Download from the printed page, save under the path shown, run `build` again |
 | `/dev/kvm not accessible` | enable virtualization in the BIOS/UEFI; add your user to the `kvm` group |
-| `qemu-system-x86_64 not found` | run inside `nix develop` |
+| `qemu-system-x86_64 not found` | run the packaged winvm (`nix run .#winvm` in nix-config), not the script itself |
 | `status`: guest "not answering SSH yet" | still booting or installing updates: `winvm wait`. Hung? `winvm screenshot` |
 | build fails | the error is printed; install log: `state/images/IMG/install-serial.log`, provisioning log in the guest: `C:\winvm\provision.log`. Rerun `winvm build --image IMG` (starts over) |
 | evaluation expired (shuts down hourly) | `winvm build --force --image IMG` (deletes that image's VMs) |
@@ -561,20 +609,27 @@ Start with `winvm status`: it lists problems and the next command.
 **Directory layout**
 
 ```
-config.env, config.local.env   settings (defaults / yours)
+# the package (this directory, read-only in the store)
+config.env                     default settings
 images/NAME.env                Windows versions
 provision/                     what the build installs
 recipes/                       custom VM recipes
-iso/                           installation media          (not in git)
-cache/                         downloaded tools            (not in git)
-state/images/NAME/             base images                 (not in git)
+completions/winvm.bash         tab completion
+tests/smoke.sh                 smoke test of winvm itself
+default.nix, test.nix          the Nix package and its no-VM test
+windows-host/                  VirtualBox version for Windows hosts
+
+# WINVM_HOME (winvm home)
+config.local.env               your settings
+images/NAME.local.env          your settings for one image
+recipes/NAME/                  your recipes
+iso/                           installation media
+cache/                         downloaded tools
+state/images/NAME/             base images
 state/vms/NAME/                VMs: disk, NVRAM, TPM, vm.env
 runs/                          winvm run results
 captures/                      screenshots, pcaps, traces
 share/                         \\tsclient\share during RDP
-completions/winvm.bash         tab completion
-tests/smoke.sh                 smoke test of winvm itself
-windows-host/                  VirtualBox version for Windows hosts
 ```
 
 **Security and identity**
@@ -595,8 +650,10 @@ messages, automatic Windows/Store updates off (`DISABLE_WINDOWS_UPDATE`), Defend
 everyday commands on a throwaway VM `smoke-test` (4 GB RAM): status, start,
 ssh/scp, `run` with exit code, output and a real crash, management commands,
 live snapshots, stop/reset. It needs a built image, takes about 5 minutes and
-exits non-zero if any check fails. Run it after changing `winvm`.
+exits non-zero if any check fails. Run it after changing `winvm`; it tests the
+winvm in `$WINVM`, else the one on PATH (command above).
 
-**Tab completion**: loaded by `nix develop`. Elsewhere, add
+**Tab completion**: installed with the package for bash and zsh (`_winvm_zsh`,
+through zsh's `bashcompinit`). For a winvm from elsewhere, add
 `source <(winvm completion)` to `~/.bashrc`. For zsh, run
 `autoload -U +X bashcompinit && bashcompinit` first.

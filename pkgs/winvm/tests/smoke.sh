@@ -4,6 +4,8 @@
 #
 #   tests/smoke.sh [--image IMG] [--keep]
 #
+#   Tests the winvm in $WINVM, else the one on PATH, with its WINVM_HOME.
+#
 #   --image IMG   test this Windows version (default: IMAGE from config.env)
 #   --keep        keep the test VM afterwards (default: destroy it)
 #
@@ -11,15 +13,14 @@
 # (winvm build) and 4 GB of free RAM.
 set -uo pipefail
 
-ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
-WINVM="$ROOT/winvm"
+WINVM=${WINVM:-$(command -v winvm)} || { echo "no winvm: put it on PATH or set WINVM" >&2; exit 2; }
 VM=smoke-test
 image="" keep=0
 while (($#)); do
     case $1 in
         --image) image=${2:?--image needs a name}; shift ;;
         --keep) keep=1 ;;
-        -h|--help) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h|--help) sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "unknown option $1" >&2; exit 2 ;;
     esac
     shift
@@ -57,7 +58,7 @@ step "preconditions"
 new_args=()
 [[ -n $image ]] && new_args=(--image "$image")
 "$WINVM" new "$VM" "${new_args[@]}" >"$LOG.out" 2>&1 || { fail "winvm new $VM"; cat "$LOG.out"; exit 1; }
-printf 'VM_RAM="4G"\nVM_CPUS=2\n' >"$ROOT/state/vms/$VM/vm.env"
+printf 'VM_RAM="4G"\nVM_CPUS=2\n' >"$("$WINVM" home)/state/vms/$VM/vm.env"
 img=$(json 'd["image"]["name"]')
 [[ $(json 'd["image"]["built"]') == True ]] || { fail "image $img is built (winvm build${image:+ --image $image})"; exit 1; }
 ok "image $img is built, test VM created"
@@ -133,16 +134,13 @@ EOF
         check "redeploy stops the waiting app" w deploy "$out" --as SmokeApp
         expect "no SmokeApp left running" "$(gssh '@(Get-Process SmokeApp -ErrorAction SilentlyContinue).Count')" 0
         printf 'Microsoft Visual Studio Solution File, Format Version 12.00\nProject("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "SmokeApp", "SmokeApp\\SmokeApp.csproj", "{11111111-2222-3333-4444-555555555555}"\nEndProject\n' >"$(dirname "$app")/Smoke.sln"
-        if command -v pwsh >/dev/null; then
-            check "vscode setup" w vscode setup "$(dirname "$app")/Smoke.sln"
-            check "launch.json has the configurations" grep -q '"winvm smoke-test: SmokeApp on the VM desktop"' "$(dirname "$app")/.vscode/launch.json"
-            check "vscode setup --remove deletes what it created" bash -c "'$WINVM' -n $VM vscode setup '$(dirname "$app")/Smoke.sln' --remove >/dev/null 2>&1 && [[ ! -e '$(dirname "$app")/.vscode' ]]"
-            check "rider setup" w rider setup "$(dirname "$app")/Smoke.sln"
-            expect "rider setup: 4 run configurations" "$(find "$(dirname "$app")/.run" -name '*.run.xml' | wc -l)" 4
-            check "rider setup --remove deletes them" bash -c "'$WINVM' -n $VM rider setup '$(dirname "$app")/Smoke.sln' --remove >/dev/null 2>&1 && [[ ! -e '$(dirname "$app")/.run' ]]"
-        else
-            ok "skipped vscode/rider setup: no pwsh (nix develop)"
-        fi
+        # pwsh comes with the winvm package
+        check "vscode setup" w vscode setup "$(dirname "$app")/Smoke.sln"
+        check "launch.json has the configurations" grep -q '"winvm smoke-test: SmokeApp on the VM desktop"' "$(dirname "$app")/.vscode/launch.json"
+        check "vscode setup --remove deletes what it created" bash -c "'$WINVM' -n $VM vscode setup '$(dirname "$app")/Smoke.sln' --remove >/dev/null 2>&1 && [[ ! -e '$(dirname "$app")/.vscode' ]]"
+        check "rider setup" w rider setup "$(dirname "$app")/Smoke.sln"
+        expect "rider setup: 4 run configurations" "$(find "$(dirname "$app")/.run" -name '*.run.xml' | wc -l)" 4
+        check "rider setup --remove deletes them" bash -c "'$WINVM' -n $VM rider setup '$(dirname "$app")/Smoke.sln' --remove >/dev/null 2>&1 && [[ ! -e '$(dirname "$app")/.run' ]]"
     else
         fail "test app built (dotnet build -r win-x64)"; tail -n 15 "$LOG.out" | sed 's/^/         | /'
     fi

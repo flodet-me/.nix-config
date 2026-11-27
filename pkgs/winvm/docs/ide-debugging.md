@@ -61,7 +61,7 @@ Edit and Continue into the VM.
    else in the files byte for byte as it was, and `--remove` / `-Remove` takes
    exactly that out again. `--project A,B` limits it to some projects.
 
-Linux host requirements: `pwsh` and `python3` (both in `nix develop`), a .NET SDK
+Linux host requirements: `pwsh` and `python3` (both come with the winvm package), a .NET SDK
 for building. On NixOS, run VS Code as `vscode-fhs` (the C# extension needs the
 usual Linux libraries).
 

@@ -1,17 +1,24 @@
 #!/usr/bin/env bash
 # winvm - reproducible Windows test VMs on QEMU/KVM.
 # Run `winvm help` for usage, `winvm <command> --help` for details.
+# QEMU options are comma-separated within one array element:
+# shellcheck disable=SC2054
 set -euo pipefail
 
+# ROOT: the code (config.env, images/*.env, provision/, recipes/, lib/, ...),
+# read-only when installed (Nix store). WINVM_HOME: everything winvm writes or
+# you configure: state/, cache/, iso/, share/, runs/, captures/, recipes/ of
+# your own, config.local.env, images/*.local.env (README: "Where the data lives").
 ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+WINVM_HOME="${WINVM_HOME:-${XDG_DATA_HOME:-$HOME/.local/share}/winvm}"
 # shellcheck source=config.env
 source "$ROOT/config.env"
 # shellcheck disable=SC1091
-[[ -f "$ROOT/config.local.env" ]] && source "$ROOT/config.local.env"
+[[ -f "$WINVM_HOME/config.local.env" ]] && source "$WINVM_HOME/config.local.env"
 
 QEMU="${QEMU:-qemu-system-x86_64}"
-STATE="$ROOT/state"
-CACHE="$ROOT/cache"               # host-downloaded tools, shipped to the guest
+STATE="$WINVM_HOME/state"
+CACHE="$WINVM_HOME/cache"         # host-downloaded tools, shipped to the guest
 VMS="$STATE/vms"
 
 IMAGES="$STATE/images"
@@ -29,7 +36,7 @@ select_image() {
     # shellcheck disable=SC1090
     source "$ROOT/images/$1.env"
     # shellcheck disable=SC1090
-    [[ -f "$ROOT/images/$1.local.env" ]] && source "$ROOT/images/$1.local.env"
+    [[ -f "$WINVM_HOME/images/$1.local.env" ]] && source "$WINVM_HOME/images/$1.local.env"
     image_paths "$1"
     IMG_DEFINED=1
 }
@@ -163,10 +170,23 @@ migrate_images() {
     info "moved the base image to state/images/$IMAGE (multi-image layout)"
 }
 
+# WINVM_HOME, made by the first command that writes. On btrfs a subvolume of
+# its own: snapshots of the parent (the hourly /home ones) leave VM images out.
+# Copy-on-write off (chattr +C) for the disk images; it only takes on an empty
+# directory, and everything created inside inherits it.
+init_home() {
+    [[ -d $WINVM_HOME ]] && return 0
+    mkdir -p "$(dirname "$WINVM_HOME")"
+    if btrfs subvolume create "$WINVM_HOME" >/dev/null 2>&1; then info "created $WINVM_HOME (btrfs subvolume)"
+    else mkdir "$WINVM_HOME"; info "created $WINVM_HOME"; fi
+    # not on btrfs (ext4, tmpfs): there is no copy-on-write to turn off
+    chattr +C "$WINVM_HOME" 2>/dev/null || true
+}
+
 need() {
     local missing=()
     for c in "$@"; do command -v "$c" >/dev/null || missing+=("$c"); done
-    ((${#missing[@]} == 0)) || die "missing tools: ${missing[*]} (try: nix develop)"
+    ((${#missing[@]} == 0)) || die "missing tools: ${missing[*]} (the winvm package brings them: nix run .#winvm in nix-config)"
 }
 
 qmp() { python3 -I "$ROOT/lib/qmp.py" "$QMP_SOCK" "$@"; }
@@ -252,6 +272,7 @@ warn_expiry() {
     return 0
 }
 
+# shellcheck disable=SC2016  # PowerShell's $true / $false, literally
 bool() { (($1)) && echo '$true' || echo '$false'; }
 
 # Run PowerShell in the guest. Base64 avoids Windows OpenSSH's quote mangling;
@@ -392,6 +413,7 @@ cdrom_args() {  # index iso [bootindex]
 
 # --- media ------------------------------------------------------------------
 
+# shellcheck disable=SC2120  # cmd_build calls it without options
 cmd_fetch() {
     local refresh=()
     while (($#)); do
@@ -402,7 +424,7 @@ cmd_fetch() {
         shift
     done
     need curl sha256sum python3
-    mkdir -p "$ROOT/iso" "$CACHE"
+    mkdir -p "$WINVM_HOME/iso" "$CACHE"
     if [[ ! -f "$VIRTIO_ISO" ]]; then
         info "downloading $VIRTIO_URL"
         curl -fL --progress-bar -o "$VIRTIO_ISO.part" "$VIRTIO_URL" ||
@@ -483,6 +505,7 @@ render_unattend() {  # out_dir firmware online updates
     for letter in D E F G H I; do
         for drv in viostor NetKVM; do
             n=$((n + 1))
+            # shellcheck disable=SC2153  # VIRTIO_OS comes from images/NAME.env
             paths+="        <PathAndCredentials wcm:action=\"add\" wcm:keyValue=\"$n\"><Path>$letter:\\$drv\\$VIRTIO_OS\\amd64</Path></PathAndCredentials>"$'\n'
         done
     done
@@ -579,7 +602,7 @@ cmd_build() {
         uefi) local vars=$OVMF_VARS
               ((SECURE_BOOT)) || vars=$OVMF_VARS_NO_SECURE_BOOT
               [[ -f "$OVMF_CODE" && -f "$vars" ]] ||
-                  die "OVMF firmware not found ($OVMF_CODE, $vars); run inside 'nix develop' or set OVMF_DIR" ;;
+                  die "OVMF firmware not found ($OVMF_CODE, $vars); the winvm package sets WINVM_OVMF_DIR, else set OVMF_DIR" ;;
         bios) ;;
         *) die "FIRMWARE must be uefi or bios" ;;
     esac
@@ -603,6 +626,7 @@ cmd_build() {
     done
     [[ ! -d "$VMS/$vm" ]] || die "VM '$vm' exists and isn't a $IMG VM; delete it first: winvm destroy $vm"
     ((online)) || offline_build_notice
+    # shellcheck disable=SC2119  # no fetch options in a build
     cmd_fetch
     if ((!online)) && [[ ! -f "$CACHE/openssh.msi" ]]; then
         die "offline build needs cache/openssh.msi for SSH access; run 'winvm fetch' once with internet"
@@ -749,7 +773,7 @@ cmd_start() {
 
     rm -f "$TEMP_MARKER"
     if [[ $fw == uefi ]]; then
-        [[ -f "$OVMF_CODE" ]] || die "OVMF firmware not found ($OVMF_CODE); run inside 'nix develop' or set OVMF_DIR"
+        [[ -f "$OVMF_CODE" ]] || die "OVMF firmware not found ($OVMF_CODE); the winvm package sets WINVM_OVMF_DIR, else set OVMF_DIR"
         local tpm=$TPM_DIR
         if ((temp)); then  # -snapshot covers disk + NVRAM; the TPM needs its own copy
             tpm="$VMDIR/tpm.temp"
@@ -968,9 +992,17 @@ cmd_destroy() {
 # the guest. RECIPE_VM_KEYS from recipe.env become the VM's own settings.
 RECIPE_VM_KEYS="VM_RAM VM_CPUS VM_INTERNET USB_DEVICES AUDIO DISPLAY_MODE"
 
+# Shipped recipes are in ROOT/recipes, your own in WINVM_HOME/recipes; a
+# shipped one wins on a name clash (desktop's WINVM_HOME is the old checkout,
+# with old copies of the shipped recipes).
+recipe_named() {  # name -> its directory, if there is one
+    local d
+    for d in "$ROOT/recipes/$1" "$WINVM_HOME/recipes/$1"; do [[ -d $d ]] && { echo "$d"; return 0; }; done
+    return 1
+}
 recipe_dir() {  # name or path -> directory
     local d=$1
-    [[ $d == */* || -d $d && ! -d "$ROOT/recipes/$d" ]] || d="$ROOT/recipes/$1"
+    [[ $d == */* ]] || { [[ -d $d ]] && ! recipe_named "$d" >/dev/null; } || d=$(recipe_named "$1") || d=$1
     [[ -d $d && -f $d/recipe.env ]] || die "no recipe '$1' (recipes/NAME/recipe.env; winvm recipes lists them)"
     (cd "$d" && pwd)
 }
@@ -989,17 +1021,21 @@ cmd_recipes() {
         list)
             printf '%-20s %-12s %s\n' RECIPE IMAGE DESCRIPTION
             local d
-            for d in "$ROOT"/recipes/*/; do
+            for d in "$ROOT"/recipes/*/ "$WINVM_HOME"/recipes/*/; do
                 [[ -f $d/recipe.env && $(basename "$d") != _* ]] || continue
+                [[ $d == "$WINVM_HOME"/* && -d "$ROOT/recipes/$(basename "$d")" ]] && continue
                 printf '%-20s %-12s %s\n' "$(basename "$d")" "$(recipe_get "$d" IMAGE || true)" "$(recipe_get "$d" DESCRIPTION || true)"
             done
             note "make a VM from one: winvm new NAME --recipe RECIPE   start your own: winvm recipes new NAME" ;;
         new)
             local name=${2:-}
             valid_vm_name "$name" || die "usage: winvm recipes new NAME (lowercase letters, digits, -)"
-            [[ ! -e "$ROOT/recipes/$name" ]] || die "recipes/$name exists already"
-            cp -r "$ROOT/recipes/_template" "$ROOT/recipes/$name"
-            info "created recipes/$name/ - edit recipe.env, packages.txt and setup.ps1, then:"
+            ! recipe_named "$name" >/dev/null || die "a recipe '$name' exists already"
+            init_home
+            mkdir -p "$WINVM_HOME/recipes"
+            cp -r "$ROOT/recipes/_template" "$WINVM_HOME/recipes/$name"
+            chmod -R u+w "$WINVM_HOME/recipes/$name"   # copied from the read-only store
+            info "created $WINVM_HOME/recipes/$name/ - edit recipe.env, packages.txt and setup.ps1, then:"
             note "winvm new $name --recipe $name" ;;
         *) die "usage: winvm recipes [list | new NAME]" ;;
     esac
@@ -1345,12 +1381,12 @@ vsdbg_sync_cmd() {
 }
 
 cmd_deploy() {
-    local as="" exe="" args="" flags=() run=0 service=0 wait=0 vsdbg=0 pos=()   # options before or after FOLDER
+    local as="" exe="" app_args="" flags=() run=0 service=0 wait=0 vsdbg=0 pos=()   # options before or after FOLDER
     while (($#)); do
         case $1 in
             --as) as=${2:?--as needs a name}; shift ;;
             --exe) exe=${2:?--exe needs a file name}; shift ;;
-            --args) args=${2?--args needs a value}; shift ;;
+            --args) app_args=${2?--args needs a value}; shift ;;
             --run) flags+=(-Run); run=1 ;;
             --service) flags+=(-Service); service=1 ;;
             --install) flags+=(-Install) ;;
@@ -1382,7 +1418,7 @@ cmd_deploy() {
     local g="& C:\\winvm\\deploy.ps1 -App '$app' -Tar 'C:\\winvm\\$gtar'"
     ((vsdbg)) && g="$(vsdbg_sync_cmd)$g"
     [[ -n $exe ]] && g+=" -Exe '${exe//\'/\'\'}'"
-    [[ -n $args ]] && g+=" -ArgsB64 '$(printf '%s' "$args" | base64 -w0)'"
+    [[ -n $app_args ]] && g+=" -ArgsB64 '$(printf '%s' "$app_args" | base64 -w0)'"
     ((${#flags[@]})) && g+=" ${flags[*]}"
     guest_ps "$g" || die "deploying into '$VM' failed"
     info "deployed $dir -> $VM:C:\\deploy\\$app"
@@ -1511,7 +1547,7 @@ cmd_rdp() {
     for c in xfreerdp3 sdl-freerdp3 xfreerdp sdl-freerdp wlfreerdp3 wlfreerdp; do
         command -v "$c" >/dev/null && { bin=$c; break; }
     done
-    [[ -n ${bin:-} ]] || die "no FreeRDP client found (try: nix develop)"
+    [[ -n ${bin:-} ]] || die "no FreeRDP client found (the winvm package brings them: nix run .#winvm in nix-config)"
     mkdir -p "$SHARE_DIR"
     exec "$bin" "/v:127.0.0.1:$P_RDP" "/u:$WIN_USER" "/p:$WIN_PASSWORD" /cert:ignore \
         /dynamic-resolution +clipboard "/drive:share,$SHARE_DIR" "$@"
@@ -1551,11 +1587,11 @@ cmd_status() {
     [[ -d $IMGDIR ]] && building=$(procs_using "$IMGDIR" --build | head -1)
     days=$(eval_days_left) || days=""
 
-    if [[ -f $WIN_ISO ]]; then iso_text="${WIN_ISO#"$ROOT/"} ($(du -hL "$WIN_ISO" | cut -f1))"
-    elif [[ -f $BASE ]]; then iso_text="${WIN_ISO#"$ROOT/"} missing (only needed to rebuild)"
+    if [[ -f $WIN_ISO ]]; then iso_text="${WIN_ISO#"$WINVM_HOME/"} ($(du -hL "$WIN_ISO" | cut -f1))"
+    elif [[ -f $BASE ]]; then iso_text="${WIN_ISO#"$WINVM_HOME/"} missing (only needed to rebuild)"
     elif ((WIN_ISO_DOWNLOAD)) && [[ -n $WIN_ISO_PAGE$WIN_ISO_URL ]]; then
-        iso_text="${WIN_ISO#"$ROOT/"} missing (build tries to download it; else: winvm fetch shows where)"
-    else iso_text="${WIN_ISO#"$ROOT/"} missing (download it manually: winvm fetch$bopt shows where)"; fi
+        iso_text="${WIN_ISO#"$WINVM_HOME/"} missing (build tries to download it; else: winvm fetch shows where)"
+    else iso_text="${WIN_ISO#"$WINVM_HOME/"} missing (download it manually: winvm fetch$bopt shows where)"; fi
 
     if [[ -f $BASE ]]; then base_text="built $(date -r "$BASE" +%F), $(du -h "$BASE" | cut -f1)"
     elif [[ -n $building ]]; then base_text="building now (qemu pid $building)"
@@ -1587,7 +1623,7 @@ cmd_status() {
     elif [[ ! -f $BASE ]]; then
         state=not-built state_text="not available: nothing built for $IMG yet"
         next="winvm build$bopt   then: winvm$opt start"
-        [[ -f $WIN_ISO ]] || ((WIN_ISO_DOWNLOAD)) || next="put the ISO at ${WIN_ISO#"$ROOT/"}, then $next"
+        [[ -f $WIN_ISO ]] || ((WIN_ISO_DOWNLOAD)) || next="put the ISO at ${WIN_ISO#"$WINVM_HOME/"}, then $next"
     elif [[ ! -f $DISK ]]; then state=not-created state_text="not created: the first start creates it"; next="winvm$opt start"
     else state=stopped state_text="stopped"; next="winvm$opt start"; fi
 
@@ -1605,8 +1641,8 @@ cmd_status() {
 
     local problems=() free_kb
     [[ -w /dev/kvm ]] || problems+=("/dev/kvm not accessible")
-    command -v "$QEMU" >/dev/null || problems+=("$QEMU not found (nix develop)")
-    [[ $fw == uefi && ! -f $OVMF_CODE ]] && problems+=("OVMF firmware not found ($OVMF_DIR; nix develop)")
+    command -v "$QEMU" >/dev/null || problems+=("$QEMU not found (use the winvm package)")
+    [[ $fw == uefi && ! -f $OVMF_CODE ]] && problems+=("OVMF firmware not found ($OVMF_DIR; the winvm package sets WINVM_OVMF_DIR)")
     ((REQUIRES_UEFI)) && [[ $fw != uefi ]] && problems+=("$IMAGE_DESC needs FIRMWARE=uefi")
     free_kb=$(df -Pk "$STATE" 2>/dev/null | awk 'NR == 2 { print $4 }')
     # A build needs room for the base image (~20G); overlays grow with use.
@@ -1614,7 +1650,7 @@ cmd_status() {
         problems+=("only $((free_kb / 1024 / 1024))G free on the disk holding state/")
 
     if ((json)); then
-        local recipes=() bytes
+        local recipes=()
         [[ -s $RECIPE_FILE ]] && mapfile -t recipes <"$RECIPE_FILE"
         bytes() { [[ -f $1 ]] && echo $(($(du -k "$1" | cut -f1) * 1024)); }
         cat <<EOF
@@ -1655,7 +1691,7 @@ cmd_status() {
   "guest_ready": $(if [[ -n $guest_ready ]]; then json_bool "$guest_ready"; else printf null; fi),
   "snapshots": $(json_list "${snaps[@]}"),
   "ports": {"ssh": $P_SSH, "rdp": $P_RDP, "vs_debug": $P_VSDEBUG, "dbgsrv": $P_DBGSRV, "uitest": $P_UIDRIVER, "kd": $P_KD, "gdb": $P_GDB},
-  "other_vms": [$(IFS=,; echo "${others_json[*]}" | sed 's/},{/}, {/g')],
+  "other_vms": [$(IFS=,; o=${others_json[*]} s='},{' r='}, {'; echo "${o//"$s"/"$r"}")],
   "built_images": $(json_list "${built[@]}"),
   "problems": $(json_list "${problems[@]}"),
   "next": $(json_str "$next")
@@ -1750,6 +1786,7 @@ cmd_debug() {
                     if [[ $(secure_boot) == 1 ]]; then
                         die "Secure Boot blocks kernel debugging (bcdedit /debug). Build with SECURE_BOOT=0 or FIRMWARE=bios"
                     fi
+                    # shellcheck disable=SC2016  # PowerShell code
                     guest_ps 'bcdedit /debug on | Out-Null; if ($LASTEXITCODE) { throw "bcdedit /debug failed" }
                               bcdedit /dbgsettings serial debugport:1 baudrate:115200 | Out-Null; if ($LASTEXITCODE) { throw "bcdedit /dbgsettings failed" }'
                     info "kernel debugging enabled on COM1; reboot with the serial port exposed:"
@@ -1930,7 +1967,7 @@ cmd_run() {
 
     local id gdir hdir exe workdir="" args
     id=$(date +%Y%m%d-%H%M%S)
-    gdir="C:\\winvm\\runs\\$id" hdir="$ROOT/runs/$VM-$id"
+    gdir="C:\\winvm\\runs\\$id" hdir="$WINVM_HOME/runs/$VM-$id"
     mkdir -p "$hdir"
     push_hosttools
     guest_ps "New-Item -ItemType Directory -Force '$gdir\\app' | Out-Null"
@@ -1963,7 +2000,7 @@ cmd_run() {
     local t0=$SECONDS timedout=0
     trap 'echo; note "stopped waiting; the program keeps running in the VM ($gdir)"; exit 130' INT
     note "waiting for it to exit$( ((timeout)) && echo " (at most ${timeout}s)") — Ctrl+C stops waiting"
-    until [[ $(guest_tools "Get-WinvmRunState -Dir '$gdir'") == done ]]; do
+    until [[ $(guest_tools "Get-WinvmRunState -Dir '$gdir'") == "done" ]]; do
         if ((timeout && !timedout && SECONDS - t0 >= timeout)); then
             guest_tools "Stop-WinvmRun -Dir '$gdir'"
             timedout=1
@@ -1972,11 +2009,11 @@ cmd_run() {
     done
     trap - INT
 
-    local name=${exe##*\\} crashes files
+    local name=${exe##*\\} crashes files list
     crashes=$(guest_tools "\$r = Get-Content '$gdir\\result.json' | ConvertFrom-Json; Save-WinvmCrashes -Dir '$gdir' -Since \$r.start -Name '$name' -SymDir '${exe%\\*}'")
     files=$(guest_ps "Get-ChildItem '$gdir' -File | % FullName")
-    # shellcheck disable=SC2086
-    fetch_files "$hdir" $(tr -d '\r' <<<"$files")
+    mapfile -t list < <(tr -d '\r' <<<"$files")
+    fetch_files "$hdir" "${list[@]}"
 
     local code hex reason rc=0
     code=$(python3 -I -c 'import json,sys; r=json.load(open(sys.argv[1],encoding="utf-8-sig")); print(r["exitCode"] if r["exitCode"] is not None else "error: "+str(r["error"]))' "$hdir/result.json")
@@ -2001,7 +2038,7 @@ cmd_run() {
         echo "crash dump: $f"
         [[ -f $hdir/${f%.dmp}.analysis.txt ]] && crash_summary "$hdir/${f%.dmp}.analysis.txt"
     done
-    echo "results   : ${hdir#"$ROOT"/}/"
+    echo "results   : ${hdir#"$WINVM_HOME"/}/"
     if ((temp)); then cmd_stop --force >/dev/null; info "temporary session discarded"; fi
     return $rc
 }
@@ -2017,7 +2054,8 @@ cmd_crashes() {
             out=$(guest_tools 'Get-WinvmCrashList')
             if [[ -z $out ]]; then info "no crash dumps in C:\\dumps"; else echo "$out"; fi ;;
         analyze|pull)
-            local name=${2:-} gdir="C:\\winvm\\crashes" hdir="$ROOT/captures/$VM-crashes-$(date +%Y%m%d-%H%M%S)"
+            local name=${2:-} gdir="C:\\winvm\\crashes" hdir
+            hdir="$WINVM_HOME/captures/$VM-crashes-$(date +%Y%m%d-%H%M%S)"
             [[ -n $name ]] || name=$(guest_ps '(Get-ChildItem C:\dumps -Filter *.dmp | Sort-Object LastWriteTime | Select-Object -Last 1).Name' | tr -d '\r')
             [[ -n $name ]] || die "no crash dumps in C:\\dumps"
             info "analyzing $name (first time: downloads symbols, can take a minute)"
@@ -2026,7 +2064,7 @@ cmd_crashes() {
             mkdir -p "$hdir"
             fetch_files "$hdir" "$gdir\\${name%.dmp}.dmp" "$gdir\\${name%.dmp}.analysis.txt"
             crash_summary "$hdir/${name%.dmp}.analysis.txt"
-            echo "full analysis + dump: ${hdir#"$ROOT"/}/" ;;
+            echo "full analysis + dump: ${hdir#"$WINVM_HOME"/}/" ;;
         *) die "usage: winvm crashes [list|analyze [DUMP]] (see winvm crashes --help)" ;;
     esac
 }
@@ -2034,8 +2072,8 @@ cmd_crashes() {
 # --- capture -----------------------------------------------------------------
 
 capture_file() {  # kind ext -> new path under captures/
-    mkdir -p "$ROOT/captures"
-    echo "$ROOT/captures/$VM-$1-$(date +%Y%m%d-%H%M%S).$2"
+    mkdir -p "$WINVM_HOME/captures"
+    echo "$WINVM_HOME/captures/$VM-$1-$(date +%Y%m%d-%H%M%S).$2"
 }
 
 cmd_screenshot() {
@@ -2061,7 +2099,7 @@ cmd_netcap() {
             guest_tools 'Stop-WinvmNetCapture'
             fetch_files "$(dirname "$file")" 'C:\winvm\netcap.pcapng'
             mv "$(dirname "$file")/netcap.pcapng" "$file"
-            info "saved ${file#"$ROOT"/}"
+            info "saved ${file#"$WINVM_HOME"/}"
             note "open with Wireshark; hide winvm's own SSH traffic with the filter: !(tcp.port == 22)" ;;
         *) die "usage: winvm netcap start|stop (see winvm netcap --help)" ;;
     esac
@@ -2095,7 +2133,7 @@ cmd_proxy() {
             url=$(grep -oE 'http://127\.0\.0\.1:[0-9]+/\?token=[0-9a-f]+' "$log" | head -1 || true)
             info "HTTP(S) of '$VM' now goes through mitmproxy (its CA is trusted in the VM)"
             note "watch it live: ${url:-http://127.0.0.1:$P_PROXYWEB/}"
-            note "flows saved to ${flows#"$ROOT"/}; stop with: winvm${VM_OPT} proxy stop"
+            note "flows saved to ${flows#"$WINVM_HOME"/}; stop with: winvm${VM_OPT} proxy stop"
             note "apps with certificate pinning or their own CA store (Firefox, Java, some .NET) will fail or bypass it" ;;
         stop)
             is_running && { push_hosttools; guest_tools "Clear-WinvmProxy -CertSubject 'mitmproxy'"; }
@@ -2118,12 +2156,13 @@ cmd_trace() {
             info "Process Monitor is recording everything in '$VM'$([[ -n $etw ]] && echo ' (+ ETW via WPR)')"
             note "stop with: winvm${VM_OPT} trace stop$([[ -n $etw ]] && echo ' --etw')" ;;
         stop)
-            local dir
+            local dir files=('C:\winvm\trace.pml' 'C:\winvm\trace.csv')
+            [[ -z $etw ]] || files+=('C:\winvm\trace.etl')
             dir=$(capture_file trace d) && dir=${dir%.d} && mkdir -p "$dir"
             info "stopping and converting (can take a while for long traces)"
             guest_tools "Stop-WinvmTrace$etw"
-            fetch_files "$dir" 'C:\winvm\trace.pml' 'C:\winvm\trace.csv' $([[ -n $etw ]] && echo 'C:\winvm\trace.etl')
-            info "saved ${dir#"$ROOT"/}/"
+            fetch_files "$dir" "${files[@]}"
+            info "saved ${dir#"$WINVM_HOME"/}/"
             note "trace.csv: every file/registry/network/process event (readable anywhere)"
             note "trace.pml: open in Process Monitor (e.g. in the VM)$([[ -n $etw ]] && echo '; trace.etl: Windows Performance Analyzer')" ;;
         *) die "usage: winvm trace start|stop [--etw] (see winvm trace --help)" ;;
@@ -2221,6 +2260,7 @@ Use it
   wait           block until the VM accepts SSH
   ssh-config     ~/.ssh/config entry (VS Code Remote-SSH, plain ssh, ...)
   completion     tab completion for bash: source <(winvm completion)
+  home           print WINVM_HOME, where VMs, ISOs and your settings live
 
 Manage what runs in the VM
   info           Windows version, license, uptime, memory, disk, desktop user, pending restart
@@ -2258,7 +2298,17 @@ Multiple VMs and Windows versions
   WINVM_VM=NAME). Other VMs are cheap copy-on-write clones of a built image
   with their own ports:  winvm -n test2 start
   Other Windows versions: winvm build --image win11, then winvm -n win11 start
+
+Data (VMs, ISOs, config.local.env, images/NAME.local.env, your recipes):
+  WINVM_HOME=$WINVM_HOME
 EOF
+}
+
+cmd_completion() {
+    case ${1:-bash} in
+        bash) cat "$ROOT/completions/winvm.bash" ;;
+        *) die "usage: winvm completion [bash]" ;;
+    esac
 }
 
 help_cmd() {
@@ -2302,7 +2352,7 @@ Evaluation editions (win11-ltsc, server2025) stop working after 90/180 days;
 'winvm images' and 'status' show the date, 'start' warns two weeks ahead.
 Rebuilding gives a fresh evaluation period with all current updates.
 
-Changing config.env / config.local.env or anything in provision/ only takes
+Changing config.env / \$WINVM_HOME/config.local.env or anything in provision/ only takes
 effect with 'build --force' (or change the running VM and 'commit').
 EOF
         ;;
@@ -2388,8 +2438,8 @@ EOF
         recipes) cat <<EOF
 winvm recipes [list | new NAME]
 
-  list       the recipes in recipes/ (default)
-  new NAME   start a recipe: copies recipes/_template to recipes/NAME
+  list       the shipped recipes and yours in \$WINVM_HOME/recipes/ (default)
+  new NAME   start a recipe: copies recipes/_template to \$WINVM_HOME/recipes/NAME
 EOF
         ;;
         snapshot|snap) cat <<EOF
@@ -2538,8 +2588,9 @@ winvm images
 Lists the Windows versions in images/*.env, whether their base image is built,
 and how many VMs use them. Build one with 'winvm build --image NAME'; that also
 creates a VM of the same name: 'winvm -n NAME start'. More VMs of a version:
-'winvm -n other start --image NAME'. Add your own version by copying an
-images/*.env file (settings for one image only: images/NAME.local.env).
+'winvm -n other start --image NAME'. Add a version with an images/NAME.env in
+the package (pkgs/winvm/images/ in nix-config); settings for one image only:
+\$WINVM_HOME/images/NAME.local.env.
 EOF
         ;;
         run) cat <<EOF
@@ -2718,7 +2769,8 @@ EOF
 winvm completion [bash]
 
 Prints the bash completion script (commands, options, VM / image / recipe /
-snapshot names). 'nix develop' loads it already; elsewhere add to ~/.bashrc:
+snapshot names). The winvm package installs it for bash and zsh; for a
+winvm run from elsewhere add to ~/.bashrc:
   source <(winvm completion)
 zsh: autoload -U +X bashcompinit && bashcompinit, then the same line.
 EOF
@@ -2751,10 +2803,16 @@ esac
 migrate_layout
 migrate_images
 select_vm "$vm_name"
+# Commands that only read leave a missing WINVM_HOME missing.
+case $cmd in
+    help|-h|--help|completion|home|images|list|status|recipes|ssh-config) ;;
+    *) init_home ;;
+esac
 case $cmd in
     fetch|build|start|stop|reset|commit|seal|new|apply|recipes|ssh|scp|rdp|wait|status|list|images|destroy|debug|uitest|run|crashes|screenshot|netcap|proxy|trace|usb|info|ps|kill|service|apps|events|ports|windows|key|reboot|deploy|vscode|rider) "cmd_$cmd" "$@" ;;
     ssh-config) cmd_ssh_config "$@" ;;
     completion) cmd_completion "$@" ;;
+    home) echo "$WINVM_HOME" ;;
     snapshot|snap) cmd_snapshot "$@" ;;
     help) help_cmd "${1:-}" ;;
     -h|--help) usage ;;

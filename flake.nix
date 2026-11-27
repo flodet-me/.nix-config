@@ -130,8 +130,8 @@
           find . -name '*.nix' -exec nixfmt --check {} +
           touch $out
         '';
-        # Builds all workflow scripts (runs shellcheck via writeShellApplication)
-        # and the switch-review diff test.
+        # Builds all workflow scripts (runs shellcheck via writeShellApplication),
+        # the switch-review diff test and winvm's test (pkgs/winvm/test.nix).
         scripts =
           let
             scripts = import ./scripts { inherit pkgs; };
@@ -148,6 +148,10 @@
                   inherit pkgs;
                   inherit (scripts) switch-review;
                 };
+              }
+              {
+                name = "winvm-test";
+                path = pkgs.callPackage ./pkgs/winvm/test.nix { inherit (import ./pkgs { inherit pkgs; }) winvm; };
               }
             ]
           );

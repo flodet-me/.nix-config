@@ -1,13 +1,18 @@
-# Bash completion for winvm.  Loaded by 'nix develop'; elsewhere add to ~/.bashrc:
-#   source /path/to/windows-vm/completions/winvm.bash      (or: source <(winvm completion))
+# Bash completion for winvm. The winvm package installs it (and _winvm_zsh for
+# zsh); for a winvm from elsewhere add to ~/.bashrc: source <(winvm completion)
 # zsh: autoload -U +X bashcompinit && bashcompinit, then source this file.
+# COMPREPLY=($(compgen ...)): zsh's bashcompinit has no mapfile.
+# shellcheck disable=SC2207
 
-# The checkout winvm runs from, to read VM, image, recipe and snapshot names.
+# The code winvm runs from (image and recipe names): the package's share/winvm.
 _winvm_root() {
     local bin
-    bin=$(type -P "${1:-winvm}" 2>/dev/null) || return 1
+    bin=$(command -v "${1:-winvm}") || return 1
     bin=$(readlink -f "$bin") && dirname "$bin"
 }
+
+# Its data (VM, snapshot and your recipe names): WINVM_HOME, as winvm sees it.
+_winvm_home() { "${1:-winvm}" home 2>/dev/null; }
 
 _winvm_vms() {
     local d
@@ -21,15 +26,16 @@ _winvm_images() {
     done
 }
 
-_winvm_recipes() {
+_winvm_recipes() {  # root home
     local d
-    for d in "$1"/recipes/*/; do
+    for d in "$1"/recipes/*/ "$2"/recipes/*/; do
+        [[ -d $d ]] || continue
         d=$(basename "$d")
-        [[ -d $1/recipes/$d && $d != _* ]] && echo "$d"
-    done
+        [[ $d != _* ]] && echo "$d"
+    done | sort -u
 }
 
-_winvm_snapshots() {  # root vm
+_winvm_snapshots() {  # home vm
     local disk=$1/state/vms/$2/disk.qcow2
     [[ -f $disk ]] || return 0
     # -U: readable while the VM runs.  Rows: ID TAG VM-SIZE DATE ...
@@ -37,14 +43,17 @@ _winvm_snapshots() {  # root vm
 }
 
 _winvm() {
+    # zsh (bashcompinit): bash's 0-based arrays, word splitting and globbing
+    [[ -z ${ZSH_VERSION:-} ]] || setopt localoptions ksharrays shwordsplit nonomatch
     local cur=${COMP_WORDS[COMP_CWORD]} prev=${COMP_WORDS[COMP_CWORD-1]}
-    local root vm=${WINVM_VM:-default} cmd="" ci=0 i w words=()
+    local root home vm=${WINVM_VM:-default} cmd="" ci=0 i w words=()
     root=$(_winvm_root "${COMP_WORDS[0]}") || root=""
+    home=$(_winvm_home "${COMP_WORDS[0]}") || home=""
 
     local commands="fetch build start stop status list images reset snapshot commit destroy
         new recipes apply seal ssh scp rdp wait ssh-config info ps kill service apps events
         ports windows key reboot run crashes debug uitest screenshot netcap proxy trace usb
-        completion help"
+        completion home help"
 
     # The command is the first word after the global -n NAME / --vm=NAME.
     for ((i = 1; i < COMP_CWORD; i++)); do
@@ -56,7 +65,7 @@ _winvm() {
         esac
     done
     # Words typed after the command (not counting the one being completed).
-    ((ci)) && words=("${COMP_WORDS[@]:ci+1:COMP_CWORD-ci-1}")
+    ((ci)) && words=("${COMP_WORDS[@]: ci+1 : COMP_CWORD-ci-1}")
 
     _winvm_reply() { COMPREPLY=($(compgen -W "$*" -- "$cur")); }
     _winvm_files() { compopt -o filenames 2>/dev/null; COMPREPLY=($(compgen -f -- "$cur")); }
@@ -70,7 +79,7 @@ _winvm() {
 
     if [[ -z $cmd ]]; then
         case $prev in
-            -n|--vm) _winvm_reply "$(_winvm_vms "$root")"; return ;;
+            -n|--vm) _winvm_reply "$(_winvm_vms "$home")"; return ;;
         esac
         if [[ $cur == -* ]]; then _winvm_reply "-n --vm --help"; else _winvm_reply "$commands"; fi
         return
@@ -79,7 +88,7 @@ _winvm() {
     # Option values.
     case $prev in
         --image) _winvm_reply "$(_winvm_images "$root")"; return ;;
-        --recipe) _winvm_reply "$(_winvm_recipes "$root")"; return ;;
+        --recipe) _winvm_reply "$(_winvm_recipes "$root" "$home")"; return ;;
         --dir) compopt -o filenames 2>/dev/null; COMPREPLY=($(compgen -d -- "$cur")); return ;;
         --since) _winvm_reply "30m 1h 2h 6h 1d 7d"; return ;;
         --timeout|--log) return ;;
@@ -97,14 +106,14 @@ _winvm() {
         new) flags="--recipe --image --offline" ;;
         apply)
             flags="--seal --offline"
-            ((n == 0)) && args=$(_winvm_recipes "$root") ;;
+            ((n == 0)) && args=$(_winvm_recipes "$root" "$home") ;;
         recipes) ((n == 0)) && args="list new" ;;
         snapshot|snap)
             if ((n == 0)); then args="save load delete list"
             elif ((n == 1)) && [[ ${words[0]} == load || ${words[0]} == delete ]]; then
-                args=$(_winvm_snapshots "$root" "$vm")
+                args=$(_winvm_snapshots "$home" "$vm")
             fi ;;
-        destroy) flags="--all --yes"; args=$(_winvm_vms "$root") ;;
+        destroy) flags="--all --yes"; args=$(_winvm_vms "$home") ;;
         debug)
             if ((n == 0)); then args="info vs windbg stop kernel"
             elif [[ ${words[0]} == kernel ]] && ((n == 1)); then args="on off"; fi ;;
