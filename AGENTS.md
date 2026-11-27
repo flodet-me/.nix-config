@@ -29,7 +29,7 @@ sops-register-host <host> <age-pubkey>     # add/replace a host key (keys/hosts/
 sops-sync                                  # regenerate .sops.yaml + re-encrypt (YubiKey)
 provision-server <host> root@<ip>          # first install of a cloud server
 check-cves [host...]                       # known CVEs in what the hosts run (docs/security-updates.md)
-switch-review [HOST]                       # build, then diff its source against the running system, no git (docs/agent-isolation.md)
+switch-review [HOST]                       # prefetch the tree, build exactly it, diff it against the running system, no git (docs/agent-isolation.md)
 claude-plugins-sync                        # install declared Claude Code plugins now (docs/claude-code.md)
 ```
 
