@@ -12,11 +12,8 @@ nix-shell              # on a blank NixOS install (bootstraps the same tooling)
 
 # Build & validate (never run `nixos-rebuild switch` on the current host when testing)
 nixfmt $(git ls-files -co --exclude-standard '*.nix')
-nix flake check --no-build
-nix build --no-link .#checks.x86_64-linux.formatting .#checks.x86_64-linux.sops-encrypted .#install-host
-for h in laptop desktop moon vps; do
-  nix build --no-link .#nixosConfigurations.$h.config.system.build.toplevel
-done
+nix run .#check     # Check (minutes): formatting, scripts, sops-encrypted, install-host, `nix flake check --no-build`; `-- --jail` adds the jail VM test
+nix run .#gate      # Gate: `nix flake check` (every check, jail VM test included), install-host, every host's toplevel
 
 # Apply / deploy (human-run)
 update                                                       # current machine: build, review (switch-review), then `nh os switch --ask` of that build; run outside the repo
@@ -35,7 +32,7 @@ claude-plugins-sync                        # install declared Claude Code plugin
 
 ## Architecture
 
-- **`flake.nix`**: Entry point defining `nixosConfigurations` (`desktop`, `laptop`, `moon`, `vps`) via `mkHost`, `installer-iso` / `install-host` (in `installer/`, not a host), `overlays`, `packages`, `devShells`, `formatter`, and `checks`. `inputs` and `outputs` (`self`) are passed via `specialArgs` / `extraSpecialArgs`.
+- **`flake.nix`**: Entry point defining `nixosConfigurations` (`desktop`, `laptop`, `moon`, `vps`) via `mkHost`, `installer-iso` / `install-host` (in `installer/`, not a host), `overlays`, `packages`, `apps` (`check`, `gate`), `devShells`, `formatter`, and `checks`. `inputs` and `outputs` (`self`) are passed via `specialArgs` / `extraSpecialArgs`.
 - **Host facts (`hosts/_shared/components/host-role.nix`)**: `host.role` (`workstation` or `server`) and `host.user` (`flodet`). Read `config.host.user` instead of hardcoding the username.
 - **`home-manager` wiring**: Only `desktop` and `laptop` (`user = true`) include home-manager as a NixOS module; a single `nixos-rebuild switch` applies both system and user configs. `moon` and `vps` are server-only (`hosts/_shared/components/server`).
 - **Parallel `_shared` + per-host layering**:

@@ -6,13 +6,13 @@ Do not `nixos-rebuild switch` the machine you are on to test: build instead.
 
 ## Quick checks (after any Nix change)
 
+The Check and the Gate are flake apps (`scripts/check/check.sh`, the one list of both); run them from the repository root, they build the flake in the current directory. Each step is announced, a failure prints `FAILED (exit N) during: <step>` and exits non-zero.
+
 ```sh
 nixfmt $(git ls-files -co --exclude-standard '*.nix')   # not `nix fmt`: it hung once
-nix flake check --no-build                              # evaluates packages, checks, hosts
-nix build --no-link .#checks.x86_64-linux.formatting .#checks.x86_64-linux.sops-encrypted
-for h in laptop desktop moon vps; do                    # all four must build
-  nix build --no-link .#nixosConfigurations.$h.config.system.build.toplevel
-done
+nix run .#check                                         # formatting, scripts, sops-encrypted, install-host (shellchecks the installer script), `nix flake check --no-build`
+nix run .#check -- --jail                               # ... plus the jail VM test (needs KVM)
+nix run .#gate                                          # `nix flake check` (all checks, jail too), install-host, every host in nixosConfigurations
 nix eval .#nixosConfigurations.<host>.config.<option>                              # inspect a system option
 nix eval .#nixosConfigurations.laptop.config.home-manager.users.flodet.<option>    # ... or a home option
 deadnix -l .                                            # unused arguments (`-e` edits: rebuild after, callers may pass them)
@@ -32,7 +32,6 @@ for each host. Afterwards `nix build "<old drv>^out"` and the new toplevel, then
 ## Scripts and workflows
 
 ```sh
-nix build --no-link .#install-host            # also runs shellcheck on the installer script
 shellcheck -S warning scripts/<name>/<name>.sh
 actionlint .github/workflows/*.yml
 act -W .github/workflows/nix.yml -j checks    # run a CI job in Docker (one-time image build: docker build -t ubuntu-act-nix:local .github/act)
@@ -83,6 +82,8 @@ Measured locally with a warm cache and 4 cores; a cold cache or a new nixpkgs ma
 | --- | --- | --- | --- |
 | `nixfmt`, `shellcheck`, `actionlint` | seconds | 30 s | 2 min |
 | `nix eval` of one option | 10-20 s | 1 min | 3 min |
+| `nix run .#check` | 1-3 min | 5 min | 15 min |
+| `nix run .#gate` (only config changed) | 5-12 min | 15 min | 40 min |
 | `nix flake check --no-build` | 30-60 s | 2 min | 5 min |
 | Build one host (only config changed) | 1-3 min | 5 min | 15 min |
 | Build all four hosts in a loop | 3-8 min | 10 min | 30 min |
