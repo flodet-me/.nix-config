@@ -47,5 +47,5 @@ created and reset on desktop.
 
 | Item | What | Status | Commit |
 |---|---|---|---|
-| I1 jail-containers | rootless podman, docker CLI, networks, compose, VM test, ADR | open | |
+| I1 jail-containers | rootless podman, docker CLI, networks, compose, VM test, ADR | done | b1a869b |
 | I2 jail-winvm | .jail winvm line, ro base images and key, desktop run | open | |
