@@ -40,7 +40,7 @@ act -W .github/workflows/nix.yml -j build --matrix host:vps
 act -W .github/workflows/security.yml -j cves --matrix host:vps   # fails when CVEs are found: that is its job
 ```
 
-Docker is rootless on the workstations (user service `docker`, `DOCKER_HOST=unix://$XDG_RUNTIME_DIR/docker.sock` set at login, data in `~/.local/share/docker`). It has its own image store, so build the act image once more after switching from the old system daemon; `.actrc` needs no socket path.
+Docker is rootless on the workstations (user service `docker`, `DOCKER_HOST=unix://$XDG_RUNTIME_DIR/docker.sock` set at login, data in `~/.cache/docker`, outside the `/home` snapshots). It has its own image store, so build the act image once more after switching from the old system daemon; `.actrc` needs no socket path.
 
 `act` works for `hosts`, `format`, `installer`, `build` and `cves`; the `update` job needs a real token and cannot be tried. If a step fails only under `act`, check `if: ${{ !env.ACT }}` first.
 
