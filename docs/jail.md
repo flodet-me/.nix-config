@@ -5,8 +5,9 @@
 scripts are its `.sh` files, `default.nix` builds them; `nix build .#jail`,
 `pkgs.jail`), installed system-wide on the workstations
 (`hosts/_shared/components/workstation.nix`); state stays per user. It needs
-an activated home-manager generation (dotfiles for the jail home). Design and reasons:
-[agent-isolation.md](agent-isolation.md), [ADR 0001](adr/0001-repository-jail.md).
+an activated home-manager generation (dotfiles for the jail home). Design
+and reasons: [agent-isolation.md](agent-isolation.md),
+[ADR 0001](adr/0001-repository-jail.md).
 
 ## Use
 
