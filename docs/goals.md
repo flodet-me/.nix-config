@@ -22,7 +22,7 @@ Assumptions:
 |---|---|---|---|
 | I1 host-hardening | trusted-users root on workstations, rootless Docker, docs | done | 067e623 |
 | I2 jail | `jail` / `jail-push`, tmux-shared jail per repo, VM test `checks.jail`, docs | done | 015d25b |
-| I3 jail-net | pasta netns (no host loopback), xdg-dbus-proxy for notifications, test | open | |
+| I3 jail-net | pasta netns (no host loopback), xdg-dbus-proxy for notifications, test | done | c39dcb7 |
 | I3b jail-config | per-repository `.jail` file read by `jail` on start: features (ports forwarded host 127.0.0.1→jail; I4 adds winvm) and extra read-only / read-write directories, approved on the host like `direnv allow` and used from the approved copy, test, docs | open | |
 | I4 jail-winvm | winvm binds and `winvm` wrapper inside the jail, test | open | |
 
