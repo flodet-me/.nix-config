@@ -23,17 +23,19 @@
   xdg-dbus-proxy,
 }:
 let
-  # ./<name>.sh with @key@ replaced by subst.key
+  # common.sh (for jail, jail-push) + ./<name>.sh, @key@ replaced by subst.key;
+  # a placeholder left unreplaced fails evaluation instead of shipping
   script =
     name: runtimeInputs: subst:
-    writeShellApplication {
-      inherit name runtimeInputs;
-      text =
-        prefix name
-        + builtins.replaceStrings (map (k: "@${k}@") (builtins.attrNames subst)) (map toString (
-          builtins.attrValues subst
-        )) (builtins.readFile ./${name}.sh);
-    };
+    let
+      text = builtins.replaceStrings (map (k: "@${k}@") (builtins.attrNames subst)) (map toString (
+        builtins.attrValues subst
+      )) (prefix name + builtins.readFile ./${name}.sh);
+    in
+    assert lib.assertMsg (
+      builtins.match ".*@[A-Za-z][A-Za-z0-9]*@.*" text == null
+    ) "pkgs/jail: unreplaced @placeholder@ in ${name}.sh";
+    writeShellApplication { inherit name runtimeInputs text; };
   # common.sh: shared by both commands. Nothing there runs git on the
   # repository: its git files and hooks are written from inside the jail.
   prefix =

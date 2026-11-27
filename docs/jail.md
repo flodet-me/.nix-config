@@ -328,7 +328,7 @@ a positive control outside the jail.
   `claude-plugins-sync` service installs them outside). Change those outside
   the jail.
 - A host entry of `~/.claude`/`~/.codex` that is state but not in the lists in
-  `default.nix` comes in read-only, and the program fails to write it: add its
+  `pkgs/jail/default.nix` comes in read-only, and the program fails to write it: add its
   name to the list.
 - The shared login is one file bound into the jail. Claude Code outside
   saves it by rename, so after a token refresh outside, a running jail keeps
