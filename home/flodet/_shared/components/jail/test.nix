@@ -5,10 +5,22 @@
 {
   name = "jail";
 
+  # another host on the test network, for outbound connections from a jail
+  nodes.server =
+    { pkgs, ... }:
+    {
+      networking.firewall.allowedTCPPorts = [ 8000 ];
+      systemd.services.remote-listener = {
+        wantedBy = [ "multi-user.target" ];
+        serviceConfig.ExecStart = "${pkgs.socat}/bin/socat TCP-LISTEN:8000,reuseaddr,fork SYSTEM:'echo remote'";
+      };
+    };
+
   nodes.machine =
     { lib, pkgs, ... }:
     {
       imports = [ home-manager.nixosModules.home-manager ];
+      services.resolved.enable = true; # as on the hosts: resolv.conf names 127.0.0.53
       virtualisation.memorySize = 2048;
       nix.settings = {
         experimental-features = [ "nix-command" ];
@@ -25,7 +37,16 @@
       environment.systemPackages = [
         pkgs.git
         pkgs.tmux
+        pkgs.socat
+        pkgs.dig
       ];
+      # names on the session bus: the one the jail may talk to, and another
+      systemd.user.services =
+        lib.genAttrs [ "org.freedesktop.Notifications" "org.example.Other" ]
+          (name: {
+            wantedBy = [ "default.target" ];
+            serviceConfig.ExecStart = "${pkgs.dbus}/bin/dbus-test-tool echo --name=${name}";
+          });
       home-manager = {
         useGlobalPkgs = true;
         useUserPackages = true;
@@ -139,15 +160,64 @@
     with subtest("shebang paths work"):
         jail("/usr/bin/env true && /bin/sh -c true")
 
-    with subtest("no sudo, no user manager, no session bus or agent sockets"):
+    with subtest("no sudo, no capabilities, no user manager or agent sockets, the bus only through the proxy"):
         alice("echo pw | sudo -S true")
+        alice("grep -q '^CapBnd:.*[1-9a-f]' /proc/self/status")
+        jail("test -z \"$(grep -E '^Cap(Inh|Prm|Eff|Bnd|Amb):' /proc/self/status | grep -v ':[[:space:]]*0*$')\"")
+        # no signal ignored: Ctrl-C and SIGPIPE work as outside
+        jail("grep -q '^SigIgn:[[:space:]]*0*$' /proc/self/status")
         jail("sudo -n true", ok=False)
         jail("echo pw | sudo -S true", ok=False)
         alice("systemd-run --user --wait --quiet true")
         jail("systemd-run --user --wait --quiet true", ok=False)
         alice("test -S /run/user/1000/bus && find /run/user/1000 -type s | grep -q gnupg")
-        jail('test "$XDG_RUNTIME_DIR" = /run/user/1000 && test -z "''${DBUS_SESSION_BUS_ADDRESS:-}" && test -z "''${SSH_AUTH_SOCK:-}"')
-        jail('test -z "$(find /run/user /run/wrappers -type s 2>/dev/null)" && test ! -e /run/wrappers')
+        # the one socket is the D-Bus proxy's (see "D-Bus: Notifications only"); not
+        # -type s: find takes the type of the mount point bwrap made, a file
+        jail('test "$XDG_RUNTIME_DIR" = /run/user/1000 && test "$DBUS_SESSION_BUS_ADDRESS" = unix:path=/run/user/1000/bus && test -z "''${SSH_AUTH_SOCK:-}"')
+        jail('test "$(find /run/user /run/wrappers ! -type d 2>/dev/null)" = /run/user/1000/bus && test -S /run/user/1000/bus && test ! -e /run/wrappers')
+
+    with subtest("own network: outbound and DNS work, host loopback does not"):
+        server.wait_for_unit("remote-listener.service")
+        machine.succeed("systemd-run --unit=lo-listener socat TCP-LISTEN:8123,bind=127.0.0.1,reuseaddr,fork SYSTEM:'echo lo'")
+        machine.succeed("systemd-run --unit=lo6-listener socat TCP6-LISTEN:8125,bind=[::1],reuseaddr,fork SYSTEM:'echo lo'")
+        machine.wait_for_open_port(8123)
+        machine.wait_for_open_port(8125, addr="::1")
+        alice("socat -u TCP:server:8000 - | grep -q remote && socat -u TCP:127.0.0.1:8123 - | grep -q lo && socat -u TCP6:[::1]:8125 - | grep -q lo")
+        jail("socat -u TCP:server:8000 - | grep -q remote")
+        jail("socat -u TCP:127.0.0.1:8123 - | grep -q lo", ok=False)
+        jail("socat -u TCP6:[::1]:8125 - | grep -q lo", ok=False)
+        # nor through the namespace's gateway, which pasta maps to host loopback by default
+        jail('gw=$(ip route show default | cut -d" " -f3) && test -n "$gw" && ! socat -u TCP:$gw:8123,connect-timeout=5 - | grep -q lo')
+        # DNS from resolv.conf, not /etc/hosts: resolved answers the test nodes' names
+        alice("dig +short +time=5 server | grep -q .")
+        jail("dig +short +time=5 server | grep -q . && dig +short +tcp +time=5 server | grep -q .")
+        # loopback inside works (winvm's port forwards)
+        jail("socat TCP-LISTEN:8124,bind=127.0.0.1 SYSTEM:'echo inside' & sleep 1; socat -u TCP:127.0.0.1:8124 - | grep -q inside")
+
+    with subtest("host abstract Unix sockets are unreachable"):
+        machine.succeed("systemd-run --unit=abstract-listener socat ABSTRACT-LISTEN:jail-test-abstract,fork SYSTEM:'echo abstract'")
+        machine.wait_until_succeeds("su - alice -c \"socat -u ABSTRACT-CONNECT:jail-test-abstract - | grep -q abstract\"")
+        jail("socat -u ABSTRACT-CONNECT:jail-test-abstract - | grep -q abstract", ok=False)
+
+    with subtest("D-Bus: Notifications only, through a proxy that ends with the jail"):
+        notify = "busctl --user call org.freedesktop.Notifications /org/freedesktop/Notifications org.freedesktop.Notifications GetServerInformation"
+        other = "busctl --user call org.example.Other / org.example.Other Ping"
+        machine.wait_until_succeeds(f"su - alice -c 'export XDG_RUNTIME_DIR=/run/user/1000; {notify} && {other}'")
+        jail(notify)
+        jail(other, ok=False)
+        jail("systemd-run --user --wait --quiet true", ok=False)
+        # by process name (pasta runs as passt.avx2 or pasta), not by command line
+        machine.wait_until_succeeds("! pgrep -u alice '^(xdg-dbus-proxy|passt|pasta)'", timeout=10)
+        # killing a one-off jail, also with Ctrl-C's signal or SIGKILL, ends what runs in it
+        # (a background job starts with SIGINT ignored, which nothing can trap:
+        # env gives the jail the default a terminal's foreground job has)
+        for sig in ["TERM", "INT", "KILL"]:
+            alice("(env --default-signal=INT jail ~/repo -- sleep 300 & echo $! > /tmp/oneoff; wait) >/dev/null 2>&1 &")
+            machine.wait_until_succeeds("pgrep -u alice -x sleep")
+            alice(f"kill -{sig} $(cat /tmp/oneoff)")
+            machine.wait_until_succeeds("! pgrep -u alice -x sleep && ! pgrep -u alice '^(xdg-dbus-proxy|passt|pasta)'", timeout=10)
+        # the proxy of the SIGKILLed one sees its pipe close and removes its socket
+        machine.wait_until_succeeds("! ls /run/user/1000/jails/*.bus-* 2>/dev/null", timeout=10)
 
     with subtest("nix build through the daemon"):
         alice("""cat > ~/repo/t.nix <<'EOF'
@@ -285,5 +355,17 @@
         machine.wait_until_succeeds(f"test -z \"$(su - alice -c 'tmux -S {sock} list-clients')\"", timeout=30)
         machine.sleep(2)  # let a client that would exec the command finish
         alice("! ls /tmp/marker-* 2>/dev/null")
+        # the shared jail has its network and D-Bus proxy too, both end with it
+        alice(f"tmux -S {sock} send-keys -t main '{notify} && socat -u TCP:server:8000 - > ~/repo/probe3' Enter")
+        machine.wait_until_succeeds("grep -q remote /home/alice/repo/probe3", timeout=30)
+        alice("pgrep -u alice '^xdg-dbus-proxy$' && pgrep -u alice '^(passt|pasta)'")
+        # the shared jail's processes (here its keepalive's sleep) ignore no signal
+        machine.wait_until_succeeds("grep -q '^SigIgn:[[:space:]]*0*$' /proc/$(pgrep -n -u alice -f 'bin/sleep 2$')/status", timeout=10)
+        alice("systemctl --user stop 'jail-repo-*'")
+        alice("! pgrep -u alice '^(xdg-dbus-proxy|passt|pasta)'")
+        alice("! ls /run/user/1000/jails/*bus* 2>/dev/null")
+        # and it starts again
+        terminal("term3")
+        machine.wait_until_succeeds(f"su - alice -c 'tmux -S {sock} list-clients' | grep -q .", timeout=60)
   '';
 }

@@ -1,7 +1,8 @@
 # 0001: One bubblewrap jail per repository for agents and your own tools
 
 Date: 2026-11-27. Status: accepted; host hardening and the jail implemented
-([jail.md](../jail.md)), network namespace and winvm binds open.
+([jail.md](../jail.md)), network namespace and D-Bus proxy implemented, winvm
+binds open.
 
 ## Context
 

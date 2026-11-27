@@ -193,12 +193,71 @@ let
     '';
   };
 
+  # Runs `bwrap ARGS...` in a network namespace of its own (pasta, as rootless
+  # Podman does) and, with a BUS path, after starting a D-Bus proxy there that
+  # lets the jail talk to org.freedesktop.Notifications only. Both last exactly
+  # as long as this script. Args: BUS (a socket path, or empty), bwrap's args.
+  jailRun = pkgs.writeShellApplication {
+    name = "jail-run";
+    runtimeInputs = [
+      pkgs.coreutils
+      pkgs.passt
+      pkgs.util-linux
+      pkgs.xdg-dbus-proxy
+    ];
+    text = ''
+      bus=$1
+      shift
+      # the proxy leaves its socket behind when stopped by a signal
+      cleanup() { [ -z "$bus" ] || rm -f "$bus"; }
+      trap cleanup EXIT
+      if [ -n "$bus" ]; then
+        rm -f "$bus"
+        # The proxy stops when the pipe's read end closes: it is held here only
+        # (pasta closes inherited fds), so the proxy ends with this script.
+        exec {ready}< <(exec xdg-dbus-proxy --fd=1 "unix:path=''${XDG_RUNTIME_DIR:?}/bus" "$bus" \
+          --filter --talk=org.freedesktop.Notifications)
+        read -r -N1 -t 10 -u "$ready" _ || { echo "jail: starting the D-Bus proxy failed" >&2; exit 1; }
+      fi
+      # Nothing forwarded into the namespace or out to the host's ports, the
+      # host's loopback not mapped to the gateway; DNS goes to pasta's
+      # forwarder at 169.254.1.1 (the jail's resolv.conf), which asks the
+      # host's nameserver. Inside pasta's user namespace we are root: bwrap
+      # maps back to our ids and drops every capability, as it does when
+      # started by a normal user. Not exec: the proxy's pipe must stay open.
+      # pasta dies with this script, even by SIGKILL (pdeathsig); the outer env
+      # resets SIGINT, ignored in a background job (nohup's HUP stays ignored),
+      # the inner one every signal for the jailed program (pasta ignores SIGPIPE).
+      setpriv --pdeathsig KILL env --default-signal=INT \
+        pasta --config-net --quiet -t none -u none -T none -U none --no-map-gw --dns-forward 169.254.1.1 \
+        -- env --default-signal ${bwrap} --uid "$(id -u)" --gid "$(id -g)" --cap-drop ALL "$@" <&0 &
+      pid=$!
+      # A signal to this script (kill, systemctl stop) goes on to pasta, whose
+      # death ends bwrap (--die-with-parent); then it is raised here again.
+      sig=
+      for s in TERM INT HUP; do
+        # shellcheck disable=SC2064 # $s now, $pid is set
+        trap "sig=$s; kill -$s $pid 2>/dev/null || true" "$s"
+      done
+      rc=0
+      wait "$pid" || rc=$?
+      while kill -0 "$pid" 2>/dev/null; do rc=0; wait "$pid" || rc=$?; done
+      if [ -n "$sig" ]; then
+        cleanup
+        trap - EXIT "$sig"
+        kill -"$sig" $$
+      fi
+      exit "$rc"
+    '';
+  };
+
   jail = pkgs.writeShellApplication {
     name = "jail";
     runtimeInputs = [
       pkgs.bubblewrap
       pkgs.coreutils
       pkgs.git
+      pkgs.gnugrep
       pkgs.systemd
     ];
     text = common + ''
@@ -248,11 +307,9 @@ let
           die "could not prepare $jhome; to start over, reset its home (docs/jail.md, Reset)"
       }
 
-      # I3 replaces this with a pasta network namespace.
-      net=(--share-net)
-
+      # jail-run's pasta namespace: --share-net keeps it
       args=(
-        --unshare-all "''${net[@]}" --die-with-parent --new-session --clearenv
+        --unshare-all --share-net --die-with-parent --new-session --clearenv
         --ro-bind /nix /nix
         --bind /nix/var/nix/daemon-socket /nix/var/nix/daemon-socket
         --ro-bind /etc /etc
@@ -260,7 +317,6 @@ let
         --ro-bind-try /usr /usr
         --ro-bind-try /lib64 /lib64
         --ro-bind-try /run/current-system /run/current-system
-        --ro-bind-try /run/systemd/resolve /run/systemd/resolve
         --proc /proc
         --dev /dev
         --dev-bind-try /dev/kvm /dev/kvm
@@ -297,9 +353,19 @@ let
       bind --ro-bind "$HOME/.local/bin" # graphify
       bind --ro-bind "$HOME/.local/share/uv/tools" # its venv
       args+=(--bind "$root" "$root" --chdir "$cwd")
+      # DNS through pasta (jail-run): the host's resolv.conf (it may name
+      # 127.0.0.53) with only its search and options lines. Written outside
+      # the jail's reach and replaced whole, a running jail keeps its copy.
+      if [ -e /etc/resolv.conf ]; then
+        if ! { { grep -E '^(search|domain|options)([[:space:]]|$)' /etc/resolv.conf || true; echo "nameserver 169.254.1.1"; } >"$state/resolv.conf.$$" &&
+          mv "$state/resolv.conf.$$" "$state/resolv.conf"; }; then
+          die "cannot write $state/resolv.conf"
+        fi
+        args+=(--ro-bind "$state/resolv.conf" "$(readlink -f /etc/resolv.conf)")
+      fi
 
-      # The environment is built, not inherited: no session bus, agent
-      # sockets or tokens. Only plain settings pass through.
+      # The environment is built, not inherited: no agent sockets or tokens.
+      # Only plain settings pass through.
       env=(
         --setenv HOME "$HOME" --setenv USER "$user" --setenv LOGNAME "$user"
         --setenv PATH "/etc/profiles/per-user/$user/bin:/run/current-system/sw/bin"
@@ -310,16 +376,28 @@ let
         [ -z "''${!v:-}" ] || env+=(--setenv "$v" "''${!v}")
       done
 
+      # The session bus only through jail-run's proxy, its socket outside the
+      # jail's reach: one per shared jail, one per one-off jail (by PID).
+      install -d -m 0700 "$run/jails"
+      bus=
+      bind_bus() {
+        [ -S "$run/bus" ] || return 0
+        bus=$1
+        args+=(--bind "$bus" "$run/bus")
+        env+=(--setenv DBUS_SESSION_BUS_ADDRESS "unix:path=$run/bus")
+      }
+
       if [ $# -gt 0 ]; then
         prepare
-        exec bwrap "''${args[@]}" "''${env[@]}" -- "$@"
+        bind_bus "$run/jails/$name.bus-$$"
+        exec ${jailRun}/bin/jail-run "$bus" "''${args[@]}" "''${env[@]}" -- "$@"
       fi
 
       # Shared jail: one tmux server inside per repository, every terminal attaches.
       [ -t 0 ] || die "no terminal; use: jail DIR -- CMD..."
       sockdir=$run/jails/$name
       sock=$sockdir/tmux.sock
-      install -d -m 0700 "$run/jails" "$sockdir"
+      install -d -m 0700 "$sockdir"
 
       # Every tmux client runs sandboxed too: the server is jailed code (or a
       # fake one in the writable socket directory) and can make any client
@@ -342,11 +420,12 @@ let
 
       if ! alive; then
         prepare
+        bind_bus "$run/jails/$name.bus"
         # The jail's main process keeps the namespace alive while the session lives.
         # shellcheck disable=SC2016 # expanded by the inner shell
         keepalive='"$1" -S "$2" new-session -d -s main && while "$1" -S "$2" has-session -t main 2>/dev/null; do ${pkgs.coreutils}/bin/sleep 2; done'
         systemd-run --user --quiet --collect --expand-environment=no --unit="jail-$name" -- \
-          ${bwrap} "''${args[@]}" --bind "$sockdir" "$sockdir" "''${env[@]}" -- \
+          ${jailRun}/bin/jail-run "$bus" "''${args[@]}" --bind "$sockdir" "$sockdir" "''${env[@]}" -- \
           ${pkgs.runtimeShell} -c "$keepalive" sh ${tmux} "$sock" ||
           echo "jail: jail-$name did not start, maybe it is starting already" >&2
         for _ in $(seq 50); do alive && break; sleep 0.2; done

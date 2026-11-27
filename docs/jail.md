@@ -34,10 +34,10 @@ jail-push ~/Projects/foo main --force-with-lease   # other git push arguments
 
 | | |
 | --- | --- |
-| read-write | the repository; `~/brain/inbox`; the login: `~/.claude/.credentials.json`, `~/.codex/auth.json` (and its lock files); the Nix daemon socket; `/dev/kvm` |
-| read-only | `/nix`, `/etc`, `/run/current-system`, `/bin`, `/usr`, `/lib64`, DNS (`/run/systemd/resolve`); `~/brain`; every other entry of `~/.claude` and `~/.codex` (`CLAUDE.md`, `settings.json`, `rules/`, `skills/`, `agents/`, `plugins/`, the status line script, `config.toml`, `AGENTS.md`, ...); `~/.local/bin` and `~/.local/share/uv/tools` (graphify) |
-| own | `$HOME` is `~/.local/share/jails/<name>/home` (history, nvim state and `:trust` list, direnv allow list, caches, ...) with home-manager's dotfiles linked in on every start; in it the jail's own `~/.claude` and `~/.codex` state (transcripts, memory, plans, shell snapshots, todos, logs, the codex databases; the lists are in `default.nix`), `~/.claude/plugins/data` (`~/.local/share/jails/<name>/claude-plugin-data`) and `~/.claude.json`; `/tmp`, `/proc`, `/dev`, an empty `/run/user/<uid>` |
-| absent | the rest of `/home`, `/run/user` sockets (session bus, gpg-agent, Docker), `/run/wrappers` (setuid, and `no_new_privs` stops `sudo` anyway), `/run/secrets` |
+| read-write | the repository; `~/brain/inbox`; the login: `~/.claude/.credentials.json`, `~/.codex/auth.json` (and its lock files); the Nix daemon socket; `/dev/kvm`; a D-Bus proxy at `/run/user/<uid>/bus` (`org.freedesktop.Notifications` only) |
+| read-only | `/nix`, `/etc`, `/run/current-system`, `/bin`, `/usr`, `/lib64`; its own `resolv.conf` (`~/.local/share/jails/<name>/resolv.conf`, bound over the host's); `~/brain`; every other entry of `~/.claude` and `~/.codex` (`CLAUDE.md`, `settings.json`, `rules/`, `skills/`, `agents/`, `plugins/`, the status line script, `config.toml`, `AGENTS.md`, ...); `~/.local/bin` and `~/.local/share/uv/tools` (graphify) |
+| own | `$HOME` is `~/.local/share/jails/<name>/home` (history, nvim state and `:trust` list, direnv allow list, caches, ...) with home-manager's dotfiles linked in on every start; in it the jail's own `~/.claude` and `~/.codex` state (transcripts, memory, plans, shell snapshots, todos, logs, the codex databases; the lists are in `default.nix`), `~/.claude/plugins/data` (`~/.local/share/jails/<name>/claude-plugin-data`) and `~/.claude.json`; `/tmp`, `/proc`, `/dev`, an empty `/run/user/<uid>` but for the D-Bus proxy; its own network namespace (below) |
+| absent | the rest of `/home`, `/run/user` sockets (the session bus itself, gpg-agent, Docker), services on the host's loopback, the host's abstract Unix sockets, `/run/wrappers` (setuid, and `no_new_privs` stops `sudo` anyway), `/run/secrets` |
 
 On every start `~/.claude.json` gets `oauthAccount`, `userID`,
 `mcpServers` and the onboarding flags from yours (one way, the jail's own
@@ -50,8 +50,41 @@ shared through the daemon as usual.
 
 The environment is built, not inherited: `HOME`, `USER`, `LOGNAME`, `PATH`
 (per-user profile, system), `SHELL`, `LANG`, `XDG_RUNTIME_DIR` and, if set,
-`TERM`, `COLORTERM`, `EDITOR`, `LOCALE_ARCHIVE`, `TERMINFO_DIRS`, `TZDIR`. Network
-is shared with the host for now (design step 3 gives it its own namespace).
+`TERM`, `COLORTERM`, `EDITOR`, `LOCALE_ARCHIVE`, `TERMINFO_DIRS`, `TZDIR`, and
+`DBUS_SESSION_BUS_ADDRESS` for the proxy.
+
+## Network and D-Bus
+
+- Each jail (the shared one and every one-off) runs in a network namespace of
+  its own, connected by `pasta` (passt, as rootless Podman does): outbound
+  TCP, UDP and ICMP leave through ordinary sockets of yours on the host. No
+  port is forwarded in either direction (`-t/-u/-T/-U none`) and the gateway
+  address is not mapped to the host (`--no-map-gw`), so the host's loopback
+  services (`127.0.0.1`, `::1`) and its abstract Unix sockets (Xwayland's
+  `@/tmp/.X11-unix/X0`, some D-Bus) are out of reach. Loopback inside the
+  jail is its own and works (winvm's port forwards on `127.0.0.1` stay inside).
+- DNS: the jail's `resolv.conf` names `169.254.1.1`, whose TCP and UDP ports
+  53 and 853 (DNS over TLS) pasta forwards (`--dns-forward`) to the same ports
+  of the host's first nameserver (`127.0.0.53`, resolved); search and options
+  lines are the host's at the jail's start. `/run/systemd/resolve` is not bound.
+- With a host session bus (`$XDG_RUNTIME_DIR/bus`), `xdg-dbus-proxy --filter
+  --talk=org.freedesktop.Notifications` serves the jail's bus; every other
+  name (systemd, secrets, portals, ...) is invisible. Its socket lives in
+  `$XDG_RUNTIME_DIR/jails/` (`<name>.bus` for the shared jail,
+  `<name>.bus-<pid>` per one-off), outside the jail. Without a session bus the
+  jail starts without one.
+- pasta and the proxy are children of `jail-run`, the jail's main process
+  (the `jail-<name>` unit, or the one-off command): a signal to it (TERM,
+  Ctrl-C's INT, HUP) reaches pasta, and pasta has `jail-run`'s death as its
+  own (`setpriv --pdeathsig KILL`, so also after a SIGKILL); pasta's end ends
+  the jail. `nohup`'s HUP stays ignored, so `nohup jail DIR -- CMD &`
+  survives a closed terminal; a script's background job starts with INT
+  ignored, so stop such a jail with TERM. The proxy ends when `jail-run`'s pipe to it closes and removes
+  its socket. Jailed programs start with no signal ignored (`env
+  --default-signal`: a background start ignores SIGINT, pasta ignores
+  SIGPIPE). The namespace has no name on disk, so nothing stale is
+  left after a stop. bwrap starts as root of pasta's user namespace and drops
+  every capability (`--cap-drop ALL`), as it does for a normal user.
 
 Every tmux client `jail` starts (the liveness check and the attach) runs in a
 sandbox of its own (`/nix`, `/etc`, the socket): a tmux server, jailed or a
@@ -96,7 +129,7 @@ repository, which jailed code may have changed: check the URL it prints.
 ## Tested
 
 `nix build .#checks.x86_64-linux.jail` (NixOS VM; the test script itself takes
-about 55 s): hidden home paths and `~/.cache/docker` absent; `~/brain` read-only
+about 74 s, with a second VM): hidden home paths and `~/.cache/docker` absent; `~/brain` read-only
 except `inbox/`; writes to `~/.claude` config (`CLAUDE.md`, `settings.json`,
 `skills/`, `rules/`, `agents/`, `plugins/`) and `~/.codex` (`config.toml`,
 `AGENTS.md`, `rules/`) fail; the logins are shared; state written in
@@ -105,8 +138,16 @@ except `inbox/`; writes to `~/.claude` config (`CLAUDE.md`, `settings.json`,
 host's is not visible; `~/.claude.json` gets the login and MCP servers and
 keeps the jail's projects, the host file stays unchanged, also with a link
 planted in its place; home-manager files linked;
-`/usr/bin/env` works; `sudo`, `systemd-run --user`, the session bus and
-gpg-agent unavailable; `nix build` through the daemon; `/dev/kvm` inside iff
+`/usr/bin/env` works; no capabilities (also none in the bounding set); no
+ignored signals (a one-off jail and the shared jail's processes);
+`sudo`, `systemd-run --user` and gpg-agent unavailable, the only socket in `/run/user` the D-Bus proxy, which
+answers for `org.freedesktop.Notifications` (a stand-in on the session bus) and
+not for another name; outbound TCP to a second test node and DNS (UDP and TCP,
+via resolved on the test VM) work, host listeners on `127.0.0.1` and `::1`, the same port
+on the namespace's gateway and a host abstract socket are unreachable,
+loopback inside works; neither pasta, the jailed command nor the proxy and its
+socket outlive a one-off jail, also one ended by TERM, INT or KILL, or a
+stopped shared jail; `nix build` through the daemon; `/dev/kvm` inside iff
 outside; a link planted at a mount point does not stop the next start;
 `jail-push` pushes over ssh without running planted hooks, `core.fsmonitor`,
 `core.sshCommand` (the global one runs) or `uploadpack.packObjectsHook`,
@@ -118,7 +159,9 @@ symlinked `.git`, a `.git/config` or `HEAD` that is a link to another
 repository's or a FIFO, and an `include.path` to another repository's config, and runs a local remote's hooks
 sandboxed; two terminals share
 one tmux server and one unit, the shell in it is jailed, and a
-`detach-client -E` command does not run on the host (a fake server answering
+`detach-client -E` command does not run on the host, the shared jail reaches
+the Notifications stand-in and the second node and starts again after a stop
+(a fake server answering
 the liveness check is covered by construction, the same sandbox, not by a
 test). Every negative check has
 a positive control outside the jail.
@@ -147,10 +190,23 @@ a positive control outside the jail.
 - Home-manager files at paths the jail replaced with its own stay the jail's
   (reset the jail home to get them back).
 - No `/sys`, `/run/opengl-driver`, Wayland or X11 sockets in the file system:
-  GUI programs and GPU compute do not run inside. The network is shared until
-  design step 3, so abstract sockets stay reachable, among them Xwayland's
-  `@/tmp/.X11-unix/X0`; only the X cookie, which the jail does not have,
-  protects it.
+  GUI programs and GPU compute do not run inside.
+- Outbound traffic leaves as yours from the host, so the host's services on
+  addresses of other interfaces and the LAN are reachable as from any program
+  of yours; only loopback and abstract sockets are cut. A host listener on
+  `0.0.0.0` or `[::]` answers on every host address, for example Docker's
+  `docker0` (`172.17.0.1`), libvirt's `virbr0` (`192.168.122.1`), Tailscale or
+  the LAN address; only one bound to `127.0.0.1` or `::1` is out of reach. The one deliberate path to host loopback is pasta's DNS
+  forwarder to your nameserver on ports 53 and 853. There is no egress allowlist.
+- The namespace copies the host's addresses and routes when the jail starts
+  (offline: a link-local fallback) and keeps them: after a network change
+  (another Wi-Fi, a VPN), restart the jail if outbound or DNS misbehave.
+- A notification is the one D-Bus call that leaves: its text and actions are
+  the jail's, so it can show a misleading message. `--talk` opens the whole
+  connection that owns `org.freedesktop.Notifications`, every object and
+  method of it, not only the notification interface. On GNOME that is a
+  separate process of gnome-shell (`org.gnome.Shell.Notifications`), which
+  serves only notifications; with another desktop, check what owns the name.
 - A tmux server inside the jail (or a fake one in the socket directory) can
   draw anything in your terminal, also a prompt that looks like the host's;
   it cannot type into other programs (TIOCSTI is off or blocked).

@@ -119,7 +119,10 @@ outside it.
    outbound internet works, but the host's localhost services and abstract
    Unix sockets (Xwayland, some D-Bus) are not shared, which `--share-net`
    does. winvm's port forwards on 127.0.0.1 then stay inside the jail.
-   Later, if wanted: an egress allowlist (model APIs, Nix caches, registries)
+   Done: `jail-run` puts each jail under `pasta` (no forwards, no gateway
+   mapping, DNS through its forwarder) and next to an `xdg-dbus-proxy` for
+   Notifications only; asserted by the VM test ([jail.md](jail.md), "Network
+   and D-Bus"). Later, if wanted: an egress allowlist (model APIs, Nix caches, registries)
    through a filtering proxy.
 4. **Claude Code's sandbox inside the jail** for finer per-command rules, if
    wanted; the jail stays the boundary.
@@ -133,7 +136,7 @@ worked; `/run/user/1000`, `systemd-run --user`, the Docker and libvirt sockets
 unreachable. Also tested: read-only binds of `.git/hooks` inside the writable
 repository do not hold (`mv .git .git.x && git init`), which is why your own
 tools move into the jail rather than the agent getting read-only islands.
-Not tested yet: a real winvm boot, `pasta`, `xdg-dbus-proxy`, an interactive
+Not tested yet: a real winvm boot, an interactive
 `claude`/`codex` session inside the jail (`claude --version`, zsh, `graphify`
 checked by hand).
 
