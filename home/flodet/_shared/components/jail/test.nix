@@ -346,8 +346,9 @@
         alice("""
           mkdir -p ~/data-ro ~/data-rw && echo ro > ~/data-ro/f && echo secret > ~/secret
           ln -s ~/data-ro ~/data-link
+          mkdir -p ~/.ssh ~/.gnupg ~/.password-store ~/.local/share/keyrings ~/.local/state ~/.config/x ~/brain/wiki
           git init -q ~/repoc && cd ~/repoc && git commit -q --allow-empty -m one
-          printf '# a website and two folders\\nport 8090\\nport 8091\\nport 8090\\n\\nro ~/data-ro\\nrw /home/alice/data-rw/\\n' > .jail
+          printf '#\\ta website and two folders\\nport 8090\\nport 8091\\nport 8090\\n\\nro ~/data-ro\\nrw /home/alice/data-rw/\\n' > .jail
         """)
         alice("test -d ~/data-ro && test -d ~/data-rw && cat ~/secret")
         # not approved yet: nothing applied, without a terminal or when refused
@@ -355,10 +356,23 @@
         assert "is not applied (it changed, and there is no terminal" in out, out
         out = start("test ! -e ~/data-ro", answer="no")
         assert "port 8090" in out and "is not applied (not approved)" in out, out
+        # a tab shown as text, and what the file amounts to
+        assert "#^Ia website" in out, out
+        assert "jail: in effect: ports 8090 8091 | ro /home/alice/data-ro | rw /home/alice/data-rw" in out, out
         # approved: the folders, then used without asking
         start("cat ~/data-ro/f && ! touch ~/data-ro/x 2>/dev/null && touch ~/data-rw/x", answer="yes")
         alice("test -e ~/data-rw/x && test ! -e ~/data-ro/x")
         assert "not applied" not in start("cat ~/data-ro/f")
+        # binds by fd, and bwrap closes those fds: the jail gets no handle on a host directory
+        start("test \"$(ls /proc/self/fd | tr '\\n' ' ')\" = '0 1 2 3 '")
+
+        # A bind source swapped for a link after jail checked it (a running jail
+        # can do that below its rw folders) is refused when it is opened for bwrap.
+        jb = "$(grep -o '/nix/store/[a-z0-9]*-jail-binds/bin/jail-binds' $(grep -o '/nix/store/[a-z0-9]*-jail-run/bin/jail-run' $(readlink -f $(command -v jail)) | head -n 1) | head -n 1)"
+        alice(f"{jb} ro /home/alice/data-ro rw /home/alice/data-rw -- true")
+        out = alice(f"! {jb} ro /home/alice/data-ro ro /home/alice/data-link -- touch /tmp/marker-binds 2>&1")
+        assert "/home/alice/data-link changed after it was checked" in out, out
+        alice("test ! -e /tmp/marker-binds")
 
         # the port: host 127.0.0.1:8090 reaches a listener on the jail's 127.0.0.1:8090
         listeners = "socat TCP-LISTEN:8091,bind=127.0.0.1 SYSTEM:'echo two' & socat TCP-LISTEN:8090,bind=127.0.0.1 SYSTEM:'echo inside'"
@@ -412,6 +426,13 @@
             "ro /nix/store": "is in /nix", "rw /run/user": "is in /run", "ro /proc": "is in /proc", "rw /tmp": "is /tmp",
             "rw ~/repoe": "is or contains /home/alice/repoe", "rw ~/repoe/.git": "is in the repository",
             "ro relative": "not an absolute path", "ro ~/missing": "does not exist",
+            "rw ~/.ssh": "overlaps /home/alice/.ssh", "ro ~/.gnupg": "overlaps /home/alice/.gnupg",
+            "ro ~/.claude": "overlaps /home/alice/.claude", "ro ~/.claude/skills": "overlaps /home/alice/.claude",
+            "ro ~/.codex": "overlaps /home/alice/.codex", "ro ~/.claude.json": "overlaps /home/alice/.claude.json",
+            "ro ~/.local/share/keyrings": "overlaps /home/alice/.local/share/keyrings",
+            "ro ~/.password-store": "overlaps /home/alice/.password-store",
+            "rw ~/.config/x": "overlaps /home/alice/.config (ro only)", "rw ~/.local/state": "overlaps /home/alice/.local/state (ro only)",
+            "rw ~/.local/bin": "overlaps /home/alice/.local/bin (ro only)", "rw ~/brain/wiki": "overlaps /home/alice/brain (ro only)",
             "port 80": "a port is", "port 70000": "a port is", "port 8o": "a port is", "bind /tmp": "unknown keyword",
         }
         for line, why in refused.items():
@@ -421,6 +442,18 @@
             out = start("test ! -e ~/data-ro", answer=answer, repo="~/repoe")
             assert f".jail line 2: {line}: {why}" in out and "is not applied" in out, out
         alice("! ls ~/.local/share/jails/repoe-*/jail.approved")
+        # too large, a FIFO (no wait on it), a directory: not applied, the jail starts
+        for make, why in [("head -c 65537 /dev/zero | tr '\\0' '#' > .jail", "larger than 64 KiB"),
+                          ("mkfifo .jail", "not a regular file"), ("mkdir .jail", "not a regular file")]:
+            alice(f"cd ~/repoe && rm -rf .jail && {make}")
+            out = start("test ! -e ~/data-ro", answer="yes", repo="~/repoe")
+            assert f"is not applied (it is {why})" in out, out
+        # an approved path that is gone: the jail does not start, and says why
+        alice("mkdir ~/gone && cd ~/repoe && rm -rf .jail && echo 'ro ~/gone' > .jail")
+        start("test -d ~/gone", answer="yes", repo="~/repoe")
+        alice("rmdir ~/gone")
+        out = start("true", repo="~/repoe", ok=False)
+        assert ".jail line 1: ro ~/gone: does not exist" in out and "no longer applies" in out, out
         machine.wait_until_succeeds("! pgrep -u alice '^(xdg-dbus-proxy|passt|pasta)'", timeout=30)
 
     with subtest("terminals of one repository share one jail"):
