@@ -38,7 +38,6 @@ let
       pkgs.coreutils
       pkgs.findutils
       pkgs.systemd
-      pkgs.tmux
     ];
     text = common + ''
       usage="usage: jail [DIR] [-- CMD...]"
@@ -137,7 +136,26 @@ let
       sockdir=$run/jails/$name
       sock=$sockdir/tmux.sock
       install -d -m 0700 "$run/jails" "$sockdir"
-      alive() { tmux -S "$sock" has-session -t main 2>/dev/null; }
+
+      # Every tmux client runs sandboxed too: the server is jailed code (or a
+      # fake one in the writable socket directory) and can make any client
+      # exec a command (MSG_SHELL, detach-client -E). No --new-session, so
+      # resizing works; TIOCSTI would need it unless the kernel disables it.
+      tiocsti=()
+      [ "$(cat /proc/sys/dev/tty/legacy_tiocsti 2>/dev/null)" = 0 ] || tiocsti=(--new-session)
+      client_env=()
+      for v in TERM COLORTERM LANG LOCALE_ARCHIVE TERMINFO_DIRS; do
+        [ -z "''${!v:-}" ] || client_env+=(--setenv "$v" "''${!v}")
+      done
+      client() {
+        bwrap --unshare-all --die-with-parent "''${tiocsti[@]}" --clearenv \
+          --ro-bind /nix /nix --ro-bind /etc /etc \
+          --ro-bind-try /run/current-system /run/current-system \
+          --proc /proc --dev /dev --tmpfs /tmp --bind "$sockdir" "$sockdir" \
+          "''${client_env[@]}" -- ${tmux} -S "$sock" "$@"
+      }
+      alive() { client has-session -t main 2>/dev/null; }
+
       if ! alive; then
         mirror_dotfiles
         # The jail's main process keeps the namespace alive while the session lives.
@@ -150,21 +168,8 @@ let
         for _ in $(seq 50); do alive && break; sleep 0.2; done
         alive || die "jail-$name is not running: journalctl --user -u jail-$name"
       fi
-
-      # The client runs sandboxed too: the server is jailed code and can make a
-      # client exec a command (detach-client -E), or be swapped for a fake one.
-      # No --new-session so resizing works; TIOCSTI needs it unless disabled.
-      tiocsti=()
-      [ "$(cat /proc/sys/dev/tty/legacy_tiocsti 2>/dev/null)" = 0 ] || tiocsti=(--new-session)
-      client_env=()
-      for v in TERM COLORTERM LANG LOCALE_ARCHIVE TERMINFO_DIRS; do
-        [ -z "''${!v:-}" ] || client_env+=(--setenv "$v" "''${!v}")
-      done
-      exec bwrap --unshare-all --die-with-parent "''${tiocsti[@]}" --clearenv \
-        --ro-bind /nix /nix --ro-bind /etc /etc \
-        --ro-bind-try /run/current-system /run/current-system \
-        --proc /proc --dev /dev --tmpfs /tmp --bind "$sockdir" "$sockdir" \
-        "''${client_env[@]}" -- ${tmux} -S "$sock" attach-session -t main
+      # attach-session, never new-session -A: that would start a server outside the jail
+      client attach-session -t main
     '';
   };
 
@@ -230,14 +235,14 @@ let
       [ -d "$mirror" ] || { mkdir -p "$state" && git init -q --bare "$mirror"; } || die "cannot create $mirror"
       url=$(g config --get remote.origin.url || true)
       if [ -z "$url" ]; then
-        # read as data: --file follows no includes
+        # read as data: with --file, includes are off by default (git help config)
         url=$(git config --file "$gitdir/config" --get remote.origin.url) || die "$root has no remote.origin.url"
         valid_url "$url" || die "refusing remote.origin.url '$url': use ssh://, https://, user@host:path or the absolute path of a bare repository"
         g config remote.origin.url "$url"
         echo "jail-push: $root pushes to $url from now on (stored in $mirror/config)"
       fi
 
-      g fetch --quiet --no-tags --upload-pack="${gitSandbox}/bin/jail-git-sandbox git-upload-pack" \
+      g fetch --quiet --no-tags --prune --upload-pack="${gitSandbox}/bin/jail-git-sandbox git-upload-pack" \
         "$gitdir" '+refs/heads/*:refs/heads/*' || die "fetching $root into $mirror failed"
 
       if [ $# -eq 0 ]; then

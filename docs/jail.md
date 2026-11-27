@@ -37,8 +37,10 @@ The environment is built, not inherited: `HOME`, `USER`, `LOGNAME`, `PATH`
 `TERM`, `COLORTERM`, `EDITOR`, `LOCALE_ARCHIVE`, `TERMINFO_DIRS`, `TZDIR`. Network
 is shared with the host for now (design step 3 gives it its own namespace).
 
-The tmux client that attaches runs in a sandbox of its own (`/nix`, `/etc`,
-the socket): jailed code can make a client run a command (`detach-client -E`).
+Every tmux client `jail` starts (the liveness check and the attach) runs in a
+sandbox of its own (`/nix`, `/etc`, the socket): a tmux server, jailed or a
+fake one in the writable socket directory, can make a client run a command
+(`detach-client -E`, `MSG_SHELL`).
 
 ## jail-push
 
@@ -67,8 +69,8 @@ rm -rf ~/.local/share/jails/<name>           # also the push mirror and its stor
 
 ## Tested
 
-`nix build .#checks.x86_64-linux.jail` (NixOS VM, about 1 minute after the
-first build): hidden home paths and `~/.cache/docker` absent; `~/brain` read-only
+`nix build .#checks.x86_64-linux.jail` (NixOS VM; the test script itself takes
+about 25 s): hidden home paths and `~/.cache/docker` absent; `~/brain` read-only
 except `inbox/`; the Claude read-only paths; home-manager files linked;
 `/usr/bin/env` works; `sudo`, `systemd-run --user`, the session bus and
 gpg-agent unavailable; `nix build` through the daemon; `/dev/kvm` inside iff
@@ -77,7 +79,9 @@ outside; `jail-push` pushes without running planted hooks, `core.fsmonitor`,
 refuses `ext::`, `fd::`, `file://`, option-like and non-repository URLs and a
 symlinked `.git`, and runs a local remote's hooks sandboxed; two terminals share
 one tmux server and one unit, the shell in it is jailed, and a
-`detach-client -E` command does not run on the host. Every negative check has
+`detach-client -E` command does not run on the host (a fake server answering
+the liveness check is covered by construction, the same sandbox, not by a
+test). Every negative check has
 a positive control outside the jail.
 
 ## Limits
@@ -87,6 +91,9 @@ a positive control outside the jail.
   `~/.claude/ponytail-statusline.sh` (run by the status line), `~/.codex/config.toml`
   (`notify`). A jail can plant code there that runs in other jails, or outside
   when you start `claude`/`codex` outside a jail.
+- The shared caches are consumed by builds outside a jail too: a jail can
+  plant entries in `~/.cache/nix` (eval and fetcher caches), `~/.cache/nuget`
+  and `~/.cargo/registry` (extracted packages).
 - Single files bound into the jail (`~/.claude.json`, `~/.claude/settings.json`)
   cannot be replaced by rename inside it, and a rename on the host leaves the
   jail with the old file until it restarts.

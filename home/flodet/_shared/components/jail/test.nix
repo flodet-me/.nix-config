@@ -183,6 +183,7 @@
         # jailed code can make a client exec a command on detach: it must stay sandboxed
         alice(f"tmux -S {sock} send-keys -t main 'tmux detach-client -s main -E \": > /tmp/marker-detach\"' Enter")
         machine.wait_until_succeeds(f"test -z \"$(su - alice -c 'tmux -S {sock} list-clients')\"", timeout=30)
+        machine.sleep(2)  # let a client that would exec the command finish
         alice("! ls /tmp/marker-* 2>/dev/null")
   '';
 }
