@@ -27,6 +27,8 @@
 
   # `nh os switch` without a path
   programs.nh.flake = "/home/${config.host.user}/.nix-config";
+  # Builds yield the CPU to the desktop (SCHED_BATCH); max-jobs/cores unchanged.
+  nix.daemonCPUSchedPolicy = "batch";
 
   networking.networkmanager.enable = true;
   services.printing.enable = true;
