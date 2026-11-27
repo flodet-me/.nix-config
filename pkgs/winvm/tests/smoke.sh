@@ -93,7 +93,7 @@ check "run: stdout collected" grep -q smoke-output "$LOG.run"
 w run --timeout 60 vm:C:/Windows/System32/rundll32.exe kernel32.dll,DebugBreak >"$LOG.crash" 2>&1
 check "run: crash decoded (breakpoint)" grep -q '0x80000003.*breakpoint' "$LOG.crash"
 check "run: crash dump analyzed" grep -q 'FAILURE_BUCKET_ID' "$LOG.crash"
-check "run: results saved under runs/" grep -q '^results   : runs/' "$LOG.crash"
+check "run: results saved under runs/" grep -q '^results   : .*/runs/' "$LOG.crash"
 
 # --- inside the VM -----------------------------------------------------------
 step "management commands"

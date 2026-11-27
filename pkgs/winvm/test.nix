@@ -111,6 +111,27 @@ runCommand "winvm-test"
     check "zsh completion: recipes" has '^hidpi$' zsh_words winvm new x --recipe
     check "zsh completion: your recipes" has '^mine$' zsh_words winvm new x --recipe
 
+    # winvm ssh COMMAND, with ssh and scp stubbed (the unwrapped script: the
+    # wrapper puts the real ones first on PATH). Windows 10's OpenSSH strips
+    # double quotes from the guest command line: it must have none.
+    mkdir -p "$TMPDIR/stubs" "$WINVM_HOME/state/images/win10"
+    echo win10 >"$WINVM_HOME/state/vms/foo/image"
+    touch "$WINVM_HOME/state/images/win10/base.qcow2" "$WINVM_HOME/state/vms/foo/disk.qcow2"
+    cat >"$TMPDIR/stubs/scp" <<EOF
+    #!${bashInteractive}/bin/bash
+    cp "\''${@: -2:1}" "$TMPDIR/sent.ps1"; echo "\''${@: -1}" >"$TMPDIR/scp-dest"
+    EOF
+    cat >"$TMPDIR/stubs/ssh" <<EOF
+    #!${bashInteractive}/bin/bash
+    echo "\''${@: -1}" >"$TMPDIR/ssh-cmd"
+    EOF
+    chmod +x "$TMPDIR/stubs/"*
+    check "ssh COMMAND: runs" env PATH="$TMPDIR/stubs:$PATH" "$root/.winvm-wrapped" -n foo ssh "Write-Host \"a 'b' c\""
+    check "ssh COMMAND: the command goes into the copied script as typed" grep -qF "Write-Host \"a 'b' c\"" "$TMPDIR/sent.ps1"
+    check "ssh COMMAND: the guest command line has no double quotes" bash -c '! grep -q "\"" "$1"' _ "$TMPDIR/ssh-cmd"
+    check "ssh COMMAND: the guest command line runs the copied script" \
+      bash -c 'grep -qF -- "-File $(cut -d: -f2- "$1" | tr / \\\\)" "$2"' _ "$TMPDIR/scp-dest" "$TMPDIR/ssh-cmd"
+
     if ((''${#failed[@]})); then
       printf 'winvm-test: %d failed: %s\n' "''${#failed[@]}" "''${failed[*]}" >&2
       exit 1
