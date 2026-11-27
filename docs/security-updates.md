@@ -48,7 +48,7 @@ check-cves --min-cvss 9     # only critical
      and a reason; if yes, mitigate (disable the feature/service) or remove
      the package.
    - *Fixed in nixpkgs but not in your channel yet*: wait for the next update,
-     or use `pkgs.stable.<pkg>` if 26.05 has the fix.
+     or pin an input with the fix for that package (AGENTS.md, Conventions).
 3. **Whitelist** in `security/vulnix-whitelist.toml`, always with a reason.
 
 ## Reduce what can be vulnerable

@@ -41,7 +41,7 @@ claude-plugins-sync                        # install declared Claude Code plugin
   - `hosts/`: Every host imports `_shared/global.nix`. Workstations import `_shared/components/workstation.nix`; servers import `_shared/components/server`. Hosts add hardware (`nixos-hardware`, `hardware-configuration.nix`), disk layout (`impermanence/disko.nix`), hostname, and extras (`nvidia-*`, `gaming.nix`, `data-disk.nix`, ...).
   - `home/flodet/`: `<host>/default.nix` imports `_shared/global.nix` (CLI tools) and `_shared/desktop.nix` (GUI apps, GNOME, stylix, Claude Code, YubiKey) and adds host-specific packages.
 - **Adding functionality**: Create a self-contained module under the relevant `_shared/components/` directory and import it from `workstation.nix`, a single host, or `server/`. Nothing is global unless imported by `global.nix`.
-- **Overlays (`overlays/default.nix`)**: Exposes `pkgs.inputs.<flake>`, `pkgs.stable` (pinned `nixpkgs-stable`, currently 26.05), `additions` (`pkgs/`), and `modifications`.
+- **Overlays (`overlays/default.nix`)**: Exposes `pkgs.inputs.<flake>`, `additions` (`pkgs/`), and `modifications`.
 
 ## Impermanence & Storage
 
@@ -64,6 +64,6 @@ See [docs/testing.md](docs/testing.md) for quick checks, closure diffs (`nix sto
 
 - `.editorconfig` governs style; Nix files use RFC-style `nixfmt`. New files must be tracked or added with `git add -N <file>` so flakes see them.
 - `stateVersion` is the release of a machine's first install and is never raised afterwards (`desktop`, `laptop`, `moon` are `26.11`; `vps` template is `26.05`).
-- Prefer `pkgs.stable.<pkg>` (via the overlay) when an unstable package is broken, rather than pinning extra inputs.
+- When an unstable package is broken, add a pinned input for it then (`nixpkgs-stable` was removed 2026-11-27 because nothing used it).
 - GitHub Actions are pinned to commit SHAs (updated by Dependabot); keep `.github/act` compatibility via `if: ${{ !env.ACT }}`.
 - Scripts and services must report which step failed and leave a retryable state (`install-host`, `provision-server`, `claude-plugins-sync`, `nix-config-checkout`).
