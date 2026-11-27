@@ -30,7 +30,9 @@ Accept:
   docker CLI) runs images, `docker network create` gives a network on which
   two containers reach each other by name, `docker compose` works, and a
   container port reaches the jail (and the host through a `.jail` forward).
-  The host's docker/podman socket is never given to a jail.
+  The host's docker/podman socket is never given to a jail. Each container
+  jail starts its own podman API service (DOCKER_HOST set), so Docker's
+  Compose v2 and testcontainers work; it stops with the jail.
 - A jail VM test covers the container part (two containers on a user network,
   name resolution, a published port); the winvm part has a VM test of the
   binds and home, and the desktop run above.
