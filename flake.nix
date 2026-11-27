@@ -66,14 +66,13 @@
                 host.user = username;
                 # What it was built from: `nixos-version --configuration-revision`
                 # and /run/current-system/flake-source, compared by switch-review.
-                system.configurationRevision = self.rev or self.dirtyRev or null;
+                # switch-review builds `path:<store path>`, which carries a clean
+                # tree's rev but no dirtyRev: a dirty tree records its narHash.
+                system.configurationRevision = self.rev or self.dirtyRev or self.narHash or null;
                 # Workstations only: a server closure must not carry the repository
                 # (other hosts' encrypted secrets); switch-review is local anyway.
-                # flake-revision is read by switch-review, which runs nothing from
-                # an unreviewed build.
                 system.systemBuilderCommands = lib.mkIf (config.host.role == "workstation") ''
                   ln -s ${self} $out/flake-source
-                  printf %s ${lib.escapeShellArg (toString config.system.configurationRevision)} > $out/flake-revision
                 '';
               }
             )

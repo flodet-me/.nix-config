@@ -95,5 +95,6 @@ rec {
     diffutils
     findutils
     coreutils
+    jq
   ]) { "@nh@" = "${pkgs.nh}"; };
 }
