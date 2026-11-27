@@ -102,6 +102,11 @@ The dev shell also has `claude-code`, but not the plugins.
   `.nvim.lua` for editor settings, [neovim.md](neovim.md)), local first, what Claude decides and what it asks,
   knowledge (project, brain, personal vault), done. Edit the file in the repo and switch; keep it short,
   it costs tokens in every session. `/memory` shows which files are loaded.
+- **Jail hint** (`jail.md` in the module, `~/.claude/rules/jail.md`; the same
+  lines end `codex/AGENTS.md`): in every session, worded for `$JAIL`: in a
+  repository jail a port or a folder outside the repository goes into `.jail`,
+  checked with `jail config`, approved by you on a host terminal
+  ([jail.md](jail.md)).
 - **Skills reserved for you** (`skillOverrides`, values `on`, `name-only`,
   `user-invocable-only`, `off`): `graphify` is `user-invocable-only`, hidden
   from Claude but still `/graphify`. Claude Code 2.1.329 reads plugin-skill

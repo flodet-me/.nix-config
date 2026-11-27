@@ -9,45 +9,32 @@ an activated home-manager generation (dotfiles for the jail home). Design
 and reasons: [agent-isolation.md](agent-isolation.md),
 [ADR 0001](adr/0001-repository-jail.md).
 
-## Use
+How to use it (start, attach, one-off commands, `jail-push`, the `.jail`
+format, `jail config`, approval and restart, Reset, the main limits) is the
+user guide [pkgs/jail/README.md](../pkgs/jail/README.md), installed as
+`share/doc/jail/README.md` (inside every jail:
+`/run/current-system/sw/share/doc/jail/README.md`, named by `jail --help`).
+This page holds the design details, the checks, the network, the tests and
+all limits.
 
-```sh
-jail ~/Projects/foo            # a shell in foo's jail (tmux); every terminal attaches to the same one
-claude / codex / nvim          # started from that shell
-jail ~/Projects/foo -- make    # a one-off command in a fresh jail, exit status passed on
-jail-push ~/Projects/foo       # outside the jail: push the current branch
-jail-push ~/Projects/foo main --force-with-lease   # other git push arguments
-```
+## Starting, in detail
 
 - A one-off command gets home-manager's session variables
   (`hm-session-vars.sh` of your generation: `NUGET_PACKAGES`,
   `NPM_CONFIG_CACHE`, `~/.local/bin` in `PATH`, ...), as the jail's shell does.
 - `DIR` defaults to the current directory for `jail`; `jail-push` needs it
-  (an existing directory). The jail covers the nearest directory above it
-  with a real `.git` directory, or a container's `.git` file (below), so
-  worktrees and submodules inside a repository use that repository's jail. A
-  repository created inside a jail
-  (nested, or a new folder) gets its own jail on its first `jail` start, and
-  the URL printed then may come from jailed code: check it.
-- A container of worktrees around a bare repository (`<root>/.bare`,
-  `<root>/.git` a file `gitdir: ./.bare`, worktrees such as `<root>/main`
-  made with `git worktree add`) has one jail for the container and all its
-  worktrees: `jail <root>` and `jail <root>/main` are the same jail, with the
-  whole container bound at its path, so git works in every worktree.
-  `<root>/.git` must be a regular file `gitdir: ./<name>` (or `gitdir:
-  <name>`), `<name>` one directory directly in `<root>` that is a bare
-  repository (`HEAD`, `objects/`, `refs/`), not a link; anything else there is
-  refused or not taken as a container. `.jail` is `<root>/.jail`.
-- The first `jail` starts a user unit `jail-<name>` (`<name>`: folder name
-  plus a hash of its path) with a tmux server inside. Detach with the tmux
-  prefix + `d`; the jail ends when its last tmux window closes, or with
-  `systemctl --user stop jail-<name>`.
-- A `.jail` file in the repository adds ports and folders to its jail once
-  you approve it (below).
-- Once a repository has a jail, work on it only inside: a host shell, editor
-  or IDE runs code the jail wrote (a git prompt runs `core.fsmonitor`,
-  direnv's `use flake` runs the flake's shell hook, VS Code runs tasks and
-  extensions). `jail-push` is the one command meant for outside.
+  (an existing directory). `jail config` is a fixed word, not a directory
+  (a directory named `config` is `jail ./config`), so the command means the
+  same in every folder, also where a repository has a `config/` folder. A
+  repository created inside a jail (nested, or a new folder) gets its own
+  jail on its first `jail` start, and the URL printed then may come from
+  jailed code: check it.
+- A container of worktrees: `<root>/.git` must be a regular file `gitdir:
+  ./<name>` (or `gitdir: <name>`), `<name>` one directory directly in
+  `<root>` that is a bare repository (`HEAD`, `objects/`, `refs/`), not a
+  link; anything else there is refused or not taken as a container. The
+  whole container is bound at its path, so git works in every worktree, and
+  `.jail` is `<root>/.jail`.
 
 ## What the jail sees
 
@@ -77,7 +64,8 @@ more in it than home-manager's links). Caches outside `~/.cache`
 The environment is built, not inherited: `HOME`, `USER`, `LOGNAME`, `PATH`
 (per-user profile, system), `SHELL`, `LANG`, `XDG_RUNTIME_DIR` and, if set,
 `TERM`, `COLORTERM`, `EDITOR`, `LOCALE_ARCHIVE`, `TERMINFO_DIRS`, `TZDIR`, and
-`DBUS_SESSION_BUS_ADDRESS` for the proxy; `JAIL` (the jail's name) and
+`DBUS_SESSION_BUS_ADDRESS` for the proxy; `JAIL` (the jail's name),
+`JAIL_IN_EFFECT` and `JAIL_APPLIED_SHA256` (for `jail config`, below), and
 `GIT_CONFIG_COUNT`/`GIT_CONFIG_KEY_n`/`GIT_CONFIG_VALUE_n` setting
 `commit.gpgSign` and `tag.gpgSign` to false, so commits and tags inside are
 unsigned (there is no gpg-agent inside, and you do not commit there; the
@@ -104,20 +92,18 @@ again. Outside a jail codex keeps your
 default (`config.toml`); `claude-codex-review` runs plain codex with its
 explicit read-only sandbox, also inside.
 
+Both agents carry a few lines for jails (`~/.claude/rules/jail.md`, the end
+of `~/.codex/AGENTS.md`, from `home/flodet/_shared/components/claude-code/`):
+when a port or a path outside the repository is unreachable and `$JAIL` is
+set, edit `.jail`, check it with `jail config`, and tell you that it applies
+only after your approval at the next start. They are loaded in every session,
+in and outside jails (the files are host config, read-only in the jail), so
+they are worded for `$JAIL`.
+
 ## Per-repository config (.jail)
 
-A `.jail` at the repository root (the directory `jail` resolves; in a
-container of worktrees the container, not a worktree) asks for
-more than the defaults:
-
-```sh
-# a dev server, reached from your browser
-port 5173
-# read-only, at the same path inside
-ro ~/Datasets/images
-# read-write
-rw /srv/scratch/foo
-```
+The format, with examples, and how a change is approved: the user guide
+(`.jail` and `jail config`). The details:
 
 - `port N` (1024 to 65535): TCP connections to the host's `127.0.0.1:N`
   reach the jail's `127.0.0.1:N` (pasta `--host-lo-to-ns-lo -t
@@ -141,6 +127,20 @@ rw /srv/scratch/foo
 - `#` starts a comment line (only at the start of a line); blank lines are
   fine; any other line is an error naming the line. A port given twice counts
   once.
+- `jail config [DIR]` reads `.jail` with the same function as a start
+  (`read_jail`: regular file, no link, no FIFO wait, 64 KiB) and the same
+  `parse`/`bind_path`, and exits before anything that writes (the first
+  start's push URL, the jail home, the cache). On the host it compares with
+  `jail.approved`. Inside, a start passes what it applied as `JAIL_IN_EFFECT`
+  (ports forwarded, `ro`, `rw`) and `JAIL_APPLIED_SHA256` (of the applied
+  text, compared with `.jail` as read); the approved copy stays invisible.
+  Jailed code can change those variables for its own processes: they inform,
+  the approval on the host decides. Inside, `bind_path` skips the checks that
+  need the host's paths (exists, directory or regular file, no symlink,
+  canonical) and `jail config` says so; that skip is set only in the
+  `jail config` branch, never from the environment, so a start always checks.
+  A `DIR` whose repository is not this jail's (a nested repository) gets no
+  "in effect".
 
 Jailed code can write `.jail`, so `jail` applies only a copy you approved,
 stored outside the jail in `~/.local/share/jails/<name>/jail.approved`, the
@@ -268,19 +268,10 @@ fake one in the writable socket directory, can make a client run a command
 
 ## Reset
 
-```sh
-systemctl --user stop jail-<name>
-rm -rf ~/.local/share/jails/<name>/home      # jail home (history, nvim state, trust lists, Claude/Codex state)
-rm -rf ~/.local/share/jails/<name>/claude-plugin-data   # its Claude plugin data
-rm -rf ~/.local/share/jails/<name>/jail.approved      # the approved .jail: the next start asks again
-rm -rf ~/.local/share/jails/<name>           # also the push mirror and its stored URL
-rm -rf ~/.cache/jails/<name>                 # its caches (~/.cache inside)
-rm -rf ~/.local/share/jails/<name>/home/.cache   # the cache of a jail from before ~/.cache/jails, unused
-```
-
-After the last line the next `jail` start records the URL again from the
-repository, which jailed code may have changed: check the URL it prints; and
-it asks again about `.jail`.
+The commands are in the user guide (Reset). Removing all of
+`~/.local/share/jails/<name>` also removes the recorded push URL: the next
+start records it again from the repository, which jailed code may have
+changed.
 
 ## Tested
 
@@ -356,7 +347,16 @@ repository and its `.git`, `~/.ssh`, `~/.gnupg`, `~/.claude` and below it,
 `~/.config`, `~/.local/state`, `~/.local/bin`, `~/brain`), relative and
 missing paths, ports below 1024 or above 65535 and unknown keywords are
 refused with the line named, and nothing is applied; the approval shows a tab
-as `^I` and the line with what is in effect; a `.jail` over 64 KiB, a FIFO
+as `^I` and the line with what is in effect;
+`jail --help` names the README path, and the README is there inside a jail;
+`jail config` on the host for a repository without a jail reports the
+`.jail` and creates no state or cache, and for an approved one shows what it
+would add and the approved copy and changes nothing in the state; inside a
+one-off jail it shows what it would add, what is in effect in this jail and
+which checks it skipped, reports a `.jail` edited inside as differing, with
+how to apply it (also on the host), names a bad line with exit status 1
+(also on the host), gives a nested repository no "in effect", and leaves
+`jail.approved` as it was; in the shared jail a shell sees what is in effect; a `.jail` over 64 KiB, a FIFO
 (no wait) or a directory is not applied; an approved path that is gone stops
 the start; `jail-binds` refuses a bind source that is a link when it opens
 it (a swap after the check) and the jail holds no fd beyond 0 to 2
