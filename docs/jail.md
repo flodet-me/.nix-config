@@ -105,28 +105,20 @@ they are worded for `$JAIL`.
 The format, with examples, and how a change is approved: the user guide
 (`.jail` and `jail config`). The details:
 
-- `port N` (1024 to 65535): TCP connections to the host's `127.0.0.1:N`
-  reach the jail's `127.0.0.1:N` (pasta `--host-lo-to-ns-lo -t
-  127.0.0.1/N`). Only host to jail: the jail still reaches no host port. The
-  server inside must listen on `127.0.0.1` or `0.0.0.0` (`--host 127.0.0.1`),
-  not on `::1` only. A forwarded port is open to every local process and
-  user of the host, as any listener on `127.0.0.1` is; and while the jail
-  runs it holds the port, so a host service that starts later on the same
-  port cannot bind it (and a client of that service talks to the jail).
-- `ro PATH`, `rw PATH`: a directory or file bound at the same absolute path
-  (`~/` is your home). It must exist, and its path must have no symlink in it
-  and be canonical (no `.`, `..`). Refused: `/`, `/tmp`, anything in `/nix`,
-  `/run`, `/proc`, `/dev`, `/etc`, `/sys`, `/.snapshots`, `/persist`, your home or a folder above it
-  (`/home`), the jails' state (`~/.local/share/jails`, or a folder above it
-  such as `~/.local`), `~/.cache` and anything in it
-  (the jail has its own, `~/.cache/jails/<name>`), and the repository or anything in it or above it.
-  Also refused, in it, at it or above it: `~/.ssh`, `~/.gnupg`, `~/.claude`,
-  `~/.codex`, `~/.claude.json`, `~/.local/share/keyrings`,
-  `~/.password-store`; and as `rw` (fine as `ro`): `~/.config`,
-  `~/.local/state`, `~/.local/bin`, `~/brain`.
-- `#` starts a comment line (only at the start of a line); blank lines are
-  fine; any other line is an error naming the line. A port given twice counts
-  once.
+- `port N`: pasta `--host-lo-to-ns-lo -t 127.0.0.1/N`; the jail still
+  reaches no host port. A server started with `--host 127.0.0.1` is reached.
+  While the jail runs it holds the port, so a host service that starts later
+  on the same port cannot bind it (and a client of that service talks to the
+  jail).
+- `ro`, `rw` (`bind_path`): `~` and `~/` are your home, trailing slashes go;
+  the path must equal its `realpath -e` (so it exists, has no symlink on the
+  way and is canonical) and be a directory or regular file. The refused
+  paths (the list is in the guide) are compared as paths: "in" is at or
+  below, "above" a folder that contains it: your home only at or above, the
+  repository, `~/.cache` and the jails' state also below, the keys and logins
+  and the `rw`-only list in either direction, `/tmp` only itself.
+- A comment is a line starting with `#` (after blanks); `#` later in a line
+  is not one. A port given twice counts once.
 - `jail config [DIR]` reads `.jail` with the same function as a start
   (`read_jail`: regular file, no link, no FIFO wait, 64 KiB) and the same
   `parse`/`bind_path`, and exits before anything that writes (the first
@@ -136,8 +128,9 @@ The format, with examples, and how a change is approved: the user guide
   text, compared with `.jail` as read); the approved copy stays invisible.
   Jailed code can change those variables for its own processes: they inform,
   the approval on the host decides. Inside, `bind_path` skips the checks that
-  need the host's paths (exists, directory or regular file, no symlink,
-  canonical) and `jail config` says so; that skip is set only in the
+  need the host's paths (exists, directory or regular file, no symlink; it
+  still refuses a path that is not canonical, `realpath -sm`) and `jail
+  config` says so; that skip is set only in the
   `jail config` branch, never from the environment, so a start always checks.
   A `DIR` whose repository is not this jail's (a nested repository) gets no
   "in effect".
@@ -157,9 +150,9 @@ way `direnv allow` works:
   large or has a bad line: one line says that `.jail` is not applied, and the
   jail starts with the copy you approved last (or with none). A jail never
   fails to start because of an unapproved `.jail`.
-- No `.jail`: nothing applied. The approved copy stays and applies again,
-  without asking, when the same `.jail` comes back (also when jailed code
-  writes it back); remove `jail.approved` (Reset) to be asked again.
+- The approved copy also stays without `.jail` and comes back when jailed
+  code writes the same `.jail` back; remove `jail.approved` (Reset) to be
+  asked again.
 - The approved copy is checked again on every start: if a path is gone or
   now goes through a symlink, `jail` stops and names the line.
 - The repository and every `ro`/`rw` path are bound by fd: right before bwrap
@@ -170,12 +163,8 @@ way `direnv allow` works:
   instead of redirecting the bind. bwrap closes those fds before the jailed
   program runs. Mount points with a link on the way are refused by bwrap.
 - Read when a jail starts: the shared jail at its first terminal, every
-  one-off jail. A running shared jail keeps its config until it restarts
-  (`systemctl --user stop jail-<name>`).
-- A port in use on the host (any listener on that port): the shared jail does
-  not start and names the port; start it again once the port is free. A
-  one-off jail next to it (or another jail holding the port) starts without
-  that port and says so.
+  one-off jail. Ports are checked with `ss` before the start; a port held by
+  another jail counts as in use.
 
 In the browser, open `http://<anything>.localhost:N` (for example
 `http://foo.localhost:5173`) rather than `localhost:N`: browsers keep
@@ -355,7 +344,7 @@ would add and the approved copy and changes nothing in the state; inside a
 one-off jail it shows what it would add, what is in effect in this jail and
 which checks it skipped, reports a `.jail` edited inside as differing, with
 how to apply it (also on the host), names a bad line with exit status 1
-(also on the host), gives a nested repository no "in effect", and leaves
+(also on the host), a linked `.jail` and a path with `..`, gives a nested repository no "in effect", and leaves
 `jail.approved` as it was; in the shared jail a shell sees what is in effect; a `.jail` over 64 KiB, a FIFO
 (no wait) or a directory is not applied; an approved path that is gone stops
 the start; `jail-binds` refuses a bind source that is a link when it opens
