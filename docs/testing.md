@@ -6,7 +6,7 @@ Do not `nixos-rebuild switch` the machine you are on to test: build instead.
 
 ## Quick checks (after any Nix change)
 
-The Check and the Gate are flake apps (`scripts/check/check.sh`, the one list of both); run them from the repository root, they build the flake in the current directory. Each step is announced, a failure prints `FAILED (exit N) during: <step>` and exits non-zero.
+The Check and the Gate are flake apps (`scripts/check/check.sh`, the one list of both); run them from the repository root, they build the flake in the current directory. Each step is announced, a failure prints `FAILED (exit N) during: <step>` and exits non-zero. Before the first step, `nix run` evaluates the flake and builds the `check` package (its build runs `scripts/check/test.sh` against a stub nix): a failure there is a plain nix error, and a `FAILED ... during:` line in it comes from that stub test, not from your tree.
 
 ```sh
 nixfmt $(git ls-files -co --exclude-standard '*.nix')   # not `nix fmt`: it hung once

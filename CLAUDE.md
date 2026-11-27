@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working in this
 
 ## Factory
 
-- Check: `nix run .#check` (add `--jail` for jail work; what it runs: `scripts/check/check.sh`)
+- Check: `nix run .#check` (`nix run .#check -- --jail` for jail work; what it runs: `scripts/check/check.sh`)
 - Gate: `nix run .#gate`
 - Goals: `docs/goals.md`
 - Reserved for a human: `nixos-rebuild switch` / `nh os switch` on the running host, `sops` / YubiKey operations (`sops-sync`, `sops-register-host`), `git push`, `make-installer-stick`, `provision-server`, `nix flake update`
