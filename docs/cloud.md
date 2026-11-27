@@ -117,7 +117,8 @@ What happens automatically:
   (`/etc`, `/root`, `/srv`, `/var/cache`, ...) is still wiped on reboot;
   `fs-diff` shows if a service writes there.
 - **Databases:** with `services.postgresql` enabled, all databases are dumped
-  daily at 01:15 to `/var/backup/postgresql` (kept and backed up).
+  daily at 01:15 to `/var/backup/postgresql` (kept; backed up once
+  `backup.enable` is set).
 - **Web:** HSTS and other security headers, compression, HTTP/3; certificates
   in `/var/lib/caddy`. Site-specific Caddy directives go in
   `sites.<domain>.extraConfig` (e.g. `basic_auth` for admin UIs).
