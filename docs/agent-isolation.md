@@ -32,7 +32,10 @@ repository and sees only what that needs:
   `trusted-users`, which was `@wheel` (the Nix manual calls a trusted user
   essentially root). Since design step 1 the `docker` group is gone and
   `trusted-users` is root-only on the workstations (servers:
-  `server/hardening.nix`).
+  `server/hardening.nix`); since 2026-11-27 the `libvirtd` group is gone too.
+  `sudo` with the simple password stays (user, 2026-11-27: no YubiKey for
+  `sudo`), so an agent outside a jail can still become root; only the jail
+  (`no_new_privs`) closes that.
 - `/run/user/1000` and the session bus reach gpg-agent (signing, SSH to the
   servers, sops with the YubiKey plugged in), the keyring
   (`org.freedesktop.secrets`), the Nextcloud client, gvfs mounts, and
@@ -74,7 +77,10 @@ outside it.
      /persist/var/lib/docker` when wanted (your call). The rootless daemon
      keeps its data in `~/.cache/docker` (`cacheSubvolume`, outside the
      `/home` snapshots).
-   - Agents never get the libvirt system socket; virt-manager stays outside.
+   - Agents never get the libvirt system socket: `flodet` is not in the
+     `libvirtd` group (a system VM can attach the host disk). virt-manager
+     uses `QEMU/KVM User session`, or asks for your password (polkit) for
+     the system connection; winvm is plain QEMU and needs neither.
    - `sudo` stays for you; inside the jail `no_new_privs` disables it.
 2. **`jail <repo>`** (implemented: [jail.md](jail.md), VM test
    `checks.x86_64-linux.jail`; home-manager module, `writeShellApplication` around

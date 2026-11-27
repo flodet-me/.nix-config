@@ -18,7 +18,6 @@ in
       "networkmanager"
       "audio"
       "git"
-      "libvirtd"
       "lxd"
       "wireshark"
       "video"

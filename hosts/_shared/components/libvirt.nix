@@ -1,4 +1,5 @@
-# VMs with virt-manager.
+# VMs with virt-manager. flodet is not in the libvirtd group (a system VM
+# can attach the host disk): use the user session, or polkit asks.
 { pkgs, ... }:
 let
   key = "/var/lib/libvirt/secrets/secrets-encryption-key";
