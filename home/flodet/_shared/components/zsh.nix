@@ -3,9 +3,16 @@
   pkgs,
   ...
 }:
+let
+  # By store path: in ~/.nix-config direnv puts the working tree's (unreviewed)
+  # switch-review first on PATH.
+  inherit ((import ../../../../scripts { inherit pkgs; })) switch-review;
+in
 {
   # zsh-vi-mode rebinds keys on its (lazy) init, which drops fzf's Ctrl-R; fzf is loaded from its hook instead
   programs.fzf.enableZshIntegration = false;
+
+  home.packages = [ switch-review ];
 
   programs.zsh = {
     enable = true;
@@ -15,7 +22,9 @@
 
     shellAliases = {
       ll = "ls -l";
-      update = "nh os switch"; # builds and switches this host from ~/.nix-config
+      # Review what changed since the running system (never blocks), then
+      # build and ask before switching this host from ~/.nix-config.
+      update = "${switch-review}/bin/switch-review; nh os switch --ask";
     };
     history.size = 10000;
     history.ignoreAllDups = true;
