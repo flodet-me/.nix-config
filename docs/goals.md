@@ -60,12 +60,12 @@ Assumptions:
 |---|---|---|---|
 | I1 bare-layout | container root detection, jail-push branch per worktree, safe gitfile reads, test, docs | done | ed33928 |
 
-## G-4 Review before switch  (status: open)
+## G-4 Review before switch  (status: done)
 
 Goal: (from the agentic-OS proposal, item 2: "do it but not with yubikey requirement for sudo") show what changed since the running system before it is switched, so an agent changing its own rules in this repository is seen.
 Accept:
 - Every host records the revision it was built from (`nixos-version --configuration-revision`); workstations also keep the flake source in their closure (`/run/current-system/flake-source` -> `self`); servers don't (they would carry the other hosts' encrypted secrets).
-- `update` builds the toplevel once, shows `switch-review` of that build's `flake-source` against the running system's (full diff of every changed file outside `docs/`, `docs/` as names only), then asks, and switches exactly the reviewed store path; a failed review never switches.
+- `update` builds the toplevel once, shows `switch-review` of that build's `flake-source` against the running system's (full diff of every changed file, uncapped; only `docs/**/*.md` as names only, which Nix must never import; locked inputs listed, local ones flagged), then asks, and switches exactly the reviewed store path; a failed review never switches.
 - The review cannot be forged or emptied by the tree's content: no git on the repository, own file listing (any name), non-regular files and type changes flagged with their targets, text diff even with NUL, control characters shown visibly; tools by absolute path (direnv's dev shell comes first on PATH in the repository).
 - `checks.x86_64-linux.scripts` builds and tests it (names with space/newline, symlink, type change, NUL, CR/ESC); docs (docs/agent-isolation.md, AGENTS.md) updated; Gate green.
 Not in scope: YubiKey for sudo (user: no), signing commits, a commit log (git on the repository), reviewing `--target-host` deploys.
@@ -76,7 +76,7 @@ Assumptions:
 | Item | What | Status | Commit |
 |---|---|---|---|
 | I1 switch-review | configurationRevision, flake-source in the closure, switch-review script, update alias, check, docs | blocked: review round 2 — new-only files not listed (find on a symlinked root); the build itself writes the flake-source the review trusts. Retry: prefetch the tree, build exactly that store path, review it | |
-| I2 switch-review-pinned | redesign (user, 2026-11-27: "retry G-4 with the redesign"): the script copies the checkout's tracked tree into the store itself, builds exactly that store path, reviews it (resolved, symlink-safe roots), fails if the build's flake-source differs | open | |
+| I2 switch-review-pinned | redesign (user, 2026-11-27: "retry G-4 with the redesign"): the script copies the checkout's tracked tree into the store itself, builds exactly that store path, reviews it (resolved, symlink-safe roots), fails if the build's flake-source differs (I1's commits included; review round 1 fixed: no caps, one-hop pins on both sides) | done | e3b34f3 |
 
 ## G-5 Review fixes: small and medium changes  (status: done)
 
