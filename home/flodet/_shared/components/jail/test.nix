@@ -57,11 +57,20 @@
       git config --global user.name a
       git config --global user.email a@example.com
       git config --global init.defaultBranch main
-      mkdir -p Nextcloud brain/inbox .cache/nix .cache/docker .claude/skills .claude/rules .claude/agents .codex .local/bin
+      mkdir -p Nextcloud brain/inbox .cache/nix .cache/docker .local/bin
+      mkdir -p .claude/skills .claude/rules .claude/agents .claude/plugins/data/p .claude/projects .codex/rules
       echo secret > Nextcloud/secret
       echo note > brain/note
+      touch .cache/nix/hostmark .claude/plugins/data/p/hostmark .claude/projects/hostmark
       echo '{}' > .claude/settings.json
-      echo '{}' > .claude.json
+      echo host > .claude/CLAUDE.md
+      echo host > .claude/.credentials.json
+      echo host > .codex/config.toml
+      echo host > .codex/AGENTS.md
+      echo host > .codex/auth.json
+      echo '{"oauthAccount":{"a":1},"mcpServers":{"m":{}},"projects":{"hostproject":{}}}' > .claude.json
+      cp .claude.json claude.json.orig
+      echo target > target
       git init -q repo
       cd repo
       echo one > f
@@ -69,16 +78,39 @@
       git commit -qm one
     """)
 
-    with subtest("only the repository, brain and shared state are visible"):
+    with subtest("only the repository, brain and the login are shared"):
         alice("cat ~/Nextcloud/secret && test -d ~/.cache/docker")
         jail("test ! -e ~/Nextcloud && test ! -e ~/.cache/docker && test ! -e ~/.gitconfig")
         jail('test "$HOME" = /home/alice && test "$PWD" = /home/alice/repo')
-        jail("cat ~/brain/note")
-        jail("touch ~/brain/x", ok=False)
-        jail("touch ~/brain/inbox/x ~/repo/w ~/.cache/nix/x ~/.claude/x ~/.codex/x && echo x >> ~/.claude.json")
-        alice("test -e ~/brain/inbox/x && test -e ~/repo/w && test -e ~/.claude/x")
-        for p in [".claude/settings.json", ".claude/skills/x", ".claude/rules/x", ".claude/agents/x", ".local/bin/x"]:
+        jail("cat ~/brain/note && grep -q host ~/.claude/CLAUDE.md ~/.codex/config.toml")
+        jail("touch ~/brain/inbox/x ~/repo/w")
+        alice("test -e ~/brain/inbox/x && test -e ~/repo/w")
+        # config, instructions and code: read-only
+        for p in ["brain/x", ".claude/settings.json", ".claude/CLAUDE.md", ".claude/skills/x", ".claude/rules/x",
+                  ".claude/agents/x", ".claude/plugins/x", ".codex/config.toml", ".codex/AGENTS.md",
+                  ".codex/rules/x", ".local/bin/x"]:
             jail(f"touch ~/{p}", ok=False)
+        # the login: shared
+        jail("echo jail > ~/.claude/.credentials.json && echo jail > ~/.codex/auth.json")
+        alice("grep -q jail ~/.claude/.credentials.json && grep -q jail ~/.codex/auth.json")
+        # state and caches: the jail's own, both ways
+        jail("test ! -e ~/.cache/nix/hostmark && test ! -e ~/.claude/plugins/data/p && test ! -e ~/.claude/projects/hostmark")
+        jail("mkdir -p ~/.claude/projects/p ~/.claude/shell-snapshots ~/.claude/plugins/data/p ~/.codex/sessions ~/.cache/nix"
+             " && touch ~/.claude/new ~/.claude/projects/p/m ~/.claude/shell-snapshots/s ~/.claude/plugins/data/p/m"
+             " ~/.codex/sessions/s ~/.cache/nix/x")
+        for p in [".claude/new", ".claude/projects/p", ".claude/shell-snapshots", ".claude/plugins/data/p/m",
+                  ".codex/sessions", ".cache/nix/x"]:
+            alice(f"test ! -e ~/{p}")
+
+    with subtest("~/.claude.json: login and MCP servers copied in, nothing back"):
+        jail("grep -q oauthAccount ~/.claude.json && grep -q mcpServers ~/.claude.json && ! grep -q hostproject ~/.claude.json")
+        jail("""echo '{"projects":{"jailproject":{}}}' > ~/.claude.json""")
+        alice("cmp ~/.claude.json ~/claude.json.orig")
+        jail("grep -q jailproject ~/.claude.json && grep -q oauthAccount ~/.claude.json")
+        # a link planted in the jail home does not make the next start touch host files
+        jail("ln -sfn /home/alice/target ~/.claude.json")
+        jail("test ! -L ~/.claude.json && grep -q oauthAccount ~/.claude.json")
+        alice('test "$(cat ~/target)" = target && cmp ~/.claude.json ~/claude.json.orig')
 
     with subtest("home-manager dotfiles are mirrored into the jail home"):
         jail("grep -q from-home-manager ~/probe")

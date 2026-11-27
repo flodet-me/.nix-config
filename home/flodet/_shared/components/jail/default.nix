@@ -2,7 +2,7 @@
 # ADR 0001): one bubblewrap jail per git repository, shared by your shell,
 # Neovim and the agents; pushes leave through a mirror outside the jail.
 # VM test: ./test.nix (checks.x86_64-linux.jail).
-{ pkgs, ... }:
+{ lib, pkgs, ... }:
 let
   bwrap = "${pkgs.bubblewrap}/bin/bwrap";
   tmux = "${pkgs.tmux}/bin/tmux";
@@ -31,12 +31,124 @@ let
     }
   '';
 
+  # ~/.claude and ~/.codex entries by name (bash extglob alternatives).
+  # shared: bound read-write, the login only. state: the jail keeps its own
+  # (Claude Code's own list of state in ~/.claude, plus what exists here);
+  # transcripts, memory and plans are loaded as instructions, so never shared.
+  # Every other entry is bound read-only: config, instructions, code.
+  patterns = lib.concatStringsSep "|";
+  claudeShared = patterns [ ".credentials.json" ];
+  claudeState = patterns [
+    "projects"
+    "sessions"
+    "session-*"
+    "todos"
+    "tasks"
+    "shell-snapshots"
+    "statsig"
+    "file-history"
+    "history.jsonl"
+    "ide"
+    "logs"
+    "*.log"
+    "backups"
+    "daemon"
+    "jobs"
+    "teams"
+    "usage-data"
+    "shares"
+    "state"
+    "uploads"
+    "feedback*"
+    "plans"
+    "telemetry"
+    "metrics"
+    "debug"
+    "traces"
+    "startup-perf"
+    "cache"
+    "*-cache"
+    "*-cache.json"
+    "*cache*.json"
+    "local"
+    "chrome"
+    "downloads"
+    "scratch"
+    "remote*"
+    "storage-v2"
+    "loop.md"
+    "*.lock"
+    ".last-cleanup"
+    ".device-keys.json"
+    ".storage-write"
+    ".session_ingress_token"
+    ".ponytail-*"
+    "ponytail-modes"
+  ];
+  codexShared = patterns [
+    "auth.json"
+    "auth.json.lock"
+    "auth.lock"
+  ];
+  codexState = patterns [
+    "sessions"
+    "log"
+    "cache"
+    "tmp"
+    ".tmp"
+    "*.sqlite"
+    "*.sqlite-*"
+    "*.jsonl"
+    "*.lock"
+    "*cache*.json"
+    "version.json"
+    "installation_id"
+    "rollout-migrations"
+    ".sandbox_migration"
+    "thread-writer-locks"
+    "tui-*"
+  ];
+
+  # Prepares the jail home before each start, in a sandbox that sees only
+  # it (at /tmp/home) and the store: a link the jail planted there cannot
+  # point a write or read at host files.
+  # Args: home-manager's home-files, then mount points (relative) to unlink.
+  prepareHome = pkgs.writeShellApplication {
+    name = "jail-prepare-home";
+    runtimeInputs = [
+      pkgs.coreutils
+      pkgs.findutils
+      pkgs.jq
+    ];
+    text = ''
+      h=/tmp/home
+      files=$1
+      shift
+      # home-manager's dotfiles as links into the store; files the jail made stay
+      find "$h" -type l -lname '/nix/store/*-home-manager-files/*' -delete
+      cp -rsf --no-preserve=mode "$files/." "$h/"
+      # bwrap cannot mount on a symlink, and home-manager links some of them
+      for m in "$@"; do [ ! -L "$h/$m" ] || rm -f "$h/$m"; done
+
+      # ~/.claude.json: login and MCP servers from the host, the jail's own
+      # project state stays; nothing goes back
+      [ -f /tmp/host.json ] || exit 0
+      f=$h/.claude.json
+      host='{hasCompletedOnboarding, lastOnboardingVersion, lastReleaseNotesSeen, oauthAccount, userID, mcpServers} | with_entries(select(.value != null))'
+      if [ -f "$f" ] && jq -e 'type == "object"' "$f" >/dev/null 2>&1; then
+        jq --slurpfile h /tmp/host.json ". + (\$h[0] | $host)" "$f" >/tmp/new
+      else
+        jq "$host" /tmp/host.json >/tmp/new
+      fi
+      cp --remove-destination /tmp/new "$f"
+    '';
+  };
+
   jail = pkgs.writeShellApplication {
     name = "jail";
     runtimeInputs = [
       pkgs.bubblewrap
       pkgs.coreutils
-      pkgs.findutils
       pkgs.systemd
     ];
     text = common + ''
@@ -63,22 +175,17 @@ let
       jhome=$state/home
       mkdir -p "$jhome"
 
-      # Home-manager's dotfiles as links into the store, refreshed on every
-      # start; files the jail made itself stay.
-      mirror_dotfiles() {
-        local gen=$HOME/.local/state/home-manager/gcroots/current-home files
+      # On every start: dotfiles, mount points, ~/.claude.json (prepareHome).
+      prepare() {
+        local gen=$HOME/.local/state/home-manager/gcroots/current-home files host=()
         files=$(readlink -f "$gen/home-files") && [ -d "$files" ] ||
           die "no home-manager generation at $gen (home-manager not activated yet?)"
-        find "$jhome" -type l -lname '/nix/store/*-home-manager-files/*' -delete
-        cp -rsf --no-preserve=mode "$files/." "$jhome/"
+        [ ! -f "$HOME/.claude.json" ] || host=(--ro-bind "$HOME/.claude.json" /tmp/host.json)
+        bwrap --unshare-all --die-with-parent --clearenv --ro-bind /nix /nix \
+          --proc /proc --dev /dev --tmpfs /tmp "''${host[@]}" --bind "$jhome" /tmp/home \
+          -- ${prepareHome}/bin/jail-prepare-home "$files" "''${mounts[@]#"$HOME"/}" ||
+          die "could not prepare $jhome"
       }
-
-      # Code every jail would run: read-only. Create them so a jail cannot
-      # plant one where none exists yet.
-      if [ -d "$HOME/.claude" ]; then
-        mkdir -p "$HOME/.claude/rules" "$HOME/.claude/skills" "$HOME/.claude/agents"
-        [ -e "$HOME/.claude/settings.json" ] || echo '{}' >"$HOME/.claude/settings.json"
-      fi
 
       # I3 replaces this with a pasta network namespace.
       net=(--share-net)
@@ -105,11 +212,27 @@ let
       bind() { [ -e "$2" ] && args+=("$1" "$2" "$2") || true; }
       bind --ro-bind "$HOME/brain"
       bind --bind "$HOME/brain/inbox"
-      for c in .cache/nix .cache/nuget .cache/npm .cargo/registry; do bind --bind "$HOME/$c"; done
-      bind --bind "$HOME/.claude"
-      for p in settings.json rules skills agents; do bind --ro-bind "$HOME/.claude/$p"; done
-      bind --bind "$HOME/.claude.json"
-      bind --bind "$HOME/.codex"
+      # ~/.claude, ~/.codex: the jail's own directories, so state, temp files
+      # and new names stay in the jail; host entries on top (see the patterns).
+      host_entries() {
+        local e n
+        for e in "$HOME/$1"/* "$HOME/$1"/.*; do
+          n=''${e##*/}
+          [ -e "$e" ] && [ "$n" != . ] && [ "$n" != .. ] || continue
+          if [[ $n == @($2) ]]; then args+=(--bind "$e" "$e")
+          elif [[ $n != @($3) ]]; then args+=(--ro-bind "$e" "$e")
+          else continue; fi
+          mounts+=("$e")
+        done
+      }
+      mounts=()
+      host_entries .claude '${claudeShared}' '${claudeState}'
+      host_entries .codex '${codexShared}' '${codexState}'
+      # plugin state, where plugins also install their dependencies: per jail
+      if [ -d "$HOME/.claude/plugins/data" ]; then
+        mkdir -p "$state/claude-plugin-data"
+        args+=(--bind "$state/claude-plugin-data" "$HOME/.claude/plugins/data")
+      fi
       bind --ro-bind "$HOME/.local/bin" # graphify
       bind --ro-bind "$HOME/.local/share/uv/tools" # its venv
       args+=(--bind "$root" "$root" --chdir "$cwd")
@@ -127,7 +250,7 @@ let
       done
 
       if [ $# -gt 0 ]; then
-        mirror_dotfiles
+        prepare
         exec bwrap "''${args[@]}" "''${env[@]}" -- "$@"
       fi
 
@@ -157,7 +280,7 @@ let
       alive() { client has-session -t main 2>/dev/null; }
 
       if ! alive; then
-        mirror_dotfiles
+        prepare
         # The jail's main process keeps the namespace alive while the session lives.
         # shellcheck disable=SC2016 # expanded by the inner shell
         keepalive='"$1" -S "$2" new-session -d -s main && while "$1" -S "$2" has-session -t main 2>/dev/null; do ${pkgs.coreutils}/bin/sleep 2; done'

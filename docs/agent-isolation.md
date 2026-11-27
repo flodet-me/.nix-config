@@ -14,7 +14,7 @@ repository and sees only what that needs:
 | the repository (read-write) | `~/Nextcloud`, `~/Documents`, `~/Pictures`, ... |
 | `~/brain` (read; `inbox/` writable) | other repositories |
 | `/nix/store`, the Nix daemon, its own caches | `~/.ssh`, `~/.gnupg`, gpg-agent, YubiKey |
-| its own login and config (`~/.claude`, `~/.codex`) | GNOME keyring / Secret Service, browser profiles |
+| the Claude and Codex login; their config read-only (`~/.claude`, `~/.codex`) | GNOME keyring / Secret Service, browser profiles |
 | network (model API, caches, registries) | session D-Bus, `systemd --user`, Nextcloud client |
 | `/dev/kvm`: QEMU VMs incl. Windows (winvm) | `/run/secrets`, Docker and libvirt system sockets |
 
@@ -89,13 +89,16 @@ outside it.
      `~/.config/{nvim,git,direnv}`, `~/.local/share/nvim/site`).
    - Read-write: the repository, `~/brain/inbox`, the Nix daemon socket,
      `/dev/kvm`, a per-repository jail home (`~/.local/share/jails/<repo>`:
-     shell history, nvim state and `:trust` list, direnv allow list), the
-     shared caches (`~/.cache/nix`, `nuget`, `npm`, `cargo`), never `~/.cache`
-     wholesale: it holds rootless Docker's data (`~/.cache/docker`).
-   - `~/.claude`, `~/.claude.json`, `~/.codex` read-write and shared by all
-     jails (one login; transcripts of all repositories in one place, accepted),
-     except `~/.claude/settings.json`, `rules/`, `skills/`, `agents/`
-     read-only: a hook written there would run in every other jail.
+     shell history, nvim state and `:trust` list, direnv allow list, its own
+     caches; never the host's `~/.cache`: the Nix eval cache would feed the
+     host's evaluations, and rootless Docker's data is in `~/.cache/docker`).
+   - Shared with the host only the login (`~/.claude/.credentials.json`,
+     `~/.codex/auth.json`). Every other host entry of `~/.claude` and
+     `~/.codex` read-only (config, instructions, plugins, hooks, scripts);
+     their state (transcripts, memory, plans, shell snapshots, plugin data)
+     and `~/.claude.json` per jail, the latter seeded with the login and MCP
+     servers on each start. Nothing written in a jail runs outside it or in
+     another jail.
    - No `/run/user/1000`, no session bus, no gpg-agent, no SSH keys.
      Desktop notifications through
      `xdg-dbus-proxy --talk=org.freedesktop.Notifications` only.

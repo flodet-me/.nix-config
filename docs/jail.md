@@ -27,10 +27,19 @@ jail-push ~/Projects/foo main --force-with-lease   # other git push arguments
 
 | | |
 | --- | --- |
-| read-write | the repository; `~/brain/inbox`; `~/.cache/{nix,nuget,npm}`, `~/.cargo/registry` (shared caches, never `~/.cache` as a whole: rootless Docker's data is in `~/.cache/docker`); `~/.claude`, `~/.claude.json`, `~/.codex` (one shared login); the Nix daemon socket; `/dev/kvm` |
-| read-only | `/nix`, `/etc`, `/run/current-system`, `/bin`, `/usr`, `/lib64`, DNS (`/run/systemd/resolve`); `~/brain`; `~/.claude/{settings.json,rules,skills,agents}`; `~/.local/bin` and `~/.local/share/uv/tools` (graphify) |
-| own | `$HOME` is `~/.local/share/jails/<name>/home` (history, nvim state and `:trust` list, direnv allow list, ...) with home-manager's dotfiles linked in on every start; `/tmp`, `/proc`, `/dev`, an empty `/run/user/<uid>` |
+| read-write | the repository; `~/brain/inbox`; the login: `~/.claude/.credentials.json`, `~/.codex/auth.json` (and its lock files); the Nix daemon socket; `/dev/kvm` |
+| read-only | `/nix`, `/etc`, `/run/current-system`, `/bin`, `/usr`, `/lib64`, DNS (`/run/systemd/resolve`); `~/brain`; every other entry of `~/.claude` and `~/.codex` (`CLAUDE.md`, `settings.json`, `rules/`, `skills/`, `agents/`, `plugins/`, the status line script, `config.toml`, `AGENTS.md`, ...); `~/.local/bin` and `~/.local/share/uv/tools` (graphify) |
+| own | `$HOME` is `~/.local/share/jails/<name>/home` (history, nvim state and `:trust` list, direnv allow list, caches, ...) with home-manager's dotfiles linked in on every start; in it the jail's own `~/.claude` and `~/.codex` state (transcripts, memory, plans, shell snapshots, todos, logs, the codex databases; the lists are in `default.nix`), `~/.claude/plugins/data` (`~/.local/share/jails/<name>/claude-plugin-data`) and `~/.claude.json`; `/tmp`, `/proc`, `/dev`, an empty `/run/user/<uid>` |
 | absent | the rest of `/home`, `/run/user` sockets (session bus, gpg-agent, Docker), `/run/wrappers` (setuid, and `no_new_privs` stops `sudo` anyway), `/run/secrets` |
+
+On every start `~/.claude.json` gets `oauthAccount`, `userID`,
+`mcpServers` and the onboarding flags from yours (one way, the jail's own
+project state stays), in a sandbox that sees only the jail home, so a link the
+jail planted there reaches no host file.
+
+The caches (`~/.cache/nix`, NuGet, npm, Cargo) are per jail too, so the
+first build in a new jail downloads its packages again; `/nix/store` is
+shared through the daemon as usual.
 
 The environment is built, not inherited: `HOME`, `USER`, `LOGNAME`, `PATH`
 (per-user profile, system), `SHELL`, `LANG`, `XDG_RUNTIME_DIR` and, if set,
@@ -70,8 +79,15 @@ rm -rf ~/.local/share/jails/<name>           # also the push mirror and its stor
 ## Tested
 
 `nix build .#checks.x86_64-linux.jail` (NixOS VM; the test script itself takes
-about 25 s): hidden home paths and `~/.cache/docker` absent; `~/brain` read-only
-except `inbox/`; the Claude read-only paths; home-manager files linked;
+about 28 s): hidden home paths and `~/.cache/docker` absent; `~/brain` read-only
+except `inbox/`; writes to `~/.claude` config (`CLAUDE.md`, `settings.json`,
+`skills/`, `rules/`, `agents/`, `plugins/`) and `~/.codex` (`config.toml`,
+`AGENTS.md`, `rules/`) fail; the logins are shared; state written in
+`~/.claude` (new names, `projects/`, `shell-snapshots/`, `plugins/data/`),
+`~/.codex/sessions` and `~/.cache/nix` does not reach the host, and the
+host's is not visible; `~/.claude.json` gets the login and MCP servers and
+keeps the jail's projects, the host file stays unchanged, also with a link
+planted in its place; home-manager files linked;
 `/usr/bin/env` works; `sudo`, `systemd-run --user`, the session bus and
 gpg-agent unavailable; `nix build` through the daemon; `/dev/kvm` inside iff
 outside; `jail-push` pushes without running planted hooks, `core.fsmonitor`,
@@ -86,17 +102,22 @@ a positive control outside the jail.
 
 ## Limits
 
-- Shared and writable by every jail, and code that other sessions run:
-  `~/.claude/plugins` (plugin hooks), `mcpServers` in `~/.claude.json`,
-  `~/.claude/ponytail-statusline.sh` (run by the status line), `~/.codex/config.toml`
-  (`notify`). A jail can plant code there that runs in other jails, or outside
-  when you start `claude`/`codex` outside a jail.
-- The shared caches are consumed by builds outside a jail too: a jail can
-  plant entries in `~/.cache/nix` (eval and fetcher caches), `~/.cache/nuget`
-  and `~/.cargo/registry` (extracted packages).
-- Single files bound into the jail (`~/.claude.json`, `~/.claude/settings.json`)
-  cannot be replaced by rename inside it, and a rename on the host leaves the
-  jail with the old file until it restarts.
+- Writes the jail makes to its read-only entries fail: codex saving a
+  setting or a trusted folder (`config.toml`), Claude Code's settings toggles
+  (`settings.json`), plugin installs and marketplace updates (`plugins/`; the
+  `claude-plugins-sync` service installs them outside). Change those outside
+  the jail.
+- A host entry of `~/.claude`/`~/.codex` that is state but not in the lists in
+  `default.nix` comes in read-only, and the program fails to write it: add its
+  name to the list.
+- Claude Code's OAuth refresh lock is a directory next to the shared
+  credentials, so it is per jail: a token refresh inside and outside a jail
+  at the same moment can still race and ask for a new login.
+- `mcpServers` come from your `~/.claude.json`, environment (and any token in
+  it) included.
+- A host file bound into the jail and replaced by rename on the host (an
+  editor save, home-manager) stays the old file in a running jail until it
+  restarts.
 - No `/sys`, `/run/opengl-driver`, Wayland or X11: GUI programs and GPU compute
   do not run inside.
 - Home-manager's files are linked when a jail starts; after a switch, restart
