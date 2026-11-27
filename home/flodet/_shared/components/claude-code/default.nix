@@ -253,6 +253,8 @@ let
       [ -n "$repo" ] || exit 0
       # Paths outside the work tree (a git diff of them reads plain files);
       # revision ranges like main..HEAD still pass.
+      # A backslash can hide a path (\/run) or turn a redirect into one (\>).
+      [[ $command == *\\* ]] && exit 0
       plain=''${command//>\/dev\/null/ }
       plain=''${plain//> \/dev\/null/ }
       plain=''${plain//[\"\']/}
@@ -393,7 +395,7 @@ let
         if rtkTrial then
           ''
             export HOME=$TMPDIR/home
-            # the sessions below run in a git work tree, but the last ones
+            # $HOME is a git work tree; $TMPDIR/plain below is not
             mkdir -p "$HOME/.git" "$HOME/.claude" "$HOME/.config/rtk"
             cp ${untestedSettings} "$HOME/.claude/settings.json" # rtk reads the rules here
             cp ${rtkConfig} "$HOME/.config/rtk/config.toml"
@@ -469,7 +471,9 @@ let
               'git diff "$HOME/.ssh/id_ed25519" /dev/null' \
               "git diff ../../.ssh/id_ed25519 /dev/null" \
               "git diff ../x /dev/null" \
-              "git diff --output=~/x"; do
+              "git diff --output=~/x" \
+              'git diff \/run/secrets/foo \/dev/null' \
+              'git diff --src-prefix=\> /dev/null link/id_ed25519'; do
               expect "$c" "$c"
             done
             # git outside a work tree diffs plain files (implicit --no-index)
