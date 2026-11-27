@@ -83,7 +83,7 @@ outside it.
      the system connection; winvm is plain QEMU and needs neither.
    - `sudo` stays for you; inside the jail `no_new_privs` disables it.
 2. **`jail <repo>`** (implemented: [jail.md](jail.md), VM test
-   `checks.x86_64-linux.jail`; home-manager module, `writeShellApplication` around
+   `checks.x86_64-linux.jail`; package `pkgs/jail`, `writeShellApplication` around
    `bwrap`) opens a shell in the jail of that repository. The first call
    starts a tmux server inside the jail, later calls attach to it, so every
    terminal of one repository shares one jail (processes, network, VMs).

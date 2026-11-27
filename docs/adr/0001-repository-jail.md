@@ -44,6 +44,9 @@ is kept for untrusted third-party code.
   `.jail`, not in home-manager, since `jail` is repository-agnostic. Jailed
   code can write that file, so only a copy approved on a terminal applies,
   stored outside the jail; ports never go from the jail to the host.
+- 2026-11-27: the jail moved from a home-manager module to its own package,
+  `pkgs/jail` (scripts in `.sh` files), installed system-wide on the
+  workstations; behavior unchanged.
 - The Nix daemon is shared: builds are sandboxed by Nix, but an agent can
   fill the store and use your binary caches.
 

@@ -1,8 +1,11 @@
 # Repository jail
 
 `jail` opens a repository in a bubblewrap jail that you and the agents share;
-`jail-push` pushes its commits from outside. Module:
-`home/flodet/_shared/components/jail/` (workstations). Design and reasons:
+`jail-push` pushes its commits from outside. Package: `pkgs/jail/` (the
+scripts are its `.sh` files, `default.nix` builds them; `nix build .#jail`,
+`pkgs.jail`), installed system-wide on the workstations
+(`hosts/_shared/components/workstation.nix`); state stays per user. It needs
+an activated home-manager generation (dotfiles for the jail home). Design and reasons:
 [agent-isolation.md](agent-isolation.md), [ADR 0001](adr/0001-repository-jail.md).
 
 ## Use
@@ -48,7 +51,7 @@ jail-push ~/Projects/foo main --force-with-lease   # other git push arguments
 | --- | --- |
 | read-write | the repository; `rw` paths of an approved `.jail`; `~/brain/inbox`; the login: `~/.claude/.credentials.json`, `~/.codex/auth.json` (and its lock files); the Nix daemon socket; `/dev/kvm`; a D-Bus proxy at `/run/user/<uid>/bus` (`org.freedesktop.Notifications` only) |
 | read-only | `ro` paths of an approved `.jail`; `/nix`, `/etc`, `/run/current-system`, `/bin`, `/usr`, `/lib64`; its own `resolv.conf` (`~/.local/share/jails/<name>/resolv.conf`, bound over the host's); `~/brain`; every other entry of `~/.claude` and `~/.codex` (`CLAUDE.md`, `settings.json`, `rules/`, `skills/`, `agents/`, `plugins/`, the status line script, `config.toml`, `AGENTS.md`, ...); `~/.local/bin` and `~/.local/share/uv/tools` (graphify) |
-| own | `$HOME` is `~/.local/share/jails/<name>/home` (history, nvim state and `:trust` list, direnv allow list, caches, ...) with home-manager's dotfiles linked in on every start; in it the jail's own `~/.claude` and `~/.codex` state (transcripts, memory, plans, shell snapshots, todos, logs, the codex databases; the lists are in `default.nix`), `~/.claude/plugins/data` (`~/.local/share/jails/<name>/claude-plugin-data`) and `~/.claude.json`; `/tmp`, `/proc`, `/dev`, an empty `/run/user/<uid>` but for the D-Bus proxy; its own network namespace (below) |
+| own | `$HOME` is `~/.local/share/jails/<name>/home` (history, nvim state and `:trust` list, direnv allow list, caches, ...) with home-manager's dotfiles linked in on every start; in it the jail's own `~/.claude` and `~/.codex` state (transcripts, memory, plans, shell snapshots, todos, logs, the codex databases; the lists are in `pkgs/jail/default.nix`), `~/.claude/plugins/data` (`~/.local/share/jails/<name>/claude-plugin-data`) and `~/.claude.json`; `/tmp`, `/proc`, `/dev`, an empty `/run/user/<uid>` but for the D-Bus proxy; its own network namespace (below) |
 | absent | the rest of `/home`, `/run/user` sockets (the session bus itself, gpg-agent, Docker), services on the host's loopback, the host's abstract Unix sockets, `/run/wrappers` (setuid, and `no_new_privs` stops `sudo` anyway), `/run/secrets` |
 
 On every start `~/.claude.json` gets `oauthAccount`, `userID`,
