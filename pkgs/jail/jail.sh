@@ -31,12 +31,23 @@ if [ ! -e "$state" ]; then
   exec 3<&-
 fi
 mkdir -p "$jhome"
+# The jail's ~/.cache, outside the /home snapshots (~/.cache is a subvolume
+# of its own). Before, it was in the jail home: that one stays, unused
+# (prepare links home-manager's files under .cache in there on every start).
+cache=$HOME/.cache/jails/$name
+if [ ! -e "$cache" ] && [ -d "$jhome/.cache" ] && [ ! -L "$jhome/.cache" ] &&
+  [ -n "$(find "$jhome/.cache" ! -type d ! -lname '/nix/store/*-home-manager-files/*' -print -quit)" ]; then
+  echo "jail: the jail's cache is now $cache; the old one, $jhome/.cache, is no longer used (delete it while the jail is stopped)" >&2
+fi
+mkdir -p "$cache" || die "cannot create $cache"
 
 # On every start: dotfiles, mount points, ~/.claude.json (prepareHome).
 prepare() {
   local gen=$HOME/.local/state/home-manager/gcroots/current-home files host=()
   files=$(readlink -f "$gen/home-files") && [ -d "$files" ] ||
     die "no home-manager generation at $gen (home-manager not activated yet?)"
+  vars=$(readlink -f "$gen/home-path/etc/profile.d/hm-session-vars.sh") && [ -f "$vars" ] ||
+    die "no hm-session-vars.sh in the home-manager generation at $gen"
   [ ! -f "$HOME/.claude.json" ] || host=(--ro-bind "$HOME/.claude.json" /tmp/host.json)
   bwrap --unshare-all --die-with-parent --clearenv --ro-bind /nix /nix \
     --proc /proc --dev /dev --tmpfs /tmp "${host[@]}" --bind "$jhome" /tmp/home \
@@ -89,8 +100,9 @@ if [ -d "$HOME/.claude/plugins/data" ]; then
 fi
 bind --ro-bind "$HOME/.local/bin" # graphify
 bind --ro-bind "$HOME/.local/share/uv/tools" # its venv
-# the repository and .jail's paths: opened and checked by jail-binds, bound by fd here
-fdbinds=(rw "$root")
+# the repository, the cache and .jail's paths: opened and checked by jail-binds, bound by fd here
+fdbinds=(rw "$root" "rw:$HOME/.cache" "$cache")
+mounts+=("$HOME/.cache")
 args+=(--args 5 --chdir "$cwd")
 # DNS through pasta (jail-run): the host's resolv.conf (it may name
 # 127.0.0.53) with only its search and options lines. Written outside
@@ -126,10 +138,12 @@ bind_path() {
     ! within "$p" "$x" || { echo "is in $x"; return 1; }
   done
   [ "$p" != /tmp ] || { echo "is /tmp"; return 1; }
-  for x in "$HOME" "$HOME/.local/share/jails" "$root"; do
+  for x in "$HOME" "$HOME/.local/share/jails" "$HOME/.cache" "$root"; do
     ! within "$x" "$p" || { echo "is or contains $x"; return 1; }
   done
   ! within "$p" "$HOME/.local/share/jails" || { echo "is in the jails' state"; return 1; }
+  # the jail's ~/.cache is its own (~/.cache/jails/<name>): a bind below it would land in there
+  ! within "$p" "$HOME/.cache" || { echo "is in $HOME/.cache, the jail has its own"; return 1; }
   ! within "$p" "$root" || { echo "is in the repository"; return 1; }
   # keys, logins, transcripts; with rw also what your host session runs or loads
   local sensitive=(.ssh .gnupg .claude .codex .claude.json .local/share/keyrings .password-store) ro_only=()
@@ -252,6 +266,11 @@ env=(
   --setenv PATH "/etc/profiles/per-user/$user/bin:/run/current-system/sw/bin"
   --setenv SHELL "${SHELL:-/bin/sh}" --setenv LANG "${LANG:-C.UTF-8}"
   --setenv XDG_RUNTIME_DIR "$run"
+  --setenv JAIL "$name" # codex takes its jail profile (claude-code/codex/wrapper.nix)
+  # no gpg-agent inside, and you do not commit there: commits and tags unsigned
+  --setenv GIT_CONFIG_COUNT 2
+  --setenv GIT_CONFIG_KEY_0 commit.gpgSign --setenv GIT_CONFIG_VALUE_0 false
+  --setenv GIT_CONFIG_KEY_1 tag.gpgSign --setenv GIT_CONFIG_VALUE_1 false
 )
 for v in TERM COLORTERM EDITOR LOCALE_ARCHIVE TERMINFO_DIRS TZDIR; do
   [ -z "${!v:-}" ] || env+=(--setenv "$v" "${!v}")
@@ -272,7 +291,13 @@ if [ $# -gt 0 ]; then
   load_config one-off
   prepare
   bind_bus "$run/jails/$name.bus-$$"
-  exec @jailRun@/bin/jail-run "$bus" "$portspec" "${fdbinds[@]}" -- "${args[@]}" "${env[@]}" -- "$@"
+  # home-manager's session variables, which the shared jail's login shell
+  # sources itself; the guard goes, so a shell CMD starts (its /etc/zshenv
+  # rebuilds PATH) sources them again
+  # shellcheck disable=SC2016 # expanded by the inner shell
+  session='. "$0" && unset __HM_SESS_VARS_SOURCED && exec "$@"'
+  exec @jailRun@/bin/jail-run "$bus" "$portspec" "${fdbinds[@]}" -- "${args[@]}" "${env[@]}" -- \
+    @runtimeShell@ -c "$session" "$vars" "$@"
 fi
 
 # Shared jail: one tmux server inside per repository, every terminal attaches.

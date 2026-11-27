@@ -41,6 +41,7 @@
         pkgs.tmux
         pkgs.socat
         pkgs.dig
+        (pkgs.callPackage ../../home/flodet/_shared/components/claude-code/codex/wrapper.nix { })
       ];
       # names on the session bus: the one the jail may talk to, and another
       systemd.user.services =
@@ -56,6 +57,11 @@
           home.stateVersion = "26.05";
           home.file.probe.text = "from-home-manager";
           home.file.".codex/AGENTS.md".text = "from-home-manager"; # also bound read-only
+          home.file.".codex/jail.config.toml".source =
+            ../../home/flodet/_shared/components/claude-code/codex/jail.config.toml;
+          home.file.".cache/hm/.keep".text = ""; # linked into the jail home's old .cache
+          home.sessionVariables.JAIL_PROBE = "from-session-vars";
+          home.sessionPath = [ "$HOME/probe-bin" ];
         };
       };
     };
@@ -120,7 +126,7 @@
       echo '{}' > .claude/settings.json
       echo host > .claude/CLAUDE.md
       echo host > .claude/.credentials.json
-      echo host > .codex/config.toml
+      echo 'model = "host"' > .codex/config.toml
       echo host > .codex/auth.json
       echo '{"oauthAccount":{"a":1},"mcpServers":{"m":{}},"projects":{"hostproject":{}}}' > .claude.json
       cp .claude.json claude.json.orig
@@ -284,6 +290,49 @@
     with subtest("home-manager dotfiles are mirrored into the jail home"):
         jail("grep -q from-home-manager ~/probe")
         alice("test -d ~/.local/share/jails/repo-*/home")
+
+    with subtest("one-off jails get the home-manager session variables"):
+        jail('test "$JAIL_PROBE" = from-session-vars && case ":$PATH:" in *:/home/alice/probe-bin:*) ;; *) exit 1 ;; esac')
+
+    with subtest("the jail's ~/.cache is ~/.cache/jails/<name>, outside the jail home"):
+        jail("echo c > ~/.cache/probe")
+        alice("grep -q c ~/.cache/jails/repo-*/probe && test ! -e ~/.cache/probe && cd ~/.local/share/jails/repo-*/home && test ! -e .cache/probe")
+        # a link planted at the mount point does not stop the next start
+        alice("cd ~/.local/share/jails/repo-*/home && rm -r .cache && ln -s /nowhere .cache")
+        jail("grep -q c ~/.cache/probe")
+        # a cache from before the move stays where it was, unused, and says so once
+        alice("git init -q ~/repom")
+        jail("true", repo="~/repom")
+        alice("rm -r ~/.cache/jails/repom-* && cd ~/.local/share/jails/repom-*/home/.cache && touch old")
+        out = start("test ! -e ~/.cache/old && touch ~/.cache/new", repo="~/repom")
+        assert "is no longer used" in out, out
+        assert "no longer used" not in start("true", repo="~/repom")
+        alice("test -e ~/.local/share/jails/repom-*/home/.cache/old && test -e ~/.cache/jails/repom-*/new")
+        # a removed cache (Reset) is made again without that message
+        alice("rm ~/.local/share/jails/repom-*/home/.cache/old && rm -r ~/.cache/jails/repom-*")
+        assert "no longer used" not in start("true", repo="~/repom")
+        alice("test -d ~/.cache/jails/repom-*")
+
+    with subtest("codex in a jail uses the jail profile, the host default stays"):
+        sandbox = "codex debug prompt-input hi 2>/dev/null | grep -o 'sandbox_mode. is .[a-z-]*'"
+        out = alice(f"cd ~/repo && {sandbox}")
+        assert "read-only" in out, out
+        out = jail(sandbox)
+        assert "danger-full-access" in out, out
+        # subcommands that refuse --profile still work
+        jail("codex features list >/dev/null && codex -c 'model=\"m\"' features list >/dev/null")
+        assert "danger-full-access" in jail("codex -c 'model=\"m\"' " + sandbox.removeprefix("codex "), repo="~/repo")
+
+    with subtest("commits and tags in a jail are unsigned, the host still signs"):
+        alice("""
+          git init -q ~/repos && cd ~/repos
+          git config user.name a && git config user.email a@example.com
+          git config commit.gpgsign true && git config tag.gpgSign true
+          # control: signing is on outside (and fails: no key)
+          if git commit -q --allow-empty -m host 2>/dev/null; then exit 1; fi
+          if git tag -a -m t host-tag 2>/dev/null; then exit 1; fi
+        """)
+        jail('git commit -q --allow-empty -m jail && git tag -a -m t t1 && test "$(git log -1 --format=%G?)" = N', repo="~/repos")
 
     with subtest("shebang paths work"):
         jail("/usr/bin/env true && /bin/sh -c true")
@@ -462,7 +511,7 @@
         alice("""
           mkdir -p ~/data-ro ~/data-rw && echo ro > ~/data-ro/f && echo secret > ~/secret
           ln -s ~/data-ro ~/data-link
-          mkdir -p ~/.ssh ~/.gnupg ~/.password-store ~/.local/share/keyrings ~/.local/state ~/.config/x ~/brain/wiki
+          mkdir -p ~/.cache/jails/x ~/.cache/foo ~/.ssh ~/.gnupg ~/.password-store ~/.local/share/keyrings ~/.local/state ~/.config/x ~/brain/wiki
           git init -q ~/repoc && cd ~/repoc && git commit -q --allow-empty -m one
           printf '#\\ta website and two folders\\nport 8090\\nport 8091\\nport 8090\\n\\nro ~/data-ro\\nrw /home/alice/data-rw/\\n' > .jail
         """)
@@ -539,6 +588,8 @@
             "ro ~/data-link": "goes through a symlink", "ro /": "is or contains /home/alice", "ro /home": "is or contains /home/alice",
             "rw ~": "is or contains /home/alice", "rw ~/.local": "is or contains /home/alice/.local/share/jails",
             "ro ~/.local/share/jails": "is or contains /home/alice/.local/share/jails", "ro /etc": "is in /etc",
+            "rw ~/.cache": "is or contains /home/alice/.cache", "ro ~/.cache/jails": "is in /home/alice/.cache, the jail has its own",
+            "ro ~/.cache/jails/x": "is in /home/alice/.cache, the jail has its own", "ro ~/.cache/foo": "is in /home/alice/.cache, the jail has its own",
             "ro /nix/store": "is in /nix", "rw /run/user": "is in /run", "ro /proc": "is in /proc", "rw /tmp": "is /tmp",
             "rw ~/repoe": "is or contains /home/alice/repoe", "rw ~/repoe/.git": "is in the repository",
             "ro relative": "not an absolute path", "ro ~/missing": "does not exist",

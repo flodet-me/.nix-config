@@ -19,6 +19,9 @@ jail-push ~/Projects/foo       # outside the jail: push the current branch
 jail-push ~/Projects/foo main --force-with-lease   # other git push arguments
 ```
 
+- A one-off command gets home-manager's session variables
+  (`hm-session-vars.sh` of your generation: `NUGET_PACKAGES`,
+  `NPM_CONFIG_CACHE`, `~/.local/bin` in `PATH`, ...), as the jail's shell does.
 - `DIR` defaults to the current directory for `jail`; `jail-push` needs it
   (an existing directory). The jail covers the nearest directory above it
   with a real `.git` directory, or a container's `.git` file (below), so
@@ -50,9 +53,9 @@ jail-push ~/Projects/foo main --force-with-lease   # other git push arguments
 
 | | |
 | --- | --- |
-| read-write | the repository; `rw` paths of an approved `.jail`; `~/brain/inbox`; the login: `~/.claude/.credentials.json`, `~/.codex/auth.json` (and its lock files); the Nix daemon socket; `/dev/kvm`; a D-Bus proxy at `/run/user/<uid>/bus` (`org.freedesktop.Notifications` only) |
+| read-write | the repository; its cache `~/.cache/jails/<name>`, bound as `~/.cache`; `rw` paths of an approved `.jail`; `~/brain/inbox`; the login: `~/.claude/.credentials.json`, `~/.codex/auth.json` (and its lock files); the Nix daemon socket; `/dev/kvm`; a D-Bus proxy at `/run/user/<uid>/bus` (`org.freedesktop.Notifications` only) |
 | read-only | `ro` paths of an approved `.jail`; `/nix`, `/etc`, `/run/current-system`, `/bin`, `/usr`, `/lib64`; its own `resolv.conf` (`~/.local/share/jails/<name>/resolv.conf`, bound over the host's); `~/brain`; every other entry of `~/.claude` and `~/.codex` (`CLAUDE.md`, `settings.json`, `rules/`, `skills/`, `agents/`, `plugins/`, the status line script, `config.toml`, `AGENTS.md`, ...); `~/.local/bin` and `~/.local/share/uv/tools` (graphify) |
-| own | `$HOME` is `~/.local/share/jails/<name>/home` (history, nvim state and `:trust` list, direnv allow list, caches, ...) with home-manager's dotfiles linked in on every start; in it the jail's own `~/.claude` and `~/.codex` state (transcripts, memory, plans, shell snapshots, todos, logs, the codex databases; the lists are in `pkgs/jail/default.nix`), `~/.claude/plugins/data` (`~/.local/share/jails/<name>/claude-plugin-data`) and `~/.claude.json`; `/tmp`, `/proc`, `/dev`, an empty `/run/user/<uid>` but for the D-Bus proxy; its own network namespace (below) |
+| own | `$HOME` is `~/.local/share/jails/<name>/home` (history, nvim state and `:trust` list, direnv allow list, caches outside `~/.cache`, ...) with home-manager's dotfiles linked in on every start; in it the jail's own `~/.claude` and `~/.codex` state (transcripts, memory, plans, shell snapshots, todos, logs, the codex databases; the lists are in `pkgs/jail/default.nix`), `~/.claude/plugins/data` (`~/.local/share/jails/<name>/claude-plugin-data`) and `~/.claude.json`; `/tmp`, `/proc`, `/dev`, an empty `/run/user/<uid>` but for the D-Bus proxy; its own network namespace (below) |
 | absent | the rest of `/home`, `/run/user` sockets (the session bus itself, gpg-agent, Docker), services on the host's loopback, the host's abstract Unix sockets, `/run/wrappers` (setuid, and `no_new_privs` stops `sudo` anyway), `/run/secrets` |
 
 On every start `~/.claude.json` gets `oauthAccount`, `userID`,
@@ -60,14 +63,46 @@ On every start `~/.claude.json` gets `oauthAccount`, `userID`,
 project state stays), in a sandbox that sees only the jail home, so a link the
 jail planted there reaches no host file.
 
-The caches (`~/.cache/nix`, NuGet, npm, Cargo) are per jail too, so the
-first build in a new jail downloads its packages again; `/nix/store` is
-shared through the daemon as usual.
+The caches (`~/.cache/nix`, NuGet and npm, which home-manager points into
+`~/.cache`) are per jail too, so the first build in a new jail downloads its
+packages again; `/nix/store` is shared through the daemon as usual. A jail's
+`~/.cache` is `~/.cache/jails/<name>`, on the `~/.cache` subvolume outside
+the `/home` snapshots (bound by fd like the repository, below). Jails from
+before kept it in the jail home: on its first start `jail` says so, and
+`~/.local/share/jails/<name>/home/.cache` is no longer used; delete it while
+that jail is stopped (`jail` never deletes it; it says so only when there is
+more in it than home-manager's links). Caches outside `~/.cache`
+(Cargo's `~/.cargo`) stay in the jail home.
 
 The environment is built, not inherited: `HOME`, `USER`, `LOGNAME`, `PATH`
 (per-user profile, system), `SHELL`, `LANG`, `XDG_RUNTIME_DIR` and, if set,
 `TERM`, `COLORTERM`, `EDITOR`, `LOCALE_ARCHIVE`, `TERMINFO_DIRS`, `TZDIR`, and
-`DBUS_SESSION_BUS_ADDRESS` for the proxy.
+`DBUS_SESSION_BUS_ADDRESS` for the proxy; `JAIL` (the jail's name) and
+`GIT_CONFIG_COUNT`/`GIT_CONFIG_KEY_n`/`GIT_CONFIG_VALUE_n` setting
+`commit.gpgSign` and `tag.gpgSign` to false, so commits and tags inside are
+unsigned (there is no gpg-agent inside, and you do not commit there; the
+host's git config is unchanged and the host still signs). A one-off command
+runs after `hm-session-vars.sh` (its `__HM_SESS_VARS_SOURCED` guard unset
+again, so a shell it starts, whose `/etc/zshenv` rebuilds `PATH`, sources
+it again).
+
+Codex: with `JAIL` set, the `codex` wrapper
+(`home/flodet/_shared/components/claude-code/codex/wrapper.nix`) adds
+`--profile jail`, which layers `~/.codex/jail.config.toml` (read-only in the
+jail like `config.toml`) on your config: `sandbox_mode = "danger-full-access"`
+and `approval_policy = "never"`, codex's own "full access". The jail is the
+boundary, so codex runs commands without its own sandbox or prompts, with
+the network and the jail's caches; `workspace-write` would still ask for
+every write outside the repository (`~/.cache`). Codex 0.171 refuses
+`--profile` for commands that start no session (`login`, `features`,
+`doctor`, ...), so those run without it; the wrapper finds the command
+after codex's global options (`codex -c k=v login`), and adds nothing when
+you give `-p`/`--profile` yourself. Without `~/.codex/jail.config.toml`
+(before the switch that brings it) codex silently keeps the host default
+(`read-only` or `workspace-write`), which is more restrictive: it asks
+again. Outside a jail codex keeps your
+default (`config.toml`); `claude-codex-review` runs plain codex with its
+explicit read-only sandbox, also inside.
 
 ## Per-repository config (.jail)
 
@@ -97,7 +132,8 @@ rw /srv/scratch/foo
   and be canonical (no `.`, `..`). Refused: `/`, `/tmp`, anything in `/nix`,
   `/run`, `/proc`, `/dev`, `/etc`, `/sys`, `/.snapshots`, `/persist`, your home or a folder above it
   (`/home`), the jails' state (`~/.local/share/jails`, or a folder above it
-  such as `~/.local`), and the repository or anything in it or above it.
+  such as `~/.local`), `~/.cache` and anything in it
+  (the jail has its own, `~/.cache/jails/<name>`), and the repository or anything in it or above it.
   Also refused, in it, at it or above it: `~/.ssh`, `~/.gnupg`, `~/.claude`,
   `~/.codex`, `~/.claude.json`, `~/.local/share/keyrings`,
   `~/.password-store`; and as `rw` (fine as `ro`): `~/.config`,
@@ -238,6 +274,8 @@ rm -rf ~/.local/share/jails/<name>/home      # jail home (history, nvim state, t
 rm -rf ~/.local/share/jails/<name>/claude-plugin-data   # its Claude plugin data
 rm -rf ~/.local/share/jails/<name>/jail.approved      # the approved .jail: the next start asks again
 rm -rf ~/.local/share/jails/<name>           # also the push mirror and its stored URL
+rm -rf ~/.cache/jails/<name>                 # its caches (~/.cache inside)
+rm -rf ~/.local/share/jails/<name>/home/.cache   # the cache of a jail from before ~/.cache/jails, unused
 ```
 
 After the last line the next `jail` start records the URL again from the
@@ -247,7 +285,7 @@ it asks again about `.jail`.
 ## Tested
 
 `nix build .#checks.x86_64-linux.jail` (NixOS VM; the test script itself takes
-about 103 s, with a second VM): hidden home paths and `~/.cache/docker` absent; `~/brain` read-only
+about 140 s, with a second VM): hidden home paths and `~/.cache/docker` absent; `~/brain` read-only
 except `inbox/`; writes to `~/.claude` config (`CLAUDE.md`, `settings.json`,
 `skills/`, `rules/`, `agents/`, `plugins/`) and `~/.codex` (`config.toml`,
 `AGENTS.md`, `rules/`) fail; the logins are shared; state written in
@@ -256,7 +294,14 @@ except `inbox/`; writes to `~/.claude` config (`CLAUDE.md`, `settings.json`,
 host's is not visible; `~/.claude.json` gets the login and MCP servers and
 keeps the jail's projects, the host file stays unchanged, also with a link
 planted in its place; home-manager files linked;
-`/usr/bin/env` works; no capabilities (also none in the bounding set); no
+`/usr/bin/env` works; a one-off command sees a home-manager session
+variable and `home.sessionPath`; the jail's `~/.cache` is in
+`~/.cache/jails/<name>` (not in the jail home), also with a link planted at
+`.cache` in the jail home, and an old cache in the jail home stays, unused, with one
+message; codex inside reports `danger-full-access` (`codex debug
+prompt-input`, the host's default outside) and `codex features list` works
+there; with `commit.gpgSign` and `tag.gpgSign` true in a repository a commit
+and an annotated tag fail outside (no key) and work unsigned inside; no capabilities (also none in the bounding set); no
 ignored signals (a one-off jail and the shared jail's processes);
 `sudo`, `systemd-run --user` and gpg-agent unavailable, the only socket in `/run/user` the D-Bus proxy, which
 answers for `org.freedesktop.Notifications` (a stand-in on the session bus) and
@@ -305,7 +350,7 @@ shared jail with the port taken on the host does not start and names the
 port, then starts once it is free; a jail-side edit adding `rw` of a host file
 is not applied without approval and the approved copy stays in use; a linked
 `.jail`, a linked path, forbidden paths (`/`, `/home`, `~`, `~/.local`, the
-jails' state, `/etc`, `/nix/store`, `/run/user`, `/proc`, `/tmp`, the
+jails' state, `~/.cache`, `~/.cache/jails`, a folder in each, `/etc`, `/nix/store`, `/run/user`, `/proc`, `/tmp`, the
 repository and its `.git`, `~/.ssh`, `~/.gnupg`, `~/.claude` and below it,
 `~/.codex`, `~/.claude.json`, keyrings, `~/.password-store`, and as `rw`
 `~/.config`, `~/.local/state`, `~/.local/bin`, `~/brain`), relative and
@@ -364,6 +409,9 @@ a positive control outside the jail.
 - A tmux server inside the jail (or a fake one in the socket directory) can
   draw anything in your terminal, also a prompt that looks like the host's;
   it cannot type into other programs (TIOCSTI is off or blocked).
+- Home-manager's files under `~/.cache` are linked into the jail home's
+  `.cache`, which the cache bind hides: they are not in the jail's
+  `~/.cache` (home-manager puts only `.keep` files there).
 - Home-manager's files are linked when a jail starts; after a switch, restart
   the jail to pick them up.
 - A tmux server with the jail stays alive while a window is open, also with no

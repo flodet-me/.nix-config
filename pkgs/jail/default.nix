@@ -139,7 +139,7 @@ let
   # `--bind-fd`/`--ro-bind-fd`): a link swapped in after jail's check cannot
   # redirect the bind. bwrap closes the fds after mounting. Runs under pasta,
   # which closes inherited fds, right before bwrap.
-  # Args: ro|rw PATH ..., --, bwrap and its args.
+  # Args: ro|rw PATH ... (ro:DEST|rw:DEST PATH: bound at DEST), --, bwrap and its args.
   jailBinds = script "jail-binds" [ coreutils ] { };
 
   # Runs `bwrap ARGS...` in a network namespace of its own (pasta, as rootless
@@ -147,7 +147,7 @@ let
   # lets the jail talk to org.freedesktop.Notifications only. Both last exactly
   # as long as this script. Args: BUS (a socket path, or empty), PORTS (TCP
   # ports forwarded from host 127.0.0.1 to the jail's, comma-separated, or
-  # empty), jail-binds' ro|rw PATH pairs, --, bwrap's args.
+  # empty), jail-binds' ro|rw[:DEST] PATH pairs, --, bwrap's args.
   jailRun =
     script "jail-run"
       [

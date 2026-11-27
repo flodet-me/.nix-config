@@ -27,7 +27,7 @@ authenticate once on each machine with
 when requested), rather than launching Codex for every task. If Codex has no
 available usage, is unauthenticated, or fails, Claude stops or retries only as
 the skill directs, continues independently when reasonable, and reports when
-the second opinion could not be obtained. The dev shell provides `codex` too.
+the second opinion could not be obtained. The dev shell provides `codex` too, the same wrapper (below).
 
 Codex also gets a shared, Nix-managed user setup on both workstations:
 `~/.codex/config.toml` defaults to GPT-5.6 Terra at high reasoning effort,
@@ -40,7 +40,10 @@ remain the source of project-specific rules. Its terminal footer shows the
 model, reasoning effort, remaining context, branch, and current directory.
 Change the Nix files under
 `home/flodet/_shared/components/claude-code/codex/` to keep these defaults
-(`config.toml` the owned settings, `merge-config.py` the merge).
+(`config.toml` the owned settings, `merge-config.py` the merge). Inside a
+jail, `codex` (`wrapper.nix`) adds `--profile jail`, `~/.codex/jail.config.toml`
+(`jail.config.toml`: no codex sandbox or approvals, the jail is the boundary;
+[jail.md](jail.md)).
 
 The dev shell also has `claude-code`, but not the plugins.
 

@@ -47,6 +47,10 @@ is kept for untrusted third-party code.
 - 2026-11-27: the jail moved from a home-manager module to its own package,
   `pkgs/jail` (scripts in `.sh` files), installed system-wide on the
   workstations; behavior unchanged.
+- 2026-11-27: inside a jail Codex runs with the jail profile
+  (`danger-full-access`, approval `never`; the jail is the boundary), git
+  commits and tags are unsigned, and the jail's `~/.cache` is
+  `~/.cache/jails/<name>`, outside the `/home` snapshots.
 - The Nix daemon is shared: builds are sandboxed by Nix, but an agent can
   fill the store and use your binary caches.
 

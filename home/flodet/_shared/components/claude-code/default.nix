@@ -250,8 +250,8 @@ in
   # Tools the plugins' hooks, skills and scripts call at runtime.
   home.packages = [
     claude-plugins-sync
-    codexReview
-    pkgs.codex
+    codexReview # plain codex: its explicit read-only sandbox, also in a jail
+    (pkgs.callPackage ./codex/wrapper.nix { }) # codex, in a jail with the jail profile
     python
     pkgs.nodejs # ponytail hooks, frontend-slides PDF export, npx-based MCP servers
     pkgs.uv # graphify
@@ -270,6 +270,7 @@ in
   # ~/.claude/CLAUDE.md, because graphify writes into that one.
   home.file.".claude/rules/personal.md".source = ./personal.md;
   home.file.".codex/AGENTS.md".source = ./codex/AGENTS.md;
+  home.file.".codex/jail.config.toml".source = ./codex/jail.config.toml;
 
   # Goal -> merged code: the factory skill and its two agents (docs/claude-code.md, "Factory").
   home.file.".claude/skills/factory/SKILL.md".source = ./skills/factory/SKILL.md;
