@@ -1,8 +1,8 @@
 # 0001: One bubblewrap jail per repository for agents and your own tools
 
 Date: 2026-11-27. Status: accepted; host hardening and the jail implemented
-([jail.md](../jail.md)), network namespace and D-Bus proxy implemented, winvm
-binds open.
+([jail.md](../jail.md)), network namespace and D-Bus proxy implemented, per-repository `.jail`
+implemented, winvm binds open.
 
 ## Context
 
@@ -39,6 +39,11 @@ is kept for untrusted third-party code.
 - No gpg-agent or SSH keys in the jail: pushing is `jail-push`, outside.
 - `act` and other Docker users move to rootless Docker; containers inside a
   jail are still open.
+- What a repository needs beyond the defaults (ports from host `127.0.0.1`
+  into the jail, extra `ro`/`rw` folders, later winvm) lives in its own
+  `.jail`, not in home-manager, since `jail` is repository-agnostic. Jailed
+  code can write that file, so only a copy approved on a terminal applies,
+  stored outside the jail; ports never go from the jail to the host.
 - The Nix daemon is shared: builds are sandboxed by Nix, but an agent can
   fill the store and use your binary caches.
 

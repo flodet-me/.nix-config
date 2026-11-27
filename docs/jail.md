@@ -25,6 +25,8 @@ jail-push ~/Projects/foo main --force-with-lease   # other git push arguments
   plus a hash of its path) with a tmux server inside. Detach with the tmux
   prefix + `d`; the jail ends when its last tmux window closes, or with
   `systemctl --user stop jail-<name>`.
+- A `.jail` file in the repository adds ports and folders to its jail once
+  you approve it (below).
 - Once a repository has a jail, work on it only inside: a host shell, editor
   or IDE runs code the jail wrote (a git prompt runs `core.fsmonitor`,
   direnv's `use flake` runs the flake's shell hook, VS Code runs tasks and
@@ -34,8 +36,8 @@ jail-push ~/Projects/foo main --force-with-lease   # other git push arguments
 
 | | |
 | --- | --- |
-| read-write | the repository; `~/brain/inbox`; the login: `~/.claude/.credentials.json`, `~/.codex/auth.json` (and its lock files); the Nix daemon socket; `/dev/kvm`; a D-Bus proxy at `/run/user/<uid>/bus` (`org.freedesktop.Notifications` only) |
-| read-only | `/nix`, `/etc`, `/run/current-system`, `/bin`, `/usr`, `/lib64`; its own `resolv.conf` (`~/.local/share/jails/<name>/resolv.conf`, bound over the host's); `~/brain`; every other entry of `~/.claude` and `~/.codex` (`CLAUDE.md`, `settings.json`, `rules/`, `skills/`, `agents/`, `plugins/`, the status line script, `config.toml`, `AGENTS.md`, ...); `~/.local/bin` and `~/.local/share/uv/tools` (graphify) |
+| read-write | the repository; `rw` paths of an approved `.jail`; `~/brain/inbox`; the login: `~/.claude/.credentials.json`, `~/.codex/auth.json` (and its lock files); the Nix daemon socket; `/dev/kvm`; a D-Bus proxy at `/run/user/<uid>/bus` (`org.freedesktop.Notifications` only) |
+| read-only | `ro` paths of an approved `.jail`; `/nix`, `/etc`, `/run/current-system`, `/bin`, `/usr`, `/lib64`; its own `resolv.conf` (`~/.local/share/jails/<name>/resolv.conf`, bound over the host's); `~/brain`; every other entry of `~/.claude` and `~/.codex` (`CLAUDE.md`, `settings.json`, `rules/`, `skills/`, `agents/`, `plugins/`, the status line script, `config.toml`, `AGENTS.md`, ...); `~/.local/bin` and `~/.local/share/uv/tools` (graphify) |
 | own | `$HOME` is `~/.local/share/jails/<name>/home` (history, nvim state and `:trust` list, direnv allow list, caches, ...) with home-manager's dotfiles linked in on every start; in it the jail's own `~/.claude` and `~/.codex` state (transcripts, memory, plans, shell snapshots, todos, logs, the codex databases; the lists are in `default.nix`), `~/.claude/plugins/data` (`~/.local/share/jails/<name>/claude-plugin-data`) and `~/.claude.json`; `/tmp`, `/proc`, `/dev`, an empty `/run/user/<uid>` but for the D-Bus proxy; its own network namespace (below) |
 | absent | the rest of `/home`, `/run/user` sockets (the session bus itself, gpg-agent, Docker), services on the host's loopback, the host's abstract Unix sockets, `/run/wrappers` (setuid, and `no_new_privs` stops `sudo` anyway), `/run/secrets` |
 
@@ -53,12 +55,104 @@ The environment is built, not inherited: `HOME`, `USER`, `LOGNAME`, `PATH`
 `TERM`, `COLORTERM`, `EDITOR`, `LOCALE_ARCHIVE`, `TERMINFO_DIRS`, `TZDIR`, and
 `DBUS_SESSION_BUS_ADDRESS` for the proxy.
 
+## Per-repository config (.jail)
+
+A `.jail` at the repository root (the directory `jail` resolves) asks for
+more than the defaults:
+
+```sh
+# a dev server, reached from your browser
+port 5173
+# read-only, at the same path inside
+ro ~/Datasets/images
+# read-write
+rw /srv/scratch/foo
+```
+
+- `port N` (1024 to 65535): TCP connections to the host's `127.0.0.1:N`
+  reach the jail's `127.0.0.1:N` (pasta `--host-lo-to-ns-lo -t
+  127.0.0.1/N`). Only host to jail: the jail still reaches no host port. The
+  server inside must listen on `127.0.0.1` or `0.0.0.0` (`--host 127.0.0.1`),
+  not on `::1` only. A forwarded port is open to every local process and
+  user of the host, as any listener on `127.0.0.1` is; and while the jail
+  runs it holds the port, so a host service that starts later on the same
+  port cannot bind it (and a client of that service talks to the jail).
+- `ro PATH`, `rw PATH`: a directory or file bound at the same absolute path
+  (`~/` is your home). It must exist, and its path must have no symlink in it
+  and be canonical (no `.`, `..`). Refused: `/`, `/tmp`, anything in `/nix`,
+  `/run`, `/proc`, `/dev`, `/etc`, `/sys`, `/.snapshots`, `/persist`, your home or a folder above it
+  (`/home`), the jails' state (`~/.local/share/jails`, or a folder above it
+  such as `~/.local`), and the repository or anything in it or above it.
+  Also refused, in it, at it or above it: `~/.ssh`, `~/.gnupg`, `~/.claude`,
+  `~/.codex`, `~/.claude.json`, `~/.local/share/keyrings`,
+  `~/.password-store`; and as `rw` (fine as `ro`): `~/.config`,
+  `~/.local/state`, `~/.local/bin`, `~/brain`.
+- `#` starts a comment line (only at the start of a line); blank lines are
+  fine; any other line is an error naming the line. A port given twice counts
+  once.
+
+Jailed code can write `.jail`, so `jail` applies only a copy you approved,
+stored outside the jail in `~/.local/share/jails/<name>/jail.approved`, the
+way `direnv allow` works:
+
+- `.jail` is read as data like `.git/config`: a regular file, never through
+  a link, no wait on a FIFO, at most 64 KiB.
+- When it differs from the approved copy and `jail` runs on a terminal
+  (stdin and stderr), it
+  shows the diff (the whole file the first time), with control characters
+  and other bytes as text (`cat -vT`: an escape is `^[`, a tab `^I`), then
+  one line with what it amounts to (`jail: in effect: ports ... | ro ... |
+  rw ...`), and applies it once you type `yes`. Refused, without a terminal, or when `.jail` is a link, too
+  large or has a bad line: one line says that `.jail` is not applied, and the
+  jail starts with the copy you approved last (or with none). A jail never
+  fails to start because of an unapproved `.jail`.
+- No `.jail`: nothing applied. The approved copy stays and applies again,
+  without asking, when the same `.jail` comes back (also when jailed code
+  writes it back); remove `jail.approved` (Reset) to be asked again.
+- The approved copy is checked again on every start: if a path is gone or
+  now goes through a symlink, `jail` stops and names the line.
+- The repository and every `ro`/`rw` path are bound by fd: right before bwrap
+  (`jail-binds`, under pasta) each is opened, checked to be that very path
+  (`/proc/self/fd`, no link on the way) and passed as `--bind-fd`/`--ro-bind-fd`,
+  so a link a running jail swaps in after the check (below one of its `rw`
+  folders, or a nested repository's folder in the outer one) stops the start
+  instead of redirecting the bind. bwrap closes those fds before the jailed
+  program runs. Mount points with a link on the way are refused by bwrap.
+- Read when a jail starts: the shared jail at its first terminal, every
+  one-off jail. A running shared jail keeps its config until it restarts
+  (`systemctl --user stop jail-<name>`).
+- A port in use on the host (any listener on that port): the shared jail does
+  not start and names the port; start it again once the port is free. A
+  one-off jail next to it (or another jail holding the port) starts without
+  that port and says so.
+
+In the browser, open `http://<anything>.localhost:N` (for example
+`http://foo.localhost:5173`) rather than `localhost:N`: browsers keep
+cookies per host name, not per port, so a name of its own keeps the jail's
+cookies apart from your other local services. The page still runs in your
+normal browser: its scripts can send requests to every service on your
+host's loopback, and it can read nothing the browser would not let any web
+page read. Use a separate browser profile for it if those services matter.
+
+`rw` on a path undoes the isolation for that path: another jailed
+repository (its code then runs in both jails), personal data. `rw` on
+anything your host session runs or reads as config or instructions
+(`~/.config`, a shell rc, `~/.local/bin`, `~/brain`, whose `wiki/hot.md`
+every Claude session loads) is a way out of the jail; the list above
+refuses the known ones, not every one, and compares paths, not folders:
+another path to the same folder (desktop's `/data/projects` is `~/Projects`)
+passes, so read the paths you approve. `ro` shows the jail whatever is in
+there. Opening a path that a jail swapped for a FIFO waits: stop a one-off
+start with Ctrl-C; a shared jail then reports it is not running, and
+`systemctl --user stop jail-<name>` clears it for the next start.
+
 ## Network and D-Bus
 
 - Each jail (the shared one and every one-off) runs in a network namespace of
   its own, connected by `pasta` (passt, as rootless Podman does): outbound
   TCP, UDP and ICMP leave through ordinary sockets of yours on the host. No
-  port is forwarded in either direction (`-t/-u/-T/-U none`) and the gateway
+  port is forwarded in either direction (`-t/-u/-T/-U none`), except the TCP
+  ports a `.jail` names, from the host's `127.0.0.1` into the jail, and the gateway
   address is not mapped to the host (`--no-map-gw`), so the host's loopback
   services (`127.0.0.1`, `::1`) and its abstract Unix sockets (Xwayland's
   `@/tmp/.X11-unix/X0`, some D-Bus) are out of reach. Loopback inside the
@@ -120,16 +214,18 @@ fake one in the writable socket directory, can make a client run a command
 systemctl --user stop jail-<name>
 rm -rf ~/.local/share/jails/<name>/home      # jail home (history, nvim state, trust lists, Claude/Codex state)
 rm -rf ~/.local/share/jails/<name>/claude-plugin-data   # its Claude plugin data
+rm -rf ~/.local/share/jails/<name>/jail.approved      # the approved .jail: the next start asks again
 rm -rf ~/.local/share/jails/<name>           # also the push mirror and its stored URL
 ```
 
 After the last line the next `jail` start records the URL again from the
-repository, which jailed code may have changed: check the URL it prints.
+repository, which jailed code may have changed: check the URL it prints; and
+it asks again about `.jail`.
 
 ## Tested
 
 `nix build .#checks.x86_64-linux.jail` (NixOS VM; the test script itself takes
-about 74 s, with a second VM): hidden home paths and `~/.cache/docker` absent; `~/brain` read-only
+about 103 s, with a second VM): hidden home paths and `~/.cache/docker` absent; `~/brain` read-only
 except `inbox/`; writes to `~/.claude` config (`CLAUDE.md`, `settings.json`,
 `skills/`, `rules/`, `agents/`, `plugins/`) and `~/.codex` (`config.toml`,
 `AGENTS.md`, `rules/`) fail; the logins are shared; state written in
@@ -160,7 +256,29 @@ repository's or a FIFO, and an `include.path` to another repository's config, an
 sandboxed; two terminals share
 one tmux server and one unit, the shell in it is jailed, and a
 `detach-client -E` command does not run on the host, the shared jail reaches
-the Notifications stand-in and the second node and starts again after a stop
+the Notifications stand-in and the second node and starts again after a stop;
+a `.jail` with a port, a `ro` and an `rw` folder is not applied before
+approval (without a terminal, or answered `no`), shows its content and then a
+diff with an escape sequence as `^[`, and once approved with `yes` (a typed
+answer through `script`) the `ro` folder is readable and not writable, the
+`rw` one writable, the host reaches listeners on the jail's `127.0.0.1:8090`
+and `:8091` (one-off; `8090` also in the shared jail), forwarded from the
+host's `127.0.0.1` only, a port given twice counted once, while the jail still does not reach the host's
+loopback; a one-off next to a jail holding the port starts without it, a
+shared jail with the port taken on the host does not start and names the
+port, then starts once it is free; a jail-side edit adding `rw` of a host file
+is not applied without approval and the approved copy stays in use; a linked
+`.jail`, a linked path, forbidden paths (`/`, `/home`, `~`, `~/.local`, the
+jails' state, `/etc`, `/nix/store`, `/run/user`, `/proc`, `/tmp`, the
+repository and its `.git`, `~/.ssh`, `~/.gnupg`, `~/.claude` and below it,
+`~/.codex`, `~/.claude.json`, keyrings, `~/.password-store`, and as `rw`
+`~/.config`, `~/.local/state`, `~/.local/bin`, `~/brain`), relative and
+missing paths, ports below 1024 or above 65535 and unknown keywords are
+refused with the line named, and nothing is applied; the approval shows a tab
+as `^I` and the line with what is in effect; a `.jail` over 64 KiB, a FIFO
+(no wait) or a directory is not applied; an approved path that is gone stops
+the start; `jail-binds` refuses a bind source that is a link when it opens
+it (a swap after the check) and the jail holds no fd beyond 0 to 2
 (a fake server answering
 the liveness check is covered by construction, the same sandbox, not by a
 test). Every negative check has

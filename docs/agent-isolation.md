@@ -119,11 +119,18 @@ outside it.
    outbound internet works, but the host's localhost services and abstract
    Unix sockets (Xwayland, some D-Bus) are not shared, which `--share-net`
    does. winvm's port forwards on 127.0.0.1 then stay inside the jail.
-   Done: `jail-run` puts each jail under `pasta` (no forwards, no gateway
-   mapping, DNS through its forwarder) and next to an `xdg-dbus-proxy` for
+   Done: `jail-run` puts each jail under `pasta` (no forwards but the ports a
+   repository's approved `.jail` names, host `127.0.0.1` into the jail; no
+   gateway mapping, DNS through its forwarder) and next to an `xdg-dbus-proxy` for
    Notifications only; asserted by the VM test ([jail.md](jail.md), "Network
    and D-Bus"). Later, if wanted: an egress allowlist (model APIs, Nix caches, registries)
    through a filtering proxy.
+   Per repository, `.jail` adds forwarded ports and `ro`/`rw` folders; jailed
+   code can edit it, so only a copy you approved on a terminal (diff shown,
+   typed `yes`) applies, keys, logins and (as `rw`) what the host session
+   runs are refused, and the repository and these paths are bound by fd
+   after a check that no link was swapped in ([jail.md](jail.md),
+   "Per-repository config").
 4. **Claude Code's sandbox inside the jail** for finer per-command rules, if
    wanted; the jail stays the boundary.
 5. **Untrusted third-party code**: option D (microVM) for that repository.
