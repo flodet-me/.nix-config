@@ -16,8 +16,8 @@ Goal: "Copy over and integrate windows-vm repo into this repo and make the
 winvm command available in the whole system" (moving it in, chosen over a
 flake input on 2026-11-27)
 Accept:
-- `pkgs/winvm/` holds the windows-vm repository with its history (`git log
-  -- pkgs/winvm` shows its commits); its own `flake.nix` is gone, the package
+- `pkgs/winvm/` holds the windows-vm repository with its history (a subtree merge:
+  `git log <merge>^2` and `git log -- pkgs/winvm/winvm` show its commits); its own `flake.nix` is gone, the package
   is `pkgs.winvm` / `nix build .#winvm`.
 - `winvm` is on PATH on desktop and laptop with its runtime tools (QEMU/KVM,
   swtpm, OVMF with Secure Boot keys, FreeRDP, xorriso, python3, openssh, curl,
