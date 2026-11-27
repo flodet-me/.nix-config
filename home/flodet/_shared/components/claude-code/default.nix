@@ -253,8 +253,9 @@ let
       [ -n "$repo" ] || exit 0
       # Paths outside the work tree (a git diff of them reads plain files);
       # revision ranges like main..HEAD still pass.
-      # A backslash can hide a path (\/run) or turn a redirect into one (\>).
-      [[ $command == *\\* ]] && exit 0
+      # A backslash can hide a path (\/run) or turn a redirect into one (\>);
+      # brace expansion and command substitution build words the check never sees.
+      [[ $command == *[\\\{\`]* ]] && exit 0
       plain=''${command//>\/dev\/null/ }
       plain=''${plain//> \/dev\/null/ }
       plain=''${plain//[\"\']/}
@@ -473,7 +474,9 @@ let
               "git diff ../x /dev/null" \
               "git diff --output=~/x" \
               'git diff \/run/secrets/foo \/dev/null' \
-              'git diff --src-prefix=\> /dev/null link/id_ed25519'; do
+              'git diff --src-prefix=\> /dev/null link/id_ed25519' \
+              'git diff {/dev/null,link/id_ed25519}' \
+              'git diff link/id_ed25519 `echo /dev/null`'; do
               expect "$c" "$c"
             done
             # git outside a work tree diffs plain files (implicit --no-index)

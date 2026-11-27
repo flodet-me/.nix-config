@@ -442,7 +442,8 @@ So rtk only rewrites commands that do not name files:
     `/..`, `=/`, `=~` or `=$`: `git diff` of such paths, or of any paths
     outside a work tree, diffs plain files (implicit `--no-index`). Only
     `>/dev/null` / `> /dev/null` redirects are ignored; `main..HEAD` still
-    passes. Any `\` passes through too (`\/run`, `\> /dev/null`);
+    passes. Any `\`, `{` or backtick passes through too (`\/run`, `\> /dev/null`,
+    `{/dev/null,x}`);
   - matches a `Bash(...)` deny or ask rule: the rule's text up to its first
     `*` as whole words, with shell operators and runs of whitespace as word
     breaks. Rules come from `~/.claude/settings.json` and from
