@@ -48,8 +48,7 @@ jobs:
         with:
           persist-credentials: false
 
-      # Also enables KVM where the runner has it and exports
-      # DETERMINATE_NIX_KVM (1 or 0).
+      # Also makes /dev/kvm usable where the runner has it.
       - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
         if: ${{ !env.ACT }} # act: the runner image has Nix (.github/act)
         with:
@@ -68,7 +67,7 @@ jobs:
       - name: Jail VM test
         if: ${{ !env.ACT }} # act: no KVM in the container
         run: |
-          if [ "${DETERMINATE_NIX_KVM:-0}" != 1 ]; then
+          if [ ! -w /dev/kvm ]; then
             echo "::notice title=jail VM test skipped::This runner has no KVM; run \`nix build .#checks.x86_64-linux.jail\` locally."
             exit 0
           fi
