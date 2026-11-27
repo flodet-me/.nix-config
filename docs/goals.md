@@ -76,3 +76,45 @@ Assumptions:
 | Item | What | Status | Commit |
 |---|---|---|---|
 | I1 switch-review | configurationRevision, flake-source in the closure, switch-review script, update alias, check, docs | open | |
+
+## G-5 Review fixes: small and medium changes  (status: open)
+
+Goal: "fix all small change and medium." (the 2026-11-27 repository review, items A 1-17 and B 18-26; 18 is G-6)
+Accept:
+- System: earlyoom acts before the disk swapfile thrashes (`freeSwapThreshold`, prefer compilers); zram sysctls on workstations; nix-daemon `batch` scheduling; desktop without `common-gpu-amd` (closure diff: no amdgpu in the initrd); laptop thermald/throttled settled by upstream docs.
+- Claude Code: the rtk trial ends (hook, guard, its rule text and test removed; rtk dropped, ccusage and ast-grep stay); harmless Playwright MCP tools allowed (`run_code_unsafe`, `evaluate`, `file_upload` not); the settings merge deletes every Nix-owned object key, derived from the managed settings; `skillOverrides` makes the skills personal.md reserves for the user (claude-obsidian save/ingest, brainstorming, graphify) user-invocable only; the Codex config merger is its own file.
+- Shell and git: Ctrl-R is fzf in interactive zsh (vi-mode); Nix-owned global git ignores instead of a missing `~/.gitignore_global`; the command-and-control agent identity is in Nix (inline, not a file inside the repository) and `~/.gitconfig` is no longer needed.
+- Flake: `nixpkgs-stable`/`pkgs.stable` removed (AGENTS.md updated); `hardware` follows nixpkgs; dead group names gone and an assertion that flodet is in no root-equivalent group (docker, lxd, libvirtd, podman); deploy docs use `--use-substitutes`.
+- Checks: CI builds the flake checks instead of copying them (the jail VM test where KVM exists); `systemd.enableStrictShellChecks`; one nix-config checkout script for home and server that leaves a retryable state.
+- Gate green after each item.
+Not in scope: review items C 27-30, project snapshots, egress control.
+Assumptions:
+- "fix all" includes removing `nixpkgs-stable` (re-add when a broken package needs it) and ending rtk entirely rather than keeping dead code behind a switch (git keeps it).
+- Deleting the old plugin logs (`~/.claude/bash-commands.log`, `cost-tracker.log`, `~/.gateguard`) and the `result` link: refused by the permission system for the agent; listed for the user.
+
+| Item | What | Status | Commit |
+|---|---|---|---|
+| I1 system-tuning | earlyoom, zram sysctls, daemon batch, desktop amdgpu, laptop thermald | open | |
+| I2 claude-code | rtk removal, Playwright allow, merge del list, skillOverrides, codex merger file | open | |
+| I3 shell-git | fzf Ctrl-R, git ignores, agent identity in Nix | open | |
+| I4 flake-hygiene | stable input, hardware follows, groups + assertion, --use-substitutes docs | open | |
+| I5 checkout-dedupe | one nix-config checkout script, retryable | open | |
+| I6 ci-checks | CI runs flake checks, strict shell checks for units | open | |
+
+## G-6 jail as its own package  (status: open)
+
+Goal: "Shouldn't jail be its own tool and just called in nixos? Like a package? Can be owned in this repo, but I think that would be cleaner" (plus review items 7, 22, 23)
+Accept:
+- `pkgs/jail` builds `jail`, `jail-push` and their helpers from `.sh` files (shellcheck as today); exported as `packages.x86_64-linux.jail` and `pkgs.jail` (additions overlay); workstations install it in `environment.systemPackages`; the home-manager module is gone; behavior unchanged (`checks.x86_64-linux.jail` passes, moved next to the package).
+- One-off jails get the home-manager session variables (NUGET_PACKAGES, NPM_CONFIG_CACHE, PATH with ~/.local/bin) like the jail's shell.
+- A jail's `~/.cache` lives in `~/.cache/jails/<name>` (outside the /home snapshots), bound with the same checks; `.jail` refuses `~/.cache/jails`.
+- Codex inside a jail uses a jail profile (network and its caches without approval prompts); the host default stays.
+- Docs (jail.md, agent-isolation.md, ADR 0001 note) updated; Gate green.
+Not in scope: a separate flake or repository for jail.
+Assumptions:
+- Installed system-wide on workstations (it is per-user at runtime: state under ~/.local/share/jails).
+
+| Item | What | Status | Commit |
+|---|---|---|---|
+| I1 jail-package | pkgs/jail with .sh files, system install, test moved | open | |
+| I2 jail-env-cache | one-off env, cache outside snapshots, codex jail profile | open | |
