@@ -195,45 +195,52 @@ let
   brain = "${config.home.homeDirectory}/brain";
   settings = lib.importJSON ./settings.json;
 
-  managedSettings = pkgs.writeText "claude-managed-settings.json" (
-    builtins.toJSON (
-      settings
-      // {
-        env = settings.env // {
-          CLAUDE_OBSIDIAN_VAULT = brain; # skills write here from any project
-          CLAUDE_OBSIDIAN_SESSION_CONTEXT = "1"; # inject the vault's bounded wiki/hot.md at session start, /clear, compaction
-          # Explicit consent is required because ~/brain is outside project roots.
-          CLAUDE_OBSIDIAN_SESSION_CONTEXT_VAULT = brain;
-        };
-        extraKnownMarketplaces = lib.mapAttrs (_: repo: {
-          source = {
-            source = "github";
-            inherit repo;
-          };
-        }) marketplaces;
-        enabledPlugins = lib.genAttrs plugins (_: true) // lib.genAttrs optInPlugins (_: false);
-        inherit pluginConfigs;
-        statusLine = {
-          type = "command";
-          command = lib.getExe statusline;
-        };
-        hooks = {
-          Notification = [
+  # Everything the activation merges into ~/.claude/settings.json.
+  managed = settings // {
+    env = settings.env // {
+      CLAUDE_OBSIDIAN_VAULT = brain; # skills write here from any project
+      CLAUDE_OBSIDIAN_SESSION_CONTEXT = "1"; # inject the vault's bounded wiki/hot.md at session start, /clear, compaction
+      # Explicit consent is required because ~/brain is outside project roots.
+      CLAUDE_OBSIDIAN_SESSION_CONTEXT_VAULT = brain;
+    };
+    extraKnownMarketplaces = lib.mapAttrs (_: repo: {
+      source = {
+        source = "github";
+        inherit repo;
+      };
+    }) marketplaces;
+    enabledPlugins = lib.genAttrs plugins (_: true) // lib.genAttrs optInPlugins (_: false);
+    inherit pluginConfigs;
+    statusLine = {
+      type = "command";
+      command = lib.getExe statusline;
+    };
+    hooks = {
+      Notification = [
+        {
+          # only when Claude waits for you, not on auth or agent events
+          matcher = "permission_prompt|idle_prompt|elicitation_dialog|elicitation_url_dialog|agent_needs_input|quota_auto_resume_fired|quota_auto_resume_stale|quota_auto_resume_disabled";
+          hooks = [
             {
-              # only when Claude waits for you, not on auth or agent events
-              matcher = "permission_prompt|idle_prompt|elicitation_dialog|elicitation_url_dialog|agent_needs_input|quota_auto_resume_fired|quota_auto_resume_stale|quota_auto_resume_disabled";
-              hooks = [
-                {
-                  type = "command";
-                  command = lib.getExe notify;
-                }
-              ];
+              type = "command";
+              command = lib.getExe notify;
             }
           ];
-        };
-      }
-    )
-  );
+        }
+      ];
+    };
+  };
+  managedSettings = pkgs.writeText "claude-managed-settings.json" (builtins.toJSON managed);
+  # Every Nix-owned object key: the activation deletes them before merging.
+  ownedObjectKeys =
+    let
+      keys = lib.attrNames (lib.filterAttrs (_: lib.isAttrs) managed);
+    in
+    assert lib.all (k: lib.elem k keys) [
+      "permissions"
+      "worktree"
+    ];
+    keys;
 
   # Downloads/installs everything declared above; every step is idempotent.
   # Runs automatically (systemd user service below) and by hand.
@@ -332,8 +339,10 @@ in
     tmp="$(mktemp)"
     if [ -s "$settings" ]; then current="$(cat "$settings")"; else current='{}'; fi
     # Nix-owned keys win; arrays are replaced as a whole, not merged. Delete
-    # all Nix-owned object keys first so entries removed in Nix don't linger.
-    if printf '%s' "$current" | ${lib.getExe pkgs.jq} -s '(.[0] | del(.enabledPlugins, .extraKnownMarketplaces, .env, .pluginConfigs, .permissions, .hooks, .modelSettings, .autoMode, .statusLine)) * .[1]' - ${managedSettings} > "$tmp"; then
+    # every Nix-owned object key first so entries removed in Nix don't linger.
+    if printf '%s' "$current" | ${lib.getExe pkgs.jq} -s '(.[0] | del(${
+      lib.concatMapStringsSep ", " (k: ".${k}") ownedObjectKeys
+    })) * .[1]' - ${managedSettings} > "$tmp"; then
       run install -m 600 "$tmp" "$settings"
     else
       echo "claude-code: $settings is not valid JSON, left unchanged" >&2
