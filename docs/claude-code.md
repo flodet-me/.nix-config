@@ -420,7 +420,8 @@ returns"). rtk 1.2.0 alone breaks that in three ways (verified with
 - it returns `permissionDecision: "allow"` when allow rules cover the command
   (a project allowing `Bash(grep *)` got `grep foo ~/.ssh/id` auto-allowed,
   skipping the prompt and auto mode's classifier). It finds project rules
-  from its process directory and its parents, not from the input's `cwd`.
+  from its process directory up to the nearest `.claude/` only, not from the
+  input's `cwd` (the wrapper below collects every parent).
 
 A hook cannot resolve paths the way Claude Code does (after `cd`, through
 symlinks, `~/.config//sops`, `/run/./secrets`, `~/.\ssh`): a text check of
@@ -436,6 +437,11 @@ So rtk only rewrites commands that do not name files:
   untouched, so Claude Code judges the original, when it:
   - contains `cd`, `pushd`, `popd` or a git path option (`-C`,
     `--no-index`, `--git-dir`, `--work-tree`, `--file`) as a word;
+  - runs outside a git work tree (no `.git` in `cwd` or a parent), or has a
+    word, quotes removed, that starts with `~`, `/`, `$` or `..` or contains
+    `/..`, `=/`, `=~` or `=$`: `git diff` of such paths, or of any paths
+    outside a work tree, diffs plain files (implicit `--no-index`). Only
+    `>/dev/null` redirects are ignored; `main..HEAD` still passes;
   - matches a `Bash(...)` deny or ask rule: the rule's text up to its first
     `*` as whole words, with shell operators and runs of whitespace as word
     breaks. Rules come from `~/.claude/settings.json` and from
@@ -462,6 +468,11 @@ the hook PreToolUse JSON. It fails unless:
   bare and behind `FOO=1 `, `timeout 30 `, `cd /tmp && `;
 - the `cd`, `pushd`, `//`, `/./`, `\` and symlink spellings and
   `git -C <link>` stay unchanged;
+- `git diff ~/.ssh/id_ed25519 /dev/null` (also via `$HOME`, a symlink,
+  `../`, `--word-diff /run/secrets/foo`, `-c x=y`, `--output=~/x`) stays
+  unchanged, and so do `git diff .ssh/id_ed25519 x` and `git status` outside
+  a work tree; inside one `git log main..HEAD`, `git diff A...B` and
+  `git status 2>/dev/null` are still rewritten;
 - in a project that allows `Bash(git *)` and `Bash(grep *)` and asks for
   `Bash(git log *)`, `git log -3` and `git  log -3` stay unchanged (from its
   root and a subdirectory), and no answer carries a `permissionDecision`;
