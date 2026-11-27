@@ -349,6 +349,91 @@ Habits that save the most without hurting results:
   than wrong code.
 - Keep project `CLAUDE.md` files short and factual: they are read every session.
 
+## Token tools
+
+Three CLIs in `home.packages` of the Claude Code component, all from nixpkgs:
+
+- **ccusage**: reports Claude Code (and Codex) token use and cost from the
+  local session logs in `~/.claude/projects`. `ccusage daily`, `ccusage
+  session`, `ccusage blocks` (5-hour billing windows). Add `-O` (`--offline`)
+  to use its bundled prices; without it, it downloads the current price list.
+- **ast-grep**: structural search and rewrite on the syntax tree
+  (`ast-grep run -p 'foo($A)' -l rust`). Plain `grep`/`rg` stay fine for text.
+- **rtk** (1.2.0): runs a command and condenses its output before it reaches
+  the context (`rtk git status`, `rtk cargo test`, ...).
+
+### rtk trial
+
+`rtkTrial = true` in `home/flodet/_shared/components/claude-code/default.nix`
+turns on, all from Nix (nothing runs `rtk init`):
+
+- a `PreToolUse` hook (matcher `Bash`) in the Nix-owned `hooks`, calling
+  `<store path of rtk>/bin/rtk hook claude`. It rewrites a command rtk knows
+  (`git status` becomes `rtk git status`) and leaves the rest unchanged.
+  `rtk verify` reports `PASS native binary hook registered`;
+- the agent instructions `~/.claude/rules/rtk.md` (condensed RTK.md, instead
+  of the `@RTK.md` line `rtk init` writes into `CLAUDE.md`).
+
+Always there, also with the trial off: `~/.config/rtk/config.toml` (telemetry
+off, recovery mode `sqlite`, so `rtk recall` can bring back elided output;
+`cat` and `head` excluded from rewriting, see below). It is read-only, so
+`rtk config recall <mode>` and `rtk init` cannot change it: edit `rtkConfig`.
+
+**Turn it off:** set `rtkTrial = false` and switch. The hook and `rtk.md` go
+away (the activation merge drops the old `hooks`); the three tools stay.
+
+**Review after a week (around 2026-12-04):**
+
+- `rtk gain` (totals), `rtk gain -d` (per day), `rtk gain -F` (commands that
+  fell back to raw output), `rtk session` (how many Bash calls went through rtk).
+- `ccusage daily -O` for the same days, and the week before the trial for
+  comparison; `rtk cc-economics` puts both side by side.
+- Keep it if the savings are real and no session got stuck on condensed
+  output (`rtk bypass` showing up a lot means it hides too much). Otherwise
+  `rtkTrial = false`.
+
+rtk's history lives in `~/.local/share/rtk/history.db`; a jail (G-1,
+[agent-isolation.md](agent-isolation.md)) has its own home, so its sessions count there, not in
+the workstation's `rtk gain`.
+
+### rtk and permissions
+
+- **Rules are checked against the rewritten command** (from the hooks docs:
+  Claude Code "evaluates permission rules ... against the input your hook
+  returns"). Deny and ask rules apply whatever a hook returns.
+- **No auto-allow here** (verified): rtk's hook adds `permissionDecision:
+  "allow"` only when the user's own allow rules cover every part of the
+  command (e.g. `Bash(git *)` for `git status`). Bare `Bash` does not count,
+  so with this repo's settings it returns only `updatedInput` and the normal
+  permission flow (prompt, auto mode) runs on the rewritten command.
+- **Deny rules** (verified with `rtk hook claude`): rtk reads the deny rules
+  from `~/.claude/settings.json` (and the project's) and leaves a matching
+  command alone (`git push origin main`, `sudo ls`, `env` stay as they are),
+  so Claude Code's own deny still blocks it. Two gaps in rtk 1.2.0: it misses
+  globs in the middle of a rule (`Bash(cat ~/.ssh/*)`), and its `rtk read`
+  rewrite of `cat`/`head` hides the file from the `Read(...)` denies Claude
+  Code applies to the paths of the file commands it recognizes (the
+  permissions docs name `cat`, `head`, `tail`, `sed`; `rtk read` is not one). Hence `cat` and `head` are
+  excluded in the config (`tail` and `sed` are not rewritten by 1.2.0).
+- **Test:** building the managed settings (`managedSettings` in
+  `default.nix`, part of every workstation build) feeds the hook PreToolUse
+  JSON and fails unless `git status` becomes `rtk git status`, `nix flake
+  check` stays unchanged, and every `Bash(...)` deny rule and every
+  `Read(...)`-denied path read with `cat`/`head`/`tail`/`sed` stays
+  unchanged. By hand:
+  `echo '{"tool_name":"Bash","tool_input":{"command":"git status"}}' | rtk hook claude`.
+- **Not covered:** other commands that name a denied path (`grep`, `wc`,
+  `diff`, `ls`) are rewritten; the docs do not say whether Claude Code checks
+  them against `Read` rules. A project's own glob deny rules may slip like
+  `cat ~/.ssh/*` did; the build test only knows the Nix-owned rules.
+- **Auto mode** (from the hooks docs, not tried live): when a hook changes
+  the input without a `permissionDecision`, auto mode "can deny the changed
+  call", since the classifier reviewed the original. Claude can then send
+  the rewritten command itself; the classifier reviews that one and it runs.
+  That costs a turn and eats into the savings: compare `rtk gain` with
+  `ccusage`. Returning `allow` would avoid it but skip the classifier, so
+  the hook does not.
+
 ## Installed plugins
 
 ### ponytail (`ponytail@ponytail`)
