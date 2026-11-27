@@ -263,9 +263,8 @@ ends in `| containers`); every other jail starts as above, the tree
   killed and bwrap is let go (block fd). A failure kills bwrap and names the
   step. A signal to `jail-run` goes to bwrap, whose child dies with it
   (`--die-with-parent`; bwrap has `jail-run`'s death as its own).
-- **Inside:** `/dev/net/tun`; the jail's own cgroup (as `jail-run` sees it:
-  the unit's or the one-off's) read-only at `/sys/fs/cgroup`, none when it is
-  `/`; `/var/tmp` from `~/.local/share/jails/<name>/var-tmp`; at
+- **Inside:** `/dev/net/tun`; the jail's own cgroup (the shared jail's
+  service, a one-off's scope) read-only at `/sys/fs/cgroup`; `/var/tmp` from `~/.local/share/jails/<name>/var-tmp`; at
   `/run/wrappers/bin`, first in `PATH` in every login shell (NixOS's
   `set-environment`) and in the start's `PATH`, podman, docker (with its
   compose and buildx plugins), docker-compose and shadow's plain
@@ -280,14 +279,33 @@ ends in `| containers`); every other jail starts as above, the tree
   its socket and runs the command. It is per instance (each has its own
   `/run/user`, PID namespace and transient container state) and dies with
   its PID namespace; the host has no podman socket.
-- **cgroups:** nothing is delegated, podman's default stays: `--memory`
+- **cgroups:** every one-off jail (with `containers` or not) runs in a
+  transient user scope, `jail-<name>-<pid>.scope` (`systemd-run --scope`,
+  same process), the shared jail in `jail-<name>.service`, so a jail's
+  cgroup is never the terminal's. With `containers`, `jail-run` refuses a
+  cgroup that is `/` or not v2. The read-only bind is for podman to read,
+  not a boundary: in a nested user and mount namespace jailed code can
+  mount cgroup2 at its cgroup namespace's root, writable where your uid owns
+  the files (as in every jail before), and make child cgroups of the jail's
+  own, move its processes among them and set their limits, never above that
+  root. Nothing is delegated for podman, whose default stays: `--memory`
   and the other limits fail (`crun: cannot set limits without cgroups`), as
   does BuildKit's builder container (hence `DOCKER_BUILDKIT=0`).
+- **What the subuids give jailed code** (ADR 0007): it can `setresuid` and
+  `setresgid` to any id of your ranges directly and create files owned by
+  them, setuid and setgid ones included, wherever the host's files are bound
+  read-write (repository, cache, `rw` paths); `no_new_privs` makes the bits
+  harmless inside, and on the host (`/home` is not `nosuid`) such a file runs
+  as one of your subuids, nothing more. Every container jail and your host's
+  rootless containers share the one range: what one wrote as a subuid,
+  another reaches as that id through any repository, `ro` or `rw` path they
+  share. `setgroups` is allowed, so jailed code can drop its supplementary
+  groups and pass files that deny access by group bits only.
 - **Ports:** a published port is podman's (pasta's) listener in the jail's
   namespace; a `.jail` `port` forwards the host's `127.0.0.1` to it.
 - **Cleanup:** what containers write as subuids (layers, volumes, files in
-  the repository) is not yours on the host: `jail reset` runs `find` and
-  `rm` inside `jail-userns`, where those ids are mapped and it has the
+  the repository) is not yours on the host: `jail reset` (the cache and
+  state, not the repository) runs `find` and `rm` inside `jail-userns`, where those ids are mapped and it has the
   capabilities; or `podman unshare rm` inside. `podman system prune
   --external` sees no other instance's containers (transient state) and
   deletes the layers they use.
@@ -493,12 +511,18 @@ Containers (the end of the test, `localhost/jailtest`, a busybox image built
 by `dockerTools` and loaded with `podman load`, offline): a jail without the
 line has no `/dev/net/tun`, podman, docker, `DOCKER_HOST` or API process;
 `jail config` and the start show `| containers`; a user without a subuid
-range is refused by name; the jail's capabilities are exactly
+range is refused by name, on the terminal, for a one-off and a shared
+start alike; the plain jail has no `/sys/fs/cgroup` and a one-line uid map;
+the containers jail reaches the outside but not the host's loopback or the
+gateway; a one-off runs in its own `jail-<name>-<pid>.scope`; the jail's capabilities are exactly
 `CAP_SETUID`/`CAP_SETGID` with `no_new_privs`, and it holds no fd beyond 0
 to 2; podman's map has the subuid range, a container `chown`s to 4321
 (104320 on the host), `su`s to nobody and runs as `--user 4321`; `--memory`
 fails; `docker network create`, two containers by name, `docker ps` and
-`docker build` through the socket; `docker compose up` with two services
+`docker build` through the socket; a container with the socket mounted
+at `/var/run/docker.sock` lists the containers through it (what
+testcontainers' Ryuk does); `podman unshare rm` deletes a folder a
+container made private as a subuid, which your `rm` cannot; `docker compose up` with two services
 (one reaching the other by name), its published port reached in the jail
 and from the host through `port`, `podman compose ps`; no podman socket on
 the host; service, containers, pasta and holders gone after the jail ends,

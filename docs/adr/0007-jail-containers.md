@@ -47,11 +47,20 @@ Design decided by the agent, option 3:
 - **Network:** bwrap makes the network namespace, pasta attaches to it
   afterwards (through U1) with the same options as for every jail; a `.jail`
   port forward reaches a port a container publishes in the jail.
-- **Devices and cgroups:** `/dev/net/tun` (pasta for container networks);
-  the jail's own cgroup bound read-only at `/sys/fs/cgroup` (with a cgroup
-  namespace it is the root). Nothing is delegated: `--memory`, `--cpus` and
-  BuildKit's builder fail loudly, podman's default, rather than escaping the
-  jail's cgroup.
+- **Devices and cgroups:** `/dev/net/tun` (pasta for container networks).
+  Every one-off jail runs in a transient user scope of its own
+  (`jail-<name>-<pid>.scope`), the shared jail in its service, so the jail's
+  cgroup is never the terminal's; a jail with `containers` whose cgroup is
+  the root, or not cgroup v2, is refused. That cgroup is bound read-only at
+  `/sys/fs/cgroup` (with a cgroup namespace it is the root) for podman to
+  read. The read-only bind is not the boundary: in a nested user and mount
+  namespace (podman's, or one jailed code makes) cgroup2 can be mounted at
+  the cgroup namespace's root, writable where your uid owns the files, as in
+  every jail before this change. Jailed code can then make child cgroups of
+  the jail's own, move its processes between them and set limits on them,
+  never above the namespace root, and never on the terminal's or other
+  cgroups. Nothing is delegated for podman: `--memory`, `--cpus` and
+  BuildKit's builder fail loudly, podman's default.
 - **The API:** every jail instance (the shared one, each one-off) starts its
   own `podman system service` at `$XDG_RUNTIME_DIR/podman/podman.sock`,
   inside the jail's own `/run/user/<uid>`, in its PID namespace (it ends with
@@ -70,13 +79,27 @@ Design decided by the agent, option 3:
 ## Consequences
 
 - The jail holds `CAP_SETUID` and `CAP_SETGID` in its own user namespace and
-  a full bounding set (podman's namespaces need it; `no_new_privs` keeps
-  setuid files and file capabilities from raising anything). It can act as
-  any uid of your subuid range: files owned by 100000 and up appear in the
-  repository, the cache and `rw` paths, and your own `rm` cannot delete what
-  a container made private (`podman unshare rm`, or `jail reset`, which
-  deletes in a user namespace with those ranges). Your subuids are the same
-  ones your host's rootless containers use; their files are not in the jail.
+  a full bounding set (podman's namespaces need it). Jailed code, not only
+  podman, can `setresuid`/`setresgid` to any id of your subuid and subgid
+  ranges (100000 and up) directly. It can create files owned by those ids,
+  setuid and setgid ones included, in every place bound read-write from the
+  host: the repository, the jail's cache, `rw` paths. Inside, `no_new_privs`
+  keeps the bits and file capabilities from raising anything. On the host,
+  `/home` is not `nosuid`; a setuid file of a subuid gives you nothing you
+  could not do already (those ids are yours through `newuidmap`), but it is
+  a setuid file another user could run if its folder lets them.
+- All jails with `containers`, and your rootless containers on the host,
+  share the one range. Whatever one of them wrote as a subuid is readable
+  and writable, as that id, by every other through a path they share: the
+  repository, a `ro` or `rw` path. The range separates you from other
+  users, not your jails from each other.
+- `setgroups` is allowed in the jail's user namespaces (podman needs it), so
+  jailed code can drop its supplementary groups and get past a file that
+  denies access by its group bits (mode `0604`, say) where the other bits
+  allow it.
+- Your own `rm` cannot delete what a container made private as a subuid:
+  `podman unshare rm` inside, or `jail reset` (its cache and state, not the
+  repository), which deletes in a user namespace with those ranges.
 - Without a subuid range (`users.users.<name>.autoSubUidGidRange`, on by
   default for normal users) a jail with `containers` refuses to start and
   says so; `jail reset` then works as before.
