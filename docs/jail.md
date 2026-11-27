@@ -49,7 +49,7 @@ all limits.
 | read-write | the repository; its cache `~/.cache/jails/<name>`, bound as `~/.cache`; `rw` paths of an approved `.jail`; `~/brain/inbox`; the login: `~/.claude/.credentials.json`, `~/.codex/auth.json` (and its lock files); the Nix daemon socket; `/dev/kvm`; a D-Bus proxy at `/run/user/<uid>/bus` (`org.freedesktop.Notifications` only) |
 | read-only | `ro` paths of an approved `.jail`; `/nix`, `/etc`, `/run/current-system`, `/bin`, `/usr`, `/lib64`; its own `resolv.conf` (`~/.local/share/jails/<name>/resolv.conf`, bound over the host's); `~/brain`; every other entry of `~/.claude` and `~/.codex` (`CLAUDE.md`, `settings.json`, `rules/`, `skills/`, `agents/`, `plugins/`, the status line script, `config.toml`, `AGENTS.md`, ...); `~/.local/bin` and `~/.local/share/uv/tools` (graphify) |
 | own | `$HOME` is `~/.local/share/jails/<name>/home` (history, nvim state and `:trust` list, direnv allow list, caches outside `~/.cache`, ...) with home-manager's dotfiles linked in on every start, and a direnv whitelist for the repository (`~/.config/direnv/direnv.toml`, rewritten on every start: `.envrc` runs as jailed code there, so it needs no `direnv allow`); in it the jail's own `~/.claude` and `~/.codex` state (transcripts, memory, plans, shell snapshots, todos, logs, the codex databases; the lists are in `pkgs/jail/default.nix`), `~/.claude/plugins/data` (`~/.local/share/jails/<name>/claude-plugin-data`) and `~/.claude.json`; `/tmp`, `/proc`, `/dev`, an empty `/run/user/<uid>` but for the D-Bus proxy; its own network namespace (below) and UTS namespace, named like the host (pasta's `pasta-<host>` is in no `/etc/hosts`, and without nscd nothing else resolves it) |
-| absent | the rest of `/home`, `/run/user` sockets (the session bus itself, gpg-agent, Docker), services on the host's loopback, the host's abstract Unix sockets, `/run/wrappers` (setuid, and `no_new_privs` stops `sudo` anyway), `/run/secrets` |
+| absent | the rest of `/home`, `/run/user` sockets (the session bus itself, gpg-agent, Docker), services on the host's loopback, the host's abstract Unix sockets, `/run/wrappers` (setuid, and `no_new_privs` stops `sudo` anyway; with `containers` it holds podman and docker, below), `/run/secrets` |
 
 On every start `~/.claude.json` gets `oauthAccount`, `userID`,
 `mcpServers` and the onboarding flags from yours (one way, the jail's own
@@ -224,12 +224,73 @@ start with Ctrl-C; a shared jail then reports it is not running, and
   --default-signal`: a background start ignores SIGINT, pasta ignores
   SIGPIPE). The namespace has no name on disk, so nothing stale is
   left after a stop. bwrap starts as root of pasta's user namespace and drops
-  every capability (`--cap-drop ALL`), as it does for a normal user.
+  every capability (`--cap-drop ALL`), as it does for a normal user. A jail
+  with `containers` is started differently (below).
 
 Every tmux client `jail` starts (the liveness check and the attach) runs in a
 sandbox of its own (`/nix`, `/etc`, the socket): a tmux server, jailed or a
 fake one in the writable socket directory, can make a client run a command
 (`detach-client -E`, `MSG_SHELL`).
+
+## Containers
+
+Why and the alternatives: [ADR 0007](adr/0007-jail-containers.md). Only for
+a jail whose approved `.jail` has the line `containers` (`in_effect` then
+ends in `| containers`); every other jail starts as above, the tree
+`pasta -> jail-binds -> bwrap --unshare-all --share-net`.
+
+- **User namespaces** (`jail-run`): `jail-userns` (also used by `jail
+  reset`) makes U1, mapping your uid, gid and first `/etc/subuid` and
+  `/etc/subgid` ranges to themselves through the host's setuid
+  `newuidmap`/`newgidmap`, with every capability ambient there; in it a
+  holder makes U2, a child with the same map (`unshare --map-users=all`,
+  written by shadow's plain `newuidmap` with those capabilities). Each holder
+  prints its PID once its map is written. Without a range it stops:
+  `jail: no range for <user> in /etc/subuid ...`.
+- **bwrap** runs on the host with `--userns` (U1, fd 6) and `--userns2` (U2,
+  fd 7), `--unshare-ipc --unshare-pid --unshare-net --unshare-uts
+  --unshare-cgroup-try`, `--cap-drop ALL --cap-add CAP_SETUID --cap-add
+  CAP_SETGID`, `--info-fd` and `--block-fd`. Its namespaces are owned by U1;
+  the jail's processes run in U2 with only those two capabilities (ambient,
+  `no_new_privs` set, the bounding set full as a new user namespace's is),
+  and none in U1: they cannot remount or unmount. `jail-run` closes every
+  other fd before bwrap (pasta does that on the other path), and
+  `jail-containers-init`, the jail's first command, closes 6 and 7.
+- **Network:** with the child PID from the info fd, `jail-run` starts pasta
+  with the same options as for every jail plus `--userns` (U1) and
+  `--netns` (the child's); pasta sets the namespace up, goes to the
+  background and quits when the namespace is gone. Then the holders are
+  killed and bwrap is let go (block fd). A failure kills bwrap and names the
+  step. A signal to `jail-run` goes to bwrap, whose child dies with it
+  (`--die-with-parent`; bwrap has `jail-run`'s death as its own).
+- **Inside:** `/dev/net/tun`; the jail's own cgroup (as `jail-run` sees it:
+  the unit's or the one-off's) read-only at `/sys/fs/cgroup`, none when it is
+  `/`; `/var/tmp` from `~/.local/share/jails/<name>/var-tmp`; at
+  `/run/wrappers/bin`, first in `PATH` in every login shell (NixOS's
+  `set-environment`) and in the start's `PATH`, podman, docker (with its
+  compose and buildx plugins), docker-compose and shadow's plain
+  `newuidmap`/`newgidmap`; `CONTAINERS_CONF`, `CONTAINERS_STORAGE_CONF`,
+  `CONTAINERS_REGISTRIES_CONF`, `CONTAINERS_POLICY_JSON` (store files: overlay
+  storage in `~/.cache/containers/storage`, `transient_store`,
+  `docker.io` for short names, unsigned images accepted, `compose_providers`
+  docker-compose), `DOCKER_HOST=unix:///run/user/<uid>/podman/podman.sock`,
+  `DOCKER_BUILDKIT=0`.
+- **API service:** `jail-containers-init` starts `podman system service
+  --time=0` (log: `/run/user/<uid>/podman-service.log`), waits up to 10 s for
+  its socket and runs the command. It is per instance (each has its own
+  `/run/user`, PID namespace and transient container state) and dies with
+  its PID namespace; the host has no podman socket.
+- **cgroups:** nothing is delegated, podman's default stays: `--memory`
+  and the other limits fail (`crun: cannot set limits without cgroups`), as
+  does BuildKit's builder container (hence `DOCKER_BUILDKIT=0`).
+- **Ports:** a published port is podman's (pasta's) listener in the jail's
+  namespace; a `.jail` `port` forwards the host's `127.0.0.1` to it.
+- **Cleanup:** what containers write as subuids (layers, volumes, files in
+  the repository) is not yours on the host: `jail reset` runs `find` and
+  `rm` inside `jail-userns`, where those ids are mapped and it has the
+  capabilities; or `podman unshare rm` inside. `podman system prune
+  --external` sees no other instance's containers (transient state) and
+  deletes the layers they use.
 
 ## jail push
 
@@ -270,7 +331,7 @@ fake one in the writable socket directory, can make a client run a command
 
 - State per jail: `~/.local/share/jails/<name>/` holds `home/`,
   `claude-plugin-data/`, `jail.approved`, `mirror.git/` (push URL),
-  `resolv.conf` and `repo` (the repository's path, written by every start;
+  `resolv.conf`, `var-tmp/` (with `containers`) and `repo` (the repository's path, written by every start;
   jails last started before that have none and show `?` in `jail list`); the
   cache is `~/.cache/jails/<name>/`. The jail never sees this folder, so
   `jail list` and `jail status` trust what is in it; `repo` is used only when
@@ -299,7 +360,8 @@ fake one in the writable socket directory, can make a client run a command
   the lock exclusively (refusing while a start holds it) and checks again
   that nothing runs, gives every folder in them `u+rwx` before `find`
   descends into it (folders read-only or made unreadable by jailed code;
-  no links followed) and deletes them with `rm -rf`.
+  no links followed) and deletes them with `rm -rf`, both in `jail-userns`
+  when you have a subuid range (files containers made as subuids).
 - `jail list`, `jail status` and `jail config` print paths and URLs with
   control characters as text (`cat -vT`, a newline as `^J`), so a path
   cannot forge a row.
@@ -426,6 +488,24 @@ it (a swap after the check) and the jail holds no fd beyond 0 to 2
 the liveness check is covered by construction, the same sandbox, not by a
 test). Every negative check has
 a positive control outside the jail.
+
+Containers (the end of the test, `localhost/jailtest`, a busybox image built
+by `dockerTools` and loaded with `podman load`, offline): a jail without the
+line has no `/dev/net/tun`, podman, docker, `DOCKER_HOST` or API process;
+`jail config` and the start show `| containers`; a user without a subuid
+range is refused by name; the jail's capabilities are exactly
+`CAP_SETUID`/`CAP_SETGID` with `no_new_privs`, and it holds no fd beyond 0
+to 2; podman's map has the subuid range, a container `chown`s to 4321
+(104320 on the host), `su`s to nobody and runs as `--user 4321`; `--memory`
+fails; `docker network create`, two containers by name, `docker ps` and
+`docker build` through the socket; `docker compose up` with two services
+(one reaching the other by name), its published port reached in the jail
+and from the host through `port`, `podman compose ps`; no podman socket on
+the host; service, containers, pasta and holders gone after the jail ends,
+also by SIGKILL; in the shared jail's login shell `podman`, `docker` and
+`newuidmap` resolve to `/run/wrappers/bin`, and a one-off next to it sees
+none of its containers; `jail reset --all` deletes a volume folder owned
+by a subuid with mode 0700, which your own `rm -rf` cannot.
 
 ## Limits
 
