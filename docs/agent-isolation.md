@@ -182,23 +182,35 @@ the human gate, and `update` shows you exactly what you are about to apply:
   cannot slip in. A clean tree keeps its revision this way and gives the same
   toplevel as a `git+file` build; `path:` takes no `dirtyRev`, so a dirty
   tree records its `narHash` instead (its revision `<rev>-dirty` is in the
-  review header). After the build it requires `flake-source` to resolve to
-  that store path and otherwise stops with "nothing was switched": a module
-  that retargets the link fails closed, and the link is never what the
-  review reads.
-- It then diffs that store path against the running system's
-  `flake-source` (written by the last reviewed switch), both resolved to real
-  directories. It prints both revisions, the changed files, and the full
-  diff of every change except `docs/**/*.md` (names only; anything else
-  under `docs/` is diffed). Each tree is listed on its own with
+  review header). nix runs with `</dev/null`, so it can never ask y/N for a
+  `nixConfig` of the flake. After the build, `flake-source` must be a link
+  whose own target (one hop, `readlink` without `-f`) is exactly that store
+  path; otherwise it stops with "nothing was switched". A module that
+  retargets the link, also through a chain that ends at the right path (a
+  gitignored `~/.nix-config/.hop` the agent could later retarget), fails
+  closed, and the link is never what the review reads.
+- The running system's `flake-source` (written by the last reviewed switch)
+  must likewise be a link whose one-hop target is an existing top-level
+  `/nix/store/<hash>-source` directory. A dangling link, a target outside the
+  store or a chain stops with "nothing was switched"; only no link at all is
+  a first switch.
+- It then diffs the new store path against that one. It prints both
+  revisions, each side's `flake.lock` inputs (name, locked type, owner/repo
+  and rev, url or path), the changed files, and the full diff of every
+  change except `docs/**/*.md` (names only; anything else under `docs/` is
+  diffed). So Nix code must never import a `docs/**/*.md` file: its content
+  is not shown. Each tree is listed on its own with
   `find -printf '%P\0'`, which does not follow symlinks; a path a tree does
   not list itself counts as absent there and is never read, so a directory
   replaced by a link out of the tree (`hosts/p -> /proc`) shows as a type
   change and its old files as deleted. Symlinks (with their target), special
-  files, type changes, binary files (a NUL byte) and large files get their
-  own loud list with size and sha256; binary files are still diffed as text
-  up to 64 KiB (a script can hide code behind a NUL), other files up to
-  1 MiB, and beyond that only the summary shows. Files are compared as text
+  files, type and mode changes (exec bit), files with NUL bytes and inputs
+  locked to `path`, `file`, a `file:` git url or another type than their
+  `original` get their own loud list. Every diff is shown in full, never
+  capped (a small change in a big file is a small diff). A file with NUL
+  bytes is diffed as text with each run of NULs shown as one `^@`, and its
+  first NUL's offset is listed: Nix reads a `.nix` file only up to there,
+  while bash skips NULs. Files are compared as text
   (`diff -a`), and everything printed, nix's build output included (a
   `builtins.trace` of the new tree), passes `cat -v`, so CR, ESC and other
   control characters show as `^M`, `^[`, ... instead of acting on the
@@ -207,8 +219,9 @@ the human gate, and `update` shows you exactly what you are about to apply:
   and a pager, external diff, textconv or fsmonitor there could forge the
   output. It unsets `NIX_CONFIG`, calls nix as
   `/run/current-system/sw/bin/nix` and nh by store path, and reads the new
-  revision from the prefetch: nothing from the repository or the new build
-  runs before you agree.
+  revision from the prefetch. Nothing runs outside the nix sandbox before
+  you agree; evaluation, import-from-derivation builds and fixed-output
+  fetches of the new tree do happen before the review.
 - `update` = `switch-review --switch`: after the review it runs
   `nh os switch --ask <the reviewed store path>`. nh 4.5.0 accepts a store
   path as installable and leaves it as is (no evaluation), builds it (a
