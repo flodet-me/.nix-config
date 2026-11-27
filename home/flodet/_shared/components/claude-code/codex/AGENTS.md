@@ -4,6 +4,9 @@
   checks. More specific project instructions take precedence for that project.
 - Use English for code, comments, commit messages, and technical docs unless
   the project already uses another language.
+- Every project has a flake dev shell (direnv `use flake`) with its toolchain
+  plus the language servers and formatters for its languages; Neovim settings
+  go into a committed `.nvim.lua` (`~/.nix-config/docs/neovim.md`).
 - Keep work local. Do not push, publish, or deploy without authorization. The
   user has authorized sending relevant personal project code to OpenAI Codex
   for coding work; no extra confirmation is needed. Honor explicit

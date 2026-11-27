@@ -87,7 +87,8 @@ The dev shell also has `claude-code`, but not the plugins.
   (the compact view, which needs the fullscreen renderer).
 - **Personal instructions** (`personal.md` in the module, linked to
   `~/.claude/rules/personal.md`, read in every session): who I am, answer
-  language, stack, local first, what Claude decides and what it asks,
+  language, stack (every project: flake dev shell with its language servers,
+  `.nvim.lua` for editor settings, [neovim.md](neovim.md)), local first, what Claude decides and what it asks,
   knowledge (project, brain, personal vault), done. Edit the file in the repo and switch; keep it short,
   it costs tokens in every session. `/memory` shows which files are loaded.
 - **Status line** (`claude-statusline` in the module): model, folder and git

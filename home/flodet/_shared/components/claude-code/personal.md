@@ -15,6 +15,11 @@ merging into the local main branch.
 - Main: C# / .NET, Rust, Nix. Every project has a Nix dev shell (flake +
   direnv); add tools there, never install them globally or with `dotnet tool
   install -g`, `cargo install`, `npm -g`.
+- Every project you set up or touch gets that dev shell with its toolchain
+  plus the language servers and formatters for each language it uses, and
+  `.envrc` with `use flake`. Neovim enables a known server when its binary is
+  on PATH; settings, other servers or format on save go into a committed
+  `.nvim.lua` (`~/.nix-config/docs/neovim.md`).
 - NixOS: prebuilt Linux binaries do not run without nix-ld; prefer the nixpkgs
   package.
 
