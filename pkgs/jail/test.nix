@@ -645,6 +645,7 @@
             "rw ~/.config/x": "overlaps /home/alice/.config (ro only)", "rw ~/.local/state": "overlaps /home/alice/.local/state (ro only)",
             "rw ~/.local/bin": "overlaps /home/alice/.local/bin (ro only)", "rw ~/brain/wiki": "overlaps /home/alice/brain (ro only)",
             "port 80": "a port is", "port 70000": "a port is", "port 8o": "a port is", "bind /tmp": "unknown keyword",
+            "winvm yes": "winvm takes no value",
         }
         for line, why in refused.items():
             alice(f"rm -f ~/repoe/.jail && printf '# x\\n%s\\n' {shlex.quote(line)} > ~/repoe/.jail")
@@ -1192,6 +1193,21 @@
         alice("mkdir -p ~/winvm-link/state && ln -s /home/alice/winvm-host/state/images ~/winvm-link/state/images")
         out = refuses(f"env WINVM_HOME=/home/alice/winvm-link jail {w} -- true")
         assert "goes through a symlink" in out, out
+        # one in another jailed repository (repow, recorded): refused too
+        out = refuses("env WINVM_HOME=/home/alice/repow/wh jail ~/repow2 -- true")
+        assert "is in /home/alice/repow, a jailed repository" in out, out
+
+    with subtest("winvm: links and files the jail plants at its mount points go before the next start"):
+        c = alice("echo ~/.cache/jails/repow2-*/winvm").strip()
+        # state: a link into the repository (the binds would land there)
+        alice(f"mkdir -p ~/repow2/planted && rm -rf {c}/state && ln -s /home/alice/repow2/planted {c}/state")
+        jail("test -f $WINVM_HOME/state/images/win10/base.qcow2 && test ! -L $WINVM_HOME/state && test ! -e ~/repow2/planted/images", repo="~/repow2")
+        # images: a file; a key: a link to a file of the jail's
+        alice(f"rmdir {c}/state/images && touch {c}/state/images ~/repow2/k && rm -f {c}/state/id_ed25519.pub && ln -s /home/alice/repow2/k {c}/state/id_ed25519.pub")
+        jail("test -f $WINVM_HOME/state/images/win10/base.qcow2 && grep -qx hostpub $WINVM_HOME/state/id_ed25519.pub", repo="~/repow2")
+        # winvm: a link
+        alice(f"rm -rf {c} && ln -s /home/alice/repow2/planted {c}")
+        jail("test ! -L ~/.cache/winvm && test -f $WINVM_HOME/state/images/win10/base.qcow2", repo="~/repow2")
 
     with subtest("a repository under /tmp gets a jail"):
         alice("git init -q /tmp/jailtmp")

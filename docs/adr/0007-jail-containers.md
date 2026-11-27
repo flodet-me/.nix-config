@@ -160,7 +160,12 @@ in any jail, and starts without audio when there is no PipeWire socket.
   their overlays then need `winvm reset` or a new VM. An overlay names its
   base by the jail-side path, so a jail's VM runs in that jail only.
 - The jail's VMs go with `jail reset --all`. Its `WINVM_HOME` is a plain
-  directory, not winvm's btrfs subvolume with `chattr +C`.
+  directory with the line (bwrap's mount points), else winvm's btrfs
+  subvolume; `rm -rf` removes either.
+- The host's `WINVM_HOME` must not be in a repository you jail: that jail
+  could write the images and the key, so `jail` refuses it.
+- The key (and the rest of the images folder) can leave the machine over
+  the jail's outbound network, like anything else the jail reads.
 - No sound, no display: `--headless`; RDP from the host through a `.jail`
   `port` (the VM's slot is fixed, so the port is too).
 - A host VM in the same slot holds that port on the host, and the shared

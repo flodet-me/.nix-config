@@ -167,7 +167,11 @@ way `direnv allow` works:
   so a link a running jail swaps in after the check (below one of its `rw`
   folders, or a nested repository's folder in the outer one) stops the start
   instead of redirecting the bind. bwrap closes those fds before the jailed
-  program runs. Mount points with a link on the way are refused by bwrap.
+  program runs. bwrap refuses a link at a mount point and follows one above
+  it, inside the jail's own view; links the jail made at or above a mount
+  point in its home (with `winvm` also in its cache) are removed before
+  each start (`jail-prepare-home`, in a sandbox that sees only those
+  folders, so no link leads it out).
 - Read when a jail starts: the shared jail at its first terminal, every
   one-off jail. Ports are checked with `ss` before the start; a port held by
   another jail counts as in use.
@@ -319,17 +323,23 @@ the jail decides only where its data is.
 - **Every jail:** `WINVM_HOME=~/.cache/winvm` (`--setenv`, so it wins over
   a `~/.config/winvm/home` with the host's path, as home-manager writes it). On the host that is
   `~/.cache/jails/<name>/winvm`: outside the hourly `/home` snapshots, gone
-  with `jail reset --all`, kept by `--home`. bwrap or winvm
-  makes the directory: a plain one, not the btrfs subvolume with `chattr +C`
-  winvm makes on the host (ADR 0006).
+  with `jail reset --all`, kept by `--home`. With the line, bwrap makes it
+  (the mount points): a plain directory. Without, winvm's `init_home` makes
+  it at its first write, a btrfs subvolume with `chattr +C` as on the host
+  (ADR 0006); `jail reset --all` deletes that too (`rm -rf` empties it, and
+  its owner may remove an empty subvolume; tried on the desktop's kernel
+  6.18). Besides VMs the jail's `fetch`, `recipes new` and the like write
+  its own `iso/`, `cache/` and `recipes/` there.
 - **With `winvm`** (`with_winvm`, after the approved `.jail` is parsed): the
   host's home as winvm finds it (`$WINVM_HOME` of the `jail` call, else the
   first line of `${XDG_CONFIG_HOME:-~/.config}/winvm/home`, refused if not
   absolute, else `${XDG_DATA_HOME:-~/.local/share}/winvm`); of its
   `state/images`, `state/id_ed25519` and `state/id_ed25519.pub`, each that
   exists goes through `bind_path ... ro` (so no symlink on the way, not in
-  the repository, the cache or the jails' state; a refusal stops the start:
-  `jail: winvm: PATH: why`) and is bound read-only by fd (`jail-binds`
+  the repository, the cache or the jails' state) and must not be in any
+  repository with a jail (the `repo` files under `~/.local/share/jails`,
+  which that jail can write: a WINVM_HOME must not be a repository you
+  jail); a refusal stops the start: `jail: winvm: PATH: why`. Each is bound read-only by fd (`jail-binds`
   `ro:DEST`) at the same name under the jail's `~/.cache/winvm/state`. The
   rest of the host's home (`vms`, `runs`, `captures`, `cache`, `iso`,
   `config.local.env`, `images/*.local.env`) is not in the jail. Without
@@ -337,12 +347,18 @@ the jail decides only where its data is.
 - **Mount points:** bwrap leaves the empty `state/images`, `id_ed25519` and
   `.pub` it binds onto in the cache. A later start that binds nothing there
   (no line, no host key) leaves them: an empty key file that winvm takes as
-  its key. Jailed code can replace them with links: bwrap does not mount
-  onto a link, and a start with the line stops. Both go with `jail reset
-  --all` or by deleting `~/.cache/jails/<name>/winvm/state` (stopped jail).
+  its key (`jail reset --all`, or delete `~/.cache/jails/<name>/winvm/state`
+  with the jail stopped). Before a start with the line, `jail-prepare-home`
+  (the cache bound at its `~/.cache`) removes links at `winvm`, `state`,
+  `state/images` and the key files, and files at the first three, so jailed
+  code can neither block nor redirect the binds. A folder it puts at a key
+  file's place still stops the start (bwrap cannot bind a file onto it).
 - **Instances:** the shared jail and its one-offs share `~/.cache/winvm`
   but not their PID and network namespaces: a VM started in one shows as
   stopped in another, and its ports are only in the one that started it.
+  Start, stop and destroy a VM only in the instance that started it: a
+  one-off does not see the shared jail's QEMU, and `destroy` there deletes
+  a running VM's folder.
 - **winvm in a read-only images folder:** `build`, `commit` and `destroy
   --all` check that `state/images` (and the image's folder) is writable
   before they change anything and otherwise stop naming it. `build` also
@@ -581,7 +597,11 @@ is reached from the host through `port 33891`; the host home comes from
 `WINVM_HOME`, else the config file, else `~/.local/share/winvm`; a host
 home without images binds nothing (the jail's `state/images` is empty and
 writable) and `winvm build` still stops (`not in a jail`); one in the
-repository, and a host `state/images` that is a link, are refused; a repository under `/tmp` gets a jail.
+repository, in another jailed repository, and a host `state/images` that
+is a link, are refused; links planted at `state`, at `winvm` and at a key
+file and a file at `state/images` are gone at the next start, which binds
+as before and puts nothing in the repository they pointed to; `winvm VALUE`
+is refused; a repository under `/tmp` gets a jail.
 
 Containers (the end of the test, `localhost/jailtest`, a busybox image built
 by `dockerTools` and loaded with `podman load`, offline): a jail without the

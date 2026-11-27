@@ -232,6 +232,10 @@ winvm -n app start --headless --wait && winvm -n app ssh hostname
 - No sound (no PipeWire in the jail) and no `winvm rdp`/`view` window inside
   (no display).
 - The VMs go with `jail reset --all`; `--home` keeps them.
+- Start, stop and destroy a VM in the jail instance that started it (the
+  shared jail or that one-off): another instance does not see its QEMU.
+- The host's `WINVM_HOME` must not be in a repository you jail: the start
+  refuses it.
 - The jail can read everything in the images folder, including the
   answer file with the Windows password and the swtpm CA key, and the
   private key: whoever runs in the jail can log in to any VM built from

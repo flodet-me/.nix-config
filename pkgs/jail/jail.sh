@@ -472,7 +472,7 @@ prepare() {
     die "no hm-session-vars.sh in the home-manager generation at $gen"
   [ ! -f "$HOME/.claude.json" ] || host=(--ro-bind "$HOME/.claude.json" /tmp/host.json)
   bwrap --unshare-all --die-with-parent --clearenv --ro-bind /nix /nix \
-    --proc /proc --dev /dev --tmpfs /tmp "${host[@]}" --bind "$jhome" /tmp/home \
+    --proc /proc --dev /dev --tmpfs /tmp "${host[@]}" --bind "$jhome" /tmp/home "${prep[@]}" \
     -- @prepareHome@/bin/jail-prepare-home "$files" "$root" "${mounts[@]#"$HOME"/}" 9>&- ||
     die "could not prepare $jhome; to start over, reset its home ($readme, Reset)"
 }
@@ -634,7 +634,7 @@ bind_bus() {
 # plain newuidmap first in PATH, /var/tmp for image layers (outside the
 # jail's reach, like the resolv.conf), and the jail's own API service,
 # started by the init in front of the command.
-init=()
+init=() prep=()
 with_containers() {
   [ -n "$containers" ] || return 0
   # without a subuid range: refused here, on the terminal, not in the unit's journal
@@ -657,7 +657,7 @@ with_containers() {
 # they trust, read-only in the jail's WINVM_HOME; its VMs are its own.
 with_winvm() {
   [ -n "$winvm" ] || return 0
-  local h=${WINVM_HOME:-} f=${XDG_CONFIG_HOME:-$HOME/.config}/winvm/home x p
+  local h=${WINVM_HOME:-} f=${XDG_CONFIG_HOME:-$HOME/.config}/winvm/home x p r j
   # where winvm on the host finds its home (pkgs/winvm/winvm)
   if [ -z "$h" ] && [ -f "$f" ]; then
     read -r h <"$f" || true # no final newline
@@ -668,8 +668,16 @@ with_winvm() {
     [ -e "$h/state/$x" ] || [ -L "$h/state/$x" ] || continue # not there: nothing to share
     # as an ro line: no symlink on the way (the approval shows no path)
     p=$(bind_path "$h/state/$x" ro) || die "winvm: $(esc "$h/state/$x"): $p"
+    # nor in another jail's repository, which that jail can write
+    for r in "$jails"/*/repo; do
+      [ -f "$r" ] && j=$(<"$r") && [ -n "$j" ] || continue
+      ! within "$p" "$j" || die "winvm: $(esc "$p"): is in $(esc "$j"), a jailed repository"
+    done
     fdbinds+=("ro:$HOME/.cache/winvm/state/$x" "$p")
   done
+  # the mount points in the jail's cache: links and files the jail put there go (prepare)
+  prep=(--bind "$cache" /tmp/home/.cache)
+  mounts+=("$HOME/.cache/winvm/state/images/" "$HOME/.cache/winvm/state/id_ed25519" "$HOME/.cache/winvm/state/id_ed25519.pub")
 }
 
 if [ $# -gt 0 ]; then
