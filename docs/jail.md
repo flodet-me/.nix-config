@@ -146,9 +146,9 @@ way `direnv allow` works:
   shows the diff (the whole file the first time), with control characters
   and other bytes as text (`cat -vT`: an escape is `^[`, a tab `^I`), then
   one line with what it amounts to (`jail: in effect: ports ... | ro ... |
-  rw ...`), and applies it once you type `yes`. Refused, without a terminal, or when `.jail` is a link, too
-  large or has a bad line: one line says that `.jail` is not applied, and the
-  jail starts with the copy you approved last (or with none). A jail never
+  rw ...`), and applies it once you type `yes`. Refused, without a
+  terminal, or when `.jail` is a link, too large or has a bad line: one line
+  says that `.jail` is not applied, and the jail starts with the copy you approved last (or with none). A jail never
   fails to start because of an unapproved `.jail`.
 - The approved copy also stays without `.jail` and comes back when jailed
   code writes the same `.jail` back; remove `jail.approved` (Reset) to be
@@ -178,8 +178,8 @@ page read. Use a separate browser profile for it if those services matter.
 repository (its code then runs in both jails), personal data. `rw` on
 anything your host session runs or reads as config or instructions
 (`~/.config`, a shell rc, `~/.local/bin`, `~/brain`, whose `wiki/hot.md`
-every Claude session loads) is a way out of the jail; the list above
-refuses the known ones, not every one, and compares paths, not folders:
+every Claude session loads) is a way out of the jail; the list of refused
+paths in the user guide (`bind_path`) refuses the known ones, not every one, and compares paths, not folders:
 another path to the same folder (desktop's `/data/projects` is `~/Projects`)
 passes, so read the paths you approve. `ro` shows the jail whatever is in
 there. Opening a path that a jail swapped for a FIFO waits: stop a one-off
@@ -343,9 +343,11 @@ as `^I` and the line with what is in effect;
 would add and the approved copy and changes nothing in the state; inside a
 one-off jail it shows what it would add, what is in effect in this jail and
 which checks it skipped, reports a `.jail` edited inside as differing, with
-how to apply it (also on the host), names a bad line with exit status 1
-(also on the host), a linked `.jail` and a path with `..`, gives a nested repository no "in effect", and leaves
-`jail.approved` as it was; in the shared jail a shell sees what is in effect; a `.jail` over 64 KiB, a FIFO
+how to apply it (also on the host), and an empty `.jail` against a
+non-empty approved copy as differing, names a bad line with exit status 1
+(also on the host), a linked `.jail` and a path with `..`, gives a nested
+repository no "in effect", and leaves `jail.approved` as it was; in the
+shared jail a shell sees what is in effect; a `.jail` over 64 KiB, a FIFO
 (no wait) or a directory is not applied; an approved path that is gone stops
 the start; `jail-binds` refuses a bind source that is a link when it opens
 it (a swap after the check) and the jail holds no fd beyond 0 to 2
