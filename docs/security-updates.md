@@ -67,7 +67,8 @@ shows why something is there.
 
 ## Testing the workflows locally
 
-`act` (in the dev shell, needs Docker) runs `.github/workflows/*` without
+`act` (in the dev shell, needs rootless Docker, see
+[testing.md](testing.md)) runs `.github/workflows/*` without
 pushing. Build the runner image once, which is the usual one plus Nix:
 `docker build -t ubuntu-act-nix:local .github/act` (`.actrc` selects it), then
 e.g. `act -W .github/workflows/nix.yml -j format` or

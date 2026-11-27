@@ -30,7 +30,8 @@ repository and sees only what that needs:
   group (a VM with the host disk attached), `wheel` with the published
   password `123456789` (`sudo` under any other spelling), and
   `trusted-users = @wheel` in `nix.nix` (the Nix manual calls a trusted user
-  essentially root).
+  essentially root). The `docker` group and `trusted-users` are closed on the
+  workstations since design step 1.
 - `/run/user/1000` and the session bus reach gpg-agent (signing, SSH to the
   servers, sops with the YubiKey plugged in), the keyring
   (`org.freedesktop.secrets`), the Nextcloud client, gvfs mounts, and
@@ -57,13 +58,18 @@ repository per jail. Your shell, Neovim, direnv and git for that repository
 run in the same jail as the agents, so nothing written there is ever executed
 outside it.
 
-1. **Close the root paths** (useful on its own, independent of agents):
+1. **Close the root paths** (useful on its own, independent of agents).
+   Implemented for `trusted-users` and Docker (`workstation.nix` asserts both):
    - `trusted-users = [ "root" ]` on the workstations only. Substituters are
-     already system-wide in `nix.nix`. The servers keep `@wheel`, because
-     `nixos-rebuild --target-host` copies unsigned closures as the SSH user.
+     already system-wide in `nix.nix`; a flake's `nixConfig`
+     `extra-substituters` is no longer accepted for `flodet` there (add a
+     cache to `nix.nix` instead). The servers keep `@wheel`
+     (`server/hardening.nix`), because `nixos-rebuild --target-host` copies
+     unsigned closures as the SSH user.
    - Rootless Docker instead of the `docker` group (`act` then talks to
-     `$XDG_RUNTIME_DIR/docker.sock`). Images and volumes of the system daemon
-     stay in `/var/lib/docker` and are not seen by the rootless one.
+     `$XDG_RUNTIME_DIR/docker.sock`, `DOCKER_HOST` is set at login). Images
+     and volumes of the system daemon stay in `/var/lib/docker` and are not
+     seen by the rootless one (data in `~/.local/share/docker`).
    - Agents never get the libvirt system socket; virt-manager stays outside.
    - `sudo` stays for you; inside the jail `no_new_privs` disables it.
 2. **`jail <repo>`** (home-manager module, `writeShellApplication` around
