@@ -60,13 +60,20 @@
           specialArgs = { inherit inputs outputs; };
           modules = [
             ./hosts/${host}
-            {
-              host.user = username;
-              # What it was built from: `nixos-version --configuration-revision`
-              # and /run/current-system/flake-source, compared by switch-review.
-              system.configurationRevision = self.rev or self.dirtyRev or null;
-              system.systemBuilderCommands = "ln -s ${self} $out/flake-source";
-            }
+            (
+              { config, ... }:
+              {
+                host.user = username;
+                # What it was built from: `nixos-version --configuration-revision`
+                # and /run/current-system/flake-source, compared by switch-review.
+                system.configurationRevision = self.rev or self.dirtyRev or null;
+                # Workstations only: a server closure must not carry the repository
+                # (other hosts' encrypted secrets); switch-review is local anyway.
+                system.systemBuilderCommands = lib.mkIf (
+                  config.host.role == "workstation"
+                ) "ln -s ${self} $out/flake-source";
+              }
+            )
           ]
           ++ lib.optionals user [
             home-manager.nixosModules.home-manager

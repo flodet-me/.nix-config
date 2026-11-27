@@ -165,9 +165,11 @@ the switch is the human gate, and `update` shows what you are about to
 apply first:
 
 - Every host records what it was built from: `nixos-version
-  --configuration-revision` (`self.rev`, or `self.dirtyRev`) and
-  `/run/current-system/flake-source`, a link to the flake source in the
-  system closure (set in `mkHost`, `flake.nix`).
+  --configuration-revision` (`self.rev`, or `self.dirtyRev`). Workstations
+  also keep `/run/current-system/flake-source`, a link to the flake source in
+  the system closure (set in `mkHost`, `flake.nix`). Servers do not: their
+  closure would carry the whole repository, other hosts' encrypted secrets
+  included.
 - `switch-review [HOST]` (`scripts/switch-review/`) diffs that source against
   what `nix flake prefetch` fetches from `$NH_FLAKE` now, the tree `nh os
   switch` builds (dirty tracked changes included, untracked files not). It
@@ -181,16 +183,18 @@ apply first:
 - It runs no git on the repository: a jail may have written `.git/config`,
   and a pager, external diff, textconv or fsmonitor there could forge the
   output. Plain `diff` on two store paths.
-- `update` = `switch-review; nh os switch --ask`: the review never blocks,
-  nh builds, shows the package diff and asks "Apply the config?" (default
-  no). Read the review before answering; nh's build output follows it. The
-  alias calls the reviewed `switch-review` from your home profile by store
-  path, not the working tree's (direnv puts that first on PATH).
+- `update` = `nh os build && { switch-review; nh os switch --ask; }`: nh
+  builds first, then the review (it never blocks), then `nh os switch` finds
+  the build done, shows the package diff and asks "Apply the config?"
+  (default no), right below the review. Don't let an agent write to the
+  repository meanwhile: the switch fetches the tree again. The alias calls
+  the reviewed `switch-review` from your home profile by store path, not the
+  working tree's (direnv puts that first on PATH).
 - Only this machine: `/run/current-system` is local, so a `--target-host`
   deploy to `moon` or `vps` is not reviewed. A system built before this has
   no `flake-source`; the review says so, and the next switch records it.
-- Because the source is in the closure, every commit (also docs-only) is a
-  new system generation.
+- Because the source is in a workstation's closure, every commit (also
+  docs-only) is a new system generation there.
 
 ## VMs and Windows development
 

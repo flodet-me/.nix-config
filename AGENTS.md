@@ -19,7 +19,7 @@ for h in laptop desktop moon vps; do
 done
 
 # Apply / deploy (human-run)
-update                                                       # current machine: switch-review, then `nh os switch --ask`
+update                                                       # current machine: build, switch-review, then `nh os switch --ask`
 nixos-rebuild switch --flake .#<HOST> --target-host <HOST> --sudo --use-substitutes   # target fetches from caches, not the workstation's upload
 
 # Workflow scripts (dev shell, sources in scripts/)

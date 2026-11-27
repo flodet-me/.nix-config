@@ -22,9 +22,10 @@ in
 
     shellAliases = {
       ll = "ls -l";
-      # Review what changed since the running system (never blocks), then
-      # build and ask before switching this host from ~/.nix-config.
-      update = "${switch-review}/bin/switch-review; nh os switch --ask";
+      # Build, review what changed since the running system (never blocks),
+      # then switch (a cached rebuild) after asking, so the review sits right
+      # above nh's prompt instead of scrolling off behind the build log.
+      update = "nh os build && { ${switch-review}/bin/switch-review; nh os switch --ask; }";
     };
     history.size = 10000;
     history.ignoreAllDups = true;
