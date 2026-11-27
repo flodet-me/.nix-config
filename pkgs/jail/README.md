@@ -108,6 +108,9 @@ rw /srv/scratch/foo
 `jail config [DIR]`, inside a jail or on the host, reads the repository's
 `.jail` as a start does and prints:
 
+- the path of the `.jail` it read (in a container of worktrees the
+  container's);
+
 - an error naming the line (exit status 1);
 - `would add: ports ... | ro ... | rw ...`;
 - what is in effect: inside, in this jail; on the host, the copy you
@@ -116,8 +119,9 @@ rw /srv/scratch/foo
 
 It never approves or writes anything. Inside a jail it cannot see the host's
 paths, so it skips the checks that `ro`/`rw` paths exist, are a directory or
-file, and have no symlink in them; the host makes them when you approve. Inside, "in effect" comes from the environment the jail started
-with (`JAIL_IN_EFFECT`, `JAIL_APPLIED_SHA256`), which code in the jail can
+file, and have no symlink in them; the host makes them when you approve.
+Inside, "in effect" comes from the environment the jail started with
+(`JAIL_IN_EFFECT`, `JAIL_APPLIED_SHA256`), which code in the jail can
 change for itself.
 
 ### How a change takes effect

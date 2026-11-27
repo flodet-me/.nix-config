@@ -139,7 +139,7 @@ state=$HOME/.local/share/jails/$name
 # nothing written. Inside a jail (JAIL, set by the start below) what is
 # in effect comes from the start's environment.
 if [ -n "$config" ]; then
-  fdbinds=() mounts=() rc=0 inside=""
+  fdbinds=() mounts=() rc=0 inside="" cmp=""
   [ -z "${JAIL:-}" ] || inside=1 nohost=1
   hint="To apply it: on a host terminal, systemctl --user stop jail-$name (this ends every shell in that jail), then jail $root; it shows the change and applies it once you type yes."
   echo "jail config: $root/.jail"
@@ -147,6 +147,7 @@ if [ -n "$config" ]; then
   if read_jail; then
     if add=$(parse "$new" && in_effect 0); then
       echo "would add: $add"
+      cmp=1 # a start would apply it, also an empty one
     else
       echo "jail config: that line is refused; a start would not apply this .jail"
       rc=1
@@ -159,9 +160,6 @@ if [ -n "$config" ]; then
   fi
   exec 4<&-
   [ -z "$inside" ] || echo "not checked inside a jail (they need the host's paths): whether each ro/rw path exists, is a directory or regular file, and has no symlink in it; the host checks that when you approve"
-  # compared only when a start would apply .jail
-  cmp=
-  [ "$rc" != 0 ] || [ -z "$new" ] || cmp=1
   if [ -n "$inside" ]; then
     if [ "$JAIL" != "$name" ]; then
       echo "in effect: not known here: this is jail $JAIL, and $root has a jail of its own"

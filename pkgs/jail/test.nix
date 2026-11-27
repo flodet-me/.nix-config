@@ -661,6 +661,7 @@
             return alice("cat ~/repof/cfg.out")
 
         out = inside("")
+        assert "jail config: /home/alice/repof/.jail" in out, out
         assert "would add: ports 8095 | ro /home/alice/cfg-ro | rw none" in out, out
         assert "in effect in this jail: ports 8095 | ro /home/alice/cfg-ro | rw none" in out, out
         assert ".jail matches what is in effect in this jail" in out and "not checked inside a jail" in out, out
@@ -682,6 +683,10 @@
         assert "is not applied: it is not a regular file" in out and "rc=1" in out, out
         out = inside("rm .jail && printf 'rw ~/x/../.ssh\\n' > .jail &&")
         assert ".jail line 1: rw ~/x/../.ssh: is not canonical" in out and "rc=1" in out, out
+        # an empty .jail is not a missing one: against the approved copy it is pending
+        out = inside(": > .jail &&")
+        assert ".jail differs from what is in effect in this jail" in out and "rc=0" in out, out
+        assert ".jail differs from the approved copy" in alice("jail config ~/repof 2>&1")
         # a nested repository has a jail of its own: this jail's config is not its
         out = inside("rm -rf sub && git init -q sub && cd sub &&")
         assert "has a jail of its own" in out and "in effect in this jail" not in out, out
