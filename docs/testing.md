@@ -82,8 +82,8 @@ Measured locally with a warm cache and 4 cores; a cold cache or a new nixpkgs ma
 | --- | --- | --- | --- |
 | `nixfmt`, `shellcheck`, `actionlint` | seconds | 30 s | 2 min |
 | `nix eval` of one option | 10-20 s | 1 min | 3 min |
-| `nix run .#check` | 1-3 min | 5 min | 15 min |
-| `nix run .#gate` (only config changed) | 5-12 min | 15 min | 40 min |
+| `nix run .#check` | ~30 s (install-host unchanged) | 3 min | 15 min |
+| `nix run .#gate` | ~1.5 min with hosts and jail cached; plus host builds and the jail test when they changed | 10 min | 40 min |
 | `nix flake check --no-build` | 30-60 s | 2 min | 5 min |
 | Build one host (only config changed) | 1-3 min | 5 min | 15 min |
 | Build all four hosts in a loop | 3-8 min | 10 min | 30 min |
