@@ -60,7 +60,22 @@
           specialArgs = { inherit inputs outputs; };
           modules = [
             ./hosts/${host}
-            { host.user = username; }
+            (
+              { config, ... }:
+              {
+                host.user = username;
+                # What it was built from: `nixos-version --configuration-revision`
+                # and /run/current-system/flake-source, compared by switch-review.
+                # switch-review builds `path:<store path>`, which carries a clean
+                # tree's rev but no dirtyRev: a dirty tree records its narHash.
+                system.configurationRevision = self.rev or self.dirtyRev or self.narHash or null;
+                # Workstations only: a server closure must not carry the repository
+                # (other hosts' encrypted secrets); switch-review is local anyway.
+                system.systemBuilderCommands = lib.mkIf (config.host.role == "workstation") ''
+                  ln -s ${self} $out/flake-source
+                '';
+              }
+            )
           ]
           ++ lib.optionals user [
             home-manager.nixosModules.home-manager
@@ -106,13 +121,27 @@
           find . -name '*.nix' -exec nixfmt --check {} +
           touch $out
         '';
-        # Builds all workflow scripts (runs shellcheck via writeShellApplication).
-        scripts = pkgs.linkFarm "scripts-check" (
-          lib.mapAttrsToList (name: drv: {
-            inherit name;
-            path = drv;
-          }) (import ./scripts { inherit pkgs; })
-        );
+        # Builds all workflow scripts (runs shellcheck via writeShellApplication)
+        # and the switch-review diff test.
+        scripts =
+          let
+            scripts = import ./scripts { inherit pkgs; };
+          in
+          pkgs.linkFarm "scripts-check" (
+            lib.mapAttrsToList (name: drv: {
+              inherit name;
+              path = drv;
+            }) scripts
+            ++ [
+              {
+                name = "switch-review-test";
+                path = import ./scripts/switch-review/test.nix {
+                  inherit pkgs;
+                  inherit (scripts) switch-review;
+                };
+              }
+            ]
+          );
         # Fail if a secrets file was committed (partly) unencrypted.
         sops-encrypted = pkgs.runCommand "sops-encrypted" { } ''
           cd ${self}

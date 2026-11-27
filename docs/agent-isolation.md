@@ -157,6 +157,92 @@ checked by hand).
 The VM test `checks.x86_64-linux.jail` asserts the table above for step 2
 (list in [jail.md](jail.md), "Tested").
 
+## Review before switch
+
+An agent may change anything in this repository, and root code sits
+everywhere in it (every module, `hosts/<host>/`, `shell.nix`, `.envrc`,
+`installer/`). Nothing it writes goes live until you switch, so the switch is
+the human gate, and `update` shows you exactly what you are about to apply:
+
+- Every host records the commit it was built from: `nixos-version
+  --configuration-revision` (`self.rev`, else `self.dirtyRev`, else
+  `self.narHash`). That makes every commit, also docs-only, a new toplevel on
+  every host, servers included. Workstations also keep
+  `/run/current-system/flake-source`, a link to the flake source in the
+  system closure (set in `mkHost`, `flake.nix`). Servers do not: their
+  closure would carry the whole repository, other hosts' encrypted secrets
+  included.
+- `switch-review [HOST]` (`scripts/switch-review/`) first copies the tree
+  nix would evaluate into the store itself: `nix flake prefetch --json
+  $NH_FLAKE` (`.storePath`; tracked files, dirty changes included, untracked
+  files not; `nix flake metadata` names the path of a dirty tree without
+  copying it). It builds exactly that store path,
+  `path:<store path>?rev=..&revCount=..&lastModified=..` (`--no-update-lock-file`),
+  so the evaluated tree is the reviewed one and a later edit of the checkout
+  cannot slip in. A clean tree keeps its revision this way and gives the same
+  toplevel as a `git+file` build; `path:` takes no `dirtyRev`, so a dirty
+  tree records its `narHash` instead (its revision `<rev>-dirty` is in the
+  review header). nix runs with `</dev/null`, so it can never ask y/N for a
+  `nixConfig` of the flake. After the build, `flake-source` must be a link
+  whose own target (one hop, `readlink` without `-f`) is exactly that store
+  path; otherwise it stops with "nothing was switched". A module that
+  retargets the link, also through a chain that ends at the right path (a
+  gitignored `~/.nix-config/.hop` the agent could later retarget), fails
+  closed, and the link is never what the review reads.
+- The running system's `flake-source` (written by the last reviewed switch)
+  must likewise be a link whose one-hop target is an existing top-level
+  `/nix/store/<hash>-source` directory. A dangling link, a target outside the
+  store or a chain stops with "nothing was switched"; only no link at all is
+  a first switch.
+- It then diffs the new store path against that one. It prints both
+  revisions, each side's `flake.lock` inputs (name, locked type, owner/repo
+  and rev, url or path), the changed files, and the full diff of every
+  change except `docs/**/*.md` (names only; anything else under `docs/` is
+  diffed). So Nix code must never import a `docs/**/*.md` file: its content
+  is not shown. Each tree is listed on its own with
+  `find -printf '%P\0'`, which does not follow symlinks; a path a tree does
+  not list itself counts as absent there and is never read, so a directory
+  replaced by a link out of the tree (`hosts/p -> /proc`) shows as a type
+  change and its old files as deleted. Symlinks (with their target), special
+  files, type and mode changes (exec bit), files with NUL bytes and inputs
+  locked to `path`, `file`, a url without `https://` or `ssh://` (a bare
+  path, `file:`) or another type than their `original` get their own loud
+  list. After the diff both lists are printed again, the changed files with
+  their diff line counts, so a long diff cannot scroll them away before nh
+  asks. Every diff is shown in full, never
+  capped (a small change in a big file is a small diff). A file with NUL
+  bytes is diffed as text with each run of NULs shown as one `^@`, and its
+  first NUL's offset is listed: Nix reads a `.nix` file only up to there,
+  while bash skips NULs. Files are compared as text
+  (`diff -a`), and everything printed, nix's build output included (a
+  `builtins.trace` of the new tree), passes `cat -v`, so CR, ESC and other
+  control characters show as `^M`, `^[`, ... instead of acting on the
+  terminal (non-ASCII shows as `M-...`); a newline in a name shows as `\n`.
+- It runs no git on the repository: a jail may have written `.git/config`,
+  and a pager, external diff, textconv or fsmonitor there could forge the
+  output. It unsets `NIX_CONFIG`, calls nix as
+  `/run/current-system/sw/bin/nix` and nh by store path, and reads the new
+  revision from the prefetch. Nothing runs outside the nix sandbox before
+  you agree; evaluation, import-from-derivation builds and fixed-output
+  fetches of the new tree do happen before the review.
+- `update` = `switch-review --switch`: after the review it runs
+  `nh os switch --ask <the reviewed store path>`. nh 4.5.0 accepts a store
+  path as installable and leaves it as is (no evaluation), builds it (a
+  no-op, it exists), shows its package diff and asks "Apply the config?"
+  (default no). So the switch applies exactly the reviewed build, and the
+  prompt follows the review directly. This is smaller than doing nh's diff,
+  prompt, profile and `switch-to-configuration` by hand. If the build or the
+  review fails, `update` stops with "nothing was switched" and never
+  prompts; `nh os switch` by hand still works. nh runs with
+  `PATH=/run/wrappers/bin:/run/current-system/sw/bin`, not the dev shell's.
+- The alias calls the `switch-review` of your home profile (reviewed at the
+  last switch) by store path. Run `update` outside `~/.nix-config`: inside
+  it, direnv has already evaluated the repository's `shell.nix` and run its
+  `.envrc` when you entered the directory, before any review.
+- Only this machine: `/run/current-system` is local, so a `--target-host`
+  deploy to `moon` or `vps` is not reviewed. A system built before this has
+  no `flake-source`; the review says so, and the next switch records it.
+
 ## VMs and Windows development
 
 - winvm (`~/Projects/windows-vm`) is plain QEMU/KVM without libvirt or root.
