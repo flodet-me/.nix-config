@@ -15,6 +15,7 @@ Assumptions:
 - The user's "yes" to Docker means rootless is fine. Old system Docker images/volumes stay in /persist/var/lib/docker, unused.
 - `jail` is a home-manager module on the workstations (desktop.nix), the repo is bound at its own absolute path, HOME stays /home/flodet inside.
 - A real Windows boot through winvm in a jail is checked by hand after the switch, not in the VM test.
+- User, 2026-11-27: a running jail may keep a stale Claude login after a refresh outside; accepted for now (restart the jail). After G-1 is done, re-run the Claude Code setup audit and re-evaluate its quick wins (deny rules for ~/Nextcloud, ~/Documents, keyring, key files).
 
 | Item | What | Status | Commit |
 |---|---|---|---|
