@@ -81,6 +81,18 @@
         env = "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus SSH_AUTH_SOCK=/run/user/1000/gnupg/S.gpg-agent.ssh"
         return alice(f"{env} jail {repo} -- sh -c {shlex.quote(cmd)}", ok)
 
+    def terminal(unit, repo="/home/alice/repo"):
+        # the shared jail of repo in a terminal that stays open
+        alice(f"systemd-run --user --quiet --unit={unit} -E TERM=xterm sh -c 'sleep 600 | /run/current-system/sw/bin/script -qfc \"/etc/profiles/per-user/alice/bin/jail {repo}\" /dev/null'")
+
+    def start(cmd, answer=None, repo="~/repoc", ok=True, shared=False):
+        # jail with its messages (stderr): without a terminal, or on one typing answer
+        j = f"jail {repo}" if shared else f"jail {repo} -- sh -c {shlex.quote(cmd)}"
+        if answer is None:
+            return alice(f"{j} </dev/null 2>&1", ok)
+        rc = f"rc=0; printf '{answer}\\n' | timeout 60 script -qec {shlex.quote(j)} /dev/null || rc=$?; echo rc=$rc; "
+        return alice(rc + ("test $rc = 0" if ok else "test $rc != 0 && test $rc != 124"))
+
     alice("""
       git config --global user.name a
       git config --global user.email a@example.com
@@ -330,10 +342,74 @@
         alice("git --git-dir ~/repo4/evil.git rev-parse main")
         alice("! ls /tmp/marker-* 2>/dev/null")
 
-    with subtest("terminals of one repository share one jail"):
-        def terminal(unit):
-            alice(f"systemd-run --user --quiet --unit={unit} -E TERM=xterm sh -c 'sleep 600 | /run/current-system/sw/bin/script -qfc \"/etc/profiles/per-user/alice/bin/jail /home/alice/repo\" /dev/null'")
+    with subtest("per-repository .jail: applied only as approved on a terminal"):
+        alice("""
+          mkdir -p ~/data-ro ~/data-rw && echo ro > ~/data-ro/f && echo secret > ~/secret
+          ln -s ~/data-ro ~/data-link
+          git init -q ~/repoc && cd ~/repoc && git commit -q --allow-empty -m one
+          printf '# a website and two folders\\nport 8090\\n\\nro ~/data-ro\\nrw /home/alice/data-rw/\\n' > .jail
+        """)
+        alice("test -d ~/data-ro && test -d ~/data-rw && cat ~/secret")
+        # not approved yet: nothing applied, without a terminal or when refused
+        assert "is not applied" in start("test ! -e ~/data-ro && test ! -e ~/data-rw")
+        out = start("test ! -e ~/data-ro", answer="no")
+        assert "port 8090" in out and "is not applied" in out, out
+        # approved: the folders, then used without asking
+        start("cat ~/data-ro/f && ! touch ~/data-ro/x 2>/dev/null && touch ~/data-rw/x", answer="yes")
+        alice("test -e ~/data-rw/x && test ! -e ~/data-ro/x")
+        assert "not applied" not in start("cat ~/data-ro/f")
 
+        # the port: host 127.0.0.1:8090 reaches a listener on the jail's 127.0.0.1:8090
+        holder = "(jail ~/repoc -- socat TCP-LISTEN:8090,bind=127.0.0.1 SYSTEM:'echo inside' </dev/null & wait) >/dev/null 2>&1 &"
+        alice(holder)
+        machine.wait_until_succeeds("su - alice -c 'socat -u TCP:127.0.0.1:8090 -' | grep -q inside", timeout=30)
+        # and the jail still does not reach the host's loopback (control: "own network")
+        start("if socat -u TCP:127.0.0.1:8123,connect-timeout=5 - | grep -q lo; then exit 1; fi; cat ~/data-ro/f")
+        # a one-off next to a jail holding the port starts without it
+        alice(holder)
+        machine.wait_until_succeeds("ss -Htln 'sport = :8090' | grep -q .", timeout=30)
+        out = start("cat ~/data-ro/f")
+        assert "8090" in out and "not forwarded" in out, out
+        machine.wait_until_succeeds("su - alice -c 'socat -u TCP:127.0.0.1:8090 -' | grep -q inside", timeout=30)
+
+        # the shared jail: a taken port stops its start, naming the port; once free it starts
+        machine.wait_until_succeeds("! ss -Htln 'sport = :8090' | grep -q .", timeout=30)
+        machine.succeed("systemd-run --unit=busy-8090 socat TCP-LISTEN:8090,bind=127.0.0.1,reuseaddr,fork SYSTEM:'echo busy'")
+        machine.wait_until_succeeds("ss -Htln 'sport = :8090' | grep -q .", timeout=30)
+        assert "port 8090" in start("", answer="", shared=True, ok=False)
+        alice('test -z "$(systemctl --user list-units --plain --no-legend "jail-repoc-*")"')
+        machine.succeed("systemctl stop busy-8090")
+        terminal("termc", repo="/home/alice/repoc")
+        sockc = "$(echo /run/user/1000/jails/repoc-*/tmux.sock)"
+        machine.wait_until_succeeds(f"su - alice -c 'tmux -S {sockc} list-clients' | grep -q .", timeout=60)
+        alice(f"tmux -S {sockc} send-keys -t main 'socat TCP-LISTEN:8090,bind=127.0.0.1,fork SYSTEM:pwd &' Enter")
+        machine.wait_until_succeeds("su - alice -c 'socat -u TCP:127.0.0.1:8090 -' | grep -q repoc", timeout=30)
+        alice("systemctl --user stop 'jail-repoc-*' termc")
+
+        # jailed code edits .jail: not applied without approval, the approved copy stays
+        start("printf '# \\033[2J\\nrw /home/alice/secret\\n' >> .jail")
+        assert "is not applied" in start("test ! -e ~/secret && cat ~/data-ro/f")
+        out = start("test ! -e ~/secret && cat ~/data-ro/f", answer="no")
+        # shown as a diff, the escape sequence as text
+        assert "+rw /home/alice/secret" in out and "^[[2J" in out and "\x1b" not in out, out
+        alice("cat ~/secret")
+
+        # refused with a reason, nothing applied: a linked .jail, a linked or forbidden path
+        alice("git init -q ~/repoe && ln -s ~/repoc/.jail ~/repoe/.jail")
+        out = start("test ! -e ~/data-ro", answer="yes", repo="~/repoe")
+        assert "not a regular file" in out and "is not applied" in out, out
+        for p in ["~/data-link", "/", "/home", "~", "~/.local", "~/.local/share/jails", "/etc", "/nix/store", "/run/user",
+                  "/proc", "/tmp", "~/repoe", "~/repoe/.git", "relative", "~/missing"]:
+            alice(f"rm -f ~/repoe/.jail && echo 'ro {p}' > ~/repoe/.jail")
+            out = start("test ! -e ~/data-ro", answer="yes", repo="~/repoe")
+            assert "line 1" in out and "is not applied" in out, out
+        for line in ["port 80", "port 70000", "port 8o", "bind /tmp"]:
+            alice(f"echo {shlex.quote(line)} > ~/repoe/.jail")
+            assert "line 1" in start("true", answer="yes", repo="~/repoe")
+        alice("! ls ~/.local/share/jails/repoe-*/jail.approved")
+        machine.wait_until_succeeds("! pgrep -u alice '^(xdg-dbus-proxy|passt|pasta)'", timeout=30)
+
+    with subtest("terminals of one repository share one jail"):
         sock = "$(echo /run/user/1000/jails/repo-*/tmux.sock)"
         terminal("term1")
         machine.wait_until_succeeds(f"su - alice -c 'tmux -S {sock} list-clients' | grep -q .", timeout=60)
