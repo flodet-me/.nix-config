@@ -60,7 +60,13 @@
           specialArgs = { inherit inputs outputs; };
           modules = [
             ./hosts/${host}
-            { host.user = username; }
+            {
+              host.user = username;
+              # What it was built from: `nixos-version --configuration-revision`
+              # and /run/current-system/flake-source, compared by switch-review.
+              system.configurationRevision = self.rev or self.dirtyRev or null;
+              system.systemBuilderCommands = "ln -s ${self} $out/flake-source";
+            }
           ]
           ++ lib.optionals user [
             home-manager.nixosModules.home-manager
@@ -106,13 +112,27 @@
           find . -name '*.nix' -exec nixfmt --check {} +
           touch $out
         '';
-        # Builds all workflow scripts (runs shellcheck via writeShellApplication).
-        scripts = pkgs.linkFarm "scripts-check" (
-          lib.mapAttrsToList (name: drv: {
-            inherit name;
-            path = drv;
-          }) (import ./scripts { inherit pkgs; })
-        );
+        # Builds all workflow scripts (runs shellcheck via writeShellApplication)
+        # and the switch-review diff test.
+        scripts =
+          let
+            scripts = import ./scripts { inherit pkgs; };
+          in
+          pkgs.linkFarm "scripts-check" (
+            lib.mapAttrsToList (name: drv: {
+              inherit name;
+              path = drv;
+            }) scripts
+            ++ [
+              {
+                name = "switch-review-test";
+                path = import ./scripts/switch-review/test.nix {
+                  inherit pkgs;
+                  inherit (scripts) switch-review;
+                };
+              }
+            ]
+          );
         # Fail if a secrets file was committed (partly) unencrypted.
         sops-encrypted = pkgs.runCommand "sops-encrypted" { } ''
           cd ${self}
