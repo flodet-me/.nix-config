@@ -27,7 +27,7 @@ authenticate once on each machine with
 when requested), rather than launching Codex for every task. If Codex has no
 available usage, is unauthenticated, or fails, Claude stops or retries only as
 the skill directs, continues independently when reasonable, and reports when
-the second opinion could not be obtained. The dev shell provides `codex` too.
+the second opinion could not be obtained. The dev shell provides `codex` too, the same wrapper (below).
 
 Codex also gets a shared, Nix-managed user setup on both workstations:
 `~/.codex/config.toml` defaults to GPT-5.6 Terra at high reasoning effort,

@@ -404,9 +404,6 @@ a positive control outside the jail.
 - A tmux server inside the jail (or a fake one in the socket directory) can
   draw anything in your terminal, also a prompt that looks like the host's;
   it cannot type into other programs (TIOCSTI is off or blocked).
-- `codex` from a dev shell (this repository's `shell.nix`, a project
-  flake) comes before the wrapper on `PATH` and runs without the jail
-  profile; use the home-manager `codex` there.
 - Home-manager's files under `~/.cache` are linked into the jail home's
   `.cache`, which the cache bind hides: they are not in the jail's
   `~/.cache` (home-manager puts only `.keep` files there).
