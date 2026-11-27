@@ -16,7 +16,6 @@ in
     ./components/qmk
     ./components/yubikey-gpg.nix
     ./components/claude-code
-    ./components/jail
     ./components/stream-controller
     ./components/easyeffects
     ./desktop-environments/gnome
