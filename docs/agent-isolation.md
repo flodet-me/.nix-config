@@ -251,6 +251,9 @@ the human gate, and `update` shows you exactly what you are about to apply:
 
 ## VMs and Windows development
 
+Not implemented: `.jail` cannot yet bind a folder of the jail home at a host
+path, which the winvm layout below needs (skipped by the user on 2026-11-27).
+
 - winvm (`~/Projects/windows-vm`) is plain QEMU/KVM without libvirt or root.
   In a jail: its code and `state/images/` (the ~20 GB base images, bound at
   the same path so the qcow2 backing paths resolve) read-only, `state/vms/`
