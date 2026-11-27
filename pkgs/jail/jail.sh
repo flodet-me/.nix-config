@@ -657,7 +657,7 @@ with_containers() {
 # they trust, read-only in the jail's WINVM_HOME; its VMs are its own.
 with_winvm() {
   [ -n "$winvm" ] || return 0
-  local h=${WINVM_HOME:-} f=${XDG_CONFIG_HOME:-$HOME/.config}/winvm/home x p why
+  local h=${WINVM_HOME:-} f=${XDG_CONFIG_HOME:-$HOME/.config}/winvm/home x p
   # where winvm on the host finds its home (pkgs/winvm/winvm)
   if [ -z "$h" ] && [ -f "$f" ]; then
     read -r h <"$f" || true # no final newline
@@ -665,8 +665,9 @@ with_winvm() {
   fi
   h=${h:-${XDG_DATA_HOME:-$HOME/.local/share}/winvm}
   for x in images id_ed25519 id_ed25519.pub; do
-    p=$(realpath -e -- "$h/state/$x" 2>/dev/null) || continue # not there: nothing to share
-    why=$(bind_path "$p" ro) || die "winvm: $(esc "$p"): $why"
+    [ -e "$h/state/$x" ] || [ -L "$h/state/$x" ] || continue # not there: nothing to share
+    # as an ro line: no symlink on the way (the approval shows no path)
+    p=$(bind_path "$h/state/$x" ro) || die "winvm: $(esc "$h/state/$x"): $p"
     fdbinds+=("ro:$HOME/.cache/winvm/state/$x" "$p")
   done
 }

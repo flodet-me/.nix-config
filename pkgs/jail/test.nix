@@ -1188,6 +1188,10 @@
         alice("mkdir -p ~/repow/wh/state/images")
         out = refuses(f"env WINVM_HOME=/home/alice/repow/wh jail {w} -- true")
         assert "is in the repository" in out, out
+        # a link there: refused, as in an ro line
+        alice("mkdir -p ~/winvm-link/state && ln -s /home/alice/winvm-host/state/images ~/winvm-link/state/images")
+        out = refuses(f"env WINVM_HOME=/home/alice/winvm-link jail {w} -- true")
+        assert "goes through a symlink" in out, out
 
     with subtest("a repository under /tmp gets a jail"):
         alice("git init -q /tmp/jailtmp")

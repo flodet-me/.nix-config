@@ -327,8 +327,8 @@ the jail decides only where its data is.
   first line of `${XDG_CONFIG_HOME:-~/.config}/winvm/home`, refused if not
   absolute, else `${XDG_DATA_HOME:-~/.local/share}/winvm`); of its
   `state/images`, `state/id_ed25519` and `state/id_ed25519.pub`, each that
-  exists goes through `realpath -e` and `bind_path ... ro` (so not in the
-  repository, the cache or the jails' state; a refusal stops the start:
+  exists goes through `bind_path ... ro` (so no symlink on the way, not in
+  the repository, the cache or the jails' state; a refusal stops the start:
   `jail: winvm: PATH: why`) and is bound read-only by fd (`jail-binds`
   `ro:DEST`) at the same name under the jail's `~/.cache/winvm/state`. The
   rest of the host's home (`vms`, `runs`, `captures`, `cache`, `iso`,
@@ -337,10 +337,12 @@ the jail decides only where its data is.
 - **Mount points:** bwrap leaves the empty `state/images`, `id_ed25519` and
   `.pub` it binds onto in the cache. A later start that binds nothing there
   (no line, no host key) leaves them: an empty key file that winvm takes as
-  its key. Jailed code can replace them (or `state`) with links, which
-  bwrap follows inside the jail: the images then appear where the link
-  points, in the jail only, read-only as before. Both go with `jail reset
+  its key. Jailed code can replace them with links: bwrap does not mount
+  onto a link, and a start with the line stops. Both go with `jail reset
   --all` or by deleting `~/.cache/jails/<name>/winvm/state` (stopped jail).
+- **Instances:** the shared jail and its one-offs share `~/.cache/winvm`
+  but not their PID and network namespaces: a VM started in one shows as
+  stopped in another, and its ports are only in the one that started it.
 - **winvm in a read-only images folder:** `build`, `commit` and `destroy
   --all` check that `state/images` (and the image's folder) is writable
   before they change anything and otherwise stop naming it. `build` also
@@ -579,7 +581,7 @@ is reached from the host through `port 33891`; the host home comes from
 `WINVM_HOME`, else the config file, else `~/.local/share/winvm`; a host
 home without images binds nothing (the jail's `state/images` is empty and
 writable) and `winvm build` still stops (`not in a jail`); one in the
-repository is refused; a repository under `/tmp` gets a jail.
+repository, and a host `state/images` that is a link, are refused; a repository under `/tmp` gets a jail.
 
 Containers (the end of the test, `localhost/jailtest`, a busybox image built
 by `dockerTools` and loaded with `podman load`, offline): a jail without the
