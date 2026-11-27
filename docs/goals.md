@@ -109,12 +109,14 @@ Accept:
 - One-off jails get the home-manager session variables (NUGET_PACKAGES, NPM_CONFIG_CACHE, PATH with ~/.local/bin) like the jail's shell.
 - A jail's `~/.cache` lives in `~/.cache/jails/<name>` (outside the /home snapshots), bound with the same checks; `.jail` refuses `~/.cache/jails`.
 - Codex inside a jail uses a jail profile (network and its caches without approval prompts); the host default stays.
+- Commits inside a jail are unsigned (`commit.gpgsign`/`tag.gpgSign` false there; no gpg-agent inside), so `git commit` in a jail works; the host keeps signing.
 - Docs (jail.md, agent-isolation.md, ADR 0001 note) updated; Gate green.
 Not in scope: a separate flake or repository for jail.
 Assumptions:
 - Installed system-wide on workstations (it is per-user at runtime: state under ~/.local/share/jails).
+- User 2026-11-27: "inside jail i don't commit myself, so keep it unsigned".
 
 | Item | What | Status | Commit |
 |---|---|---|---|
 | I1 jail-package | pkgs/jail with .sh files, system install, test moved | open | |
-| I2 jail-env-cache | one-off env, cache outside snapshots, codex jail profile | open | |
+| I2 jail-env-cache | one-off env, cache outside snapshots, codex jail profile, unsigned commits | open | |
