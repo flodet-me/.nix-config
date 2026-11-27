@@ -50,6 +50,23 @@
       assertion = !config.virtualisation.docker.enable && !(config.users.groups ? docker);
       message = "workstations: the docker group is root, use rootless Docker";
     }
+    {
+      assertion =
+        let
+          user = config.host.user;
+          inGroup =
+            g:
+            builtins.elem g config.users.users.${user}.extraGroups
+            || (config.users.groups ? ${g} && builtins.elem user config.users.groups.${g}.members);
+        in
+        !builtins.any inGroup [
+          "docker"
+          "lxd"
+          "libvirtd"
+          "podman"
+        ];
+      message = "workstations: ${config.host.user} must not be in docker, lxd, libvirtd or podman, they are root (docs/agent-isolation.md)";
+    }
   ];
 
   # repository jail (pkgs/jail, docs/jail.md); per-user at runtime

@@ -17,14 +17,9 @@ in
     extraGroups = ifTheyExist [
       "networkmanager"
       "audio"
-      "git"
-      "lxd"
       "wireshark"
       "video"
       "wheel"
-      "docker"
-      "podman"
-      "vboxusers"
     ];
     # Deliberately simple: the login password only protects the screen lock and
     # sudo at the keyboard (sshd is off on the workstations, and servers have no
