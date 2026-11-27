@@ -44,7 +44,7 @@ Assumptions:
 |---|---|---|---|
 | I1 token-tools | ccusage, ast-grep, rtk + Nix-owned rtk hook/config/instructions, test, docs | done | f052e8a |
 
-## G-3 Jail for bare-repository worktree layouts  (status: open)
+## G-3 Jail for bare-repository worktree layouts  (status: done)
 
 Goal: "jail is not working in a worktree environment, like the command-and-control repo in Projects."
 Accept:
@@ -58,4 +58,4 @@ Assumptions:
 
 | Item | What | Status | Commit |
 |---|---|---|---|
-| I1 bare-layout | container root detection, jail-push branch per worktree, safe gitfile reads, test, docs | open | |
+| I1 bare-layout | container root detection, jail-push branch per worktree, safe gitfile reads, test, docs | done | ed33928 |
