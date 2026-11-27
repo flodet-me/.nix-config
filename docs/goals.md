@@ -46,4 +46,4 @@ Assumptions:
 
 | Item | What | Status | Commit |
 |---|---|---|---|
-| I1 winvm-package | subtree import, package, WINVM_HOME, system-wide, checks, ADR | open | |
+| I1 winvm-package | subtree import, package, WINVM_HOME, system-wide, checks, ADR | done (smoke.sh: waiting for the user) | 6ce81ef |
