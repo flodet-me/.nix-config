@@ -56,7 +56,8 @@
           user = config.host.user;
           inGroup =
             g:
-            builtins.elem g config.users.users.${user}.extraGroups
+            config.users.users.${user}.group == g
+            || builtins.elem g config.users.users.${user}.extraGroups
             || (config.users.groups ? ${g} && builtins.elem user config.users.groups.${g}.members);
         in
         !builtins.any inGroup [
