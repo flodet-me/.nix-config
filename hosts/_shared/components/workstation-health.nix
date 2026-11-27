@@ -22,16 +22,18 @@
     enableNotifications = true;
     # Act once zram is full, before the disk swap file thrashes. zram is 50% of
     # RAM and the swap file is about the RAM size (desktop 32G of 31.3 GiB RAM,
-    # laptop 16G), so the swap file is 2/3 of all swap: free swap at 68% means
+    # laptop 16G of 16 GB RAM), so the swap file is 2/3 of all swap: free swap at 68% means
     # zram is ~97% full (SIGTERM), at 66% ~0.6G went to disk (SIGKILL).
     freeSwapThreshold = 68;
     freeSwapKillThreshold = 66;
+    # Both also need MemAvailable <= 10% (earlyoom ANDs memory and swap), so
+    # zram full with much page cache left still waits; not measured yet.
     # Matched against /proc/<pid>/comm (15 bytes, extended regex, unanchored);
     # gnome-shell runs as `.gnome-shell-wrapped`. `[.]` instead of `\.`: the
     # arguments pass through a systemd environment variable.
     extraArgs = [
       "--prefer"
-      "^(cc1|cc1plus|rustc|ld|ld[.]lld|lld|java|node|dotnet)$"
+      "^(cc1|cc1plus|clang|clang[+][+]|clang-[0-9]+|rustc|ld|ld[.]lld|lld|rust-lld|mold|java|node|dotnet)$"
       "--avoid"
       "^([.]gnome-shell-wr|gnome-shell|Xwayland)$"
     ];
