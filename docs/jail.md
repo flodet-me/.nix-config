@@ -55,7 +55,7 @@ jail-push ~/Projects/foo main --force-with-lease   # other git push arguments
 | --- | --- |
 | read-write | the repository; its cache `~/.cache/jails/<name>`, bound as `~/.cache`; `rw` paths of an approved `.jail`; `~/brain/inbox`; the login: `~/.claude/.credentials.json`, `~/.codex/auth.json` (and its lock files); the Nix daemon socket; `/dev/kvm`; a D-Bus proxy at `/run/user/<uid>/bus` (`org.freedesktop.Notifications` only) |
 | read-only | `ro` paths of an approved `.jail`; `/nix`, `/etc`, `/run/current-system`, `/bin`, `/usr`, `/lib64`; its own `resolv.conf` (`~/.local/share/jails/<name>/resolv.conf`, bound over the host's); `~/brain`; every other entry of `~/.claude` and `~/.codex` (`CLAUDE.md`, `settings.json`, `rules/`, `skills/`, `agents/`, `plugins/`, the status line script, `config.toml`, `AGENTS.md`, ...); `~/.local/bin` and `~/.local/share/uv/tools` (graphify) |
-| own | `$HOME` is `~/.local/share/jails/<name>/home` (history, nvim state and `:trust` list, direnv allow list, caches, ...) with home-manager's dotfiles linked in on every start; in it the jail's own `~/.claude` and `~/.codex` state (transcripts, memory, plans, shell snapshots, todos, logs, the codex databases; the lists are in `pkgs/jail/default.nix`), `~/.claude/plugins/data` (`~/.local/share/jails/<name>/claude-plugin-data`) and `~/.claude.json`; `/tmp`, `/proc`, `/dev`, an empty `/run/user/<uid>` but for the D-Bus proxy; its own network namespace (below) |
+| own | `$HOME` is `~/.local/share/jails/<name>/home` (history, nvim state and `:trust` list, direnv allow list, caches outside `~/.cache`, ...) with home-manager's dotfiles linked in on every start; in it the jail's own `~/.claude` and `~/.codex` state (transcripts, memory, plans, shell snapshots, todos, logs, the codex databases; the lists are in `pkgs/jail/default.nix`), `~/.claude/plugins/data` (`~/.local/share/jails/<name>/claude-plugin-data`) and `~/.claude.json`; `/tmp`, `/proc`, `/dev`, an empty `/run/user/<uid>` but for the D-Bus proxy; its own network namespace (below) |
 | absent | the rest of `/home`, `/run/user` sockets (the session bus itself, gpg-agent, Docker), services on the host's loopback, the host's abstract Unix sockets, `/run/wrappers` (setuid, and `no_new_privs` stops `sudo` anyway), `/run/secrets` |
 
 On every start `~/.claude.json` gets `oauthAccount`, `userID`,
@@ -70,7 +70,8 @@ packages again; `/nix/store` is shared through the daemon as usual. A jail's
 the `/home` snapshots (bound by fd like the repository, below). Jails from
 before kept it in the jail home: on its first start `jail` says so, and
 `~/.local/share/jails/<name>/home/.cache` is no longer used; delete it while
-that jail is stopped (`jail` never deletes it). Caches outside `~/.cache`
+that jail is stopped (`jail` never deletes it; it says so only when there is
+more in it than home-manager's links). Caches outside `~/.cache`
 (Cargo's `~/.cargo`) stay in the jail home.
 
 The environment is built, not inherited: `HOME`, `USER`, `LOGNAME`, `PATH`
@@ -403,6 +404,12 @@ a positive control outside the jail.
 - A tmux server inside the jail (or a fake one in the socket directory) can
   draw anything in your terminal, also a prompt that looks like the host's;
   it cannot type into other programs (TIOCSTI is off or blocked).
+- `codex` from a dev shell (this repository's `shell.nix`, a project
+  flake) comes before the wrapper on `PATH` and runs without the jail
+  profile; use the home-manager `codex` there.
+- Home-manager's files under `~/.cache` are linked into the jail home's
+  `.cache`, which the cache bind hides: they are not in the jail's
+  `~/.cache` (home-manager puts only `.keep` files there).
 - Home-manager's files are linked when a jail starts; after a switch, restart
   the jail to pick them up.
 - A tmux server with the jail stays alive while a window is open, also with no

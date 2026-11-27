@@ -33,10 +33,10 @@ fi
 mkdir -p "$jhome"
 # The jail's ~/.cache, outside the /home snapshots (~/.cache is a subvolume
 # of its own). Before, it was in the jail home: that one stays, unused
-# (home-manager's .keep is linked in on every start).
+# (prepare links home-manager's files under .cache in there on every start).
 cache=$HOME/.cache/jails/$name
 if [ ! -e "$cache" ] && [ -d "$jhome/.cache" ] && [ ! -L "$jhome/.cache" ] &&
-  [ -n "$(find "$jhome/.cache" -mindepth 1 -maxdepth 1 ! -name .keep -print -quit)" ]; then
+  [ -n "$(find "$jhome/.cache" ! -type d ! -lname '/nix/store/*-home-manager-files/*' -print -quit)" ]; then
   echo "jail: the jail's cache is now $cache; the old one, $jhome/.cache, is no longer used (delete it while the jail is stopped)" >&2
 fi
 mkdir -p "$cache" || die "cannot create $cache"

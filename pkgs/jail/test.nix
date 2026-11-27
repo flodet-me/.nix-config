@@ -59,6 +59,7 @@
           home.file.".codex/AGENTS.md".text = "from-home-manager"; # also bound read-only
           home.file.".codex/jail.config.toml".source =
             ../../home/flodet/_shared/components/claude-code/codex/jail.config.toml;
+          home.file.".cache/hm/.keep".text = ""; # linked into the jail home's old .cache
           home.sessionVariables.JAIL_PROBE = "from-session-vars";
           home.sessionPath = [ "$HOME/probe-bin" ];
         };
