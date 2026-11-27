@@ -28,6 +28,9 @@ provision-server <host> root@<ip>          # first install of a cloud server
 check-cves [host...]                       # known CVEs in what the hosts run (docs/security-updates.md)
 switch-review [HOST]                       # prefetch the tree, build exactly it, diff it against the running system, no git (docs/agent-isolation.md)
 claude-plugins-sync                        # install declared Claude Code plugins now (docs/claude-code.md)
+
+# On the workstations' PATH (home-manager)
+winvm help                                 # Windows test VMs on QEMU/KVM (pkgs/winvm/README.md); data in WINVM_HOME
 ```
 
 ## Architecture
