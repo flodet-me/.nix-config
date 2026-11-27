@@ -2,7 +2,7 @@
 
 `jail` opens a git repository in a bubblewrap jail. Your shell, Neovim and
 the agents (Claude Code, Codex) work inside it, and code run there cannot
-read the rest of your home, your keys or the host's services. `jail-push`
+read the rest of your home, your keys or the host's services. `jail push`
 pushes the jail's commits from outside. Inside every jail this file is
 `/run/current-system/sw/share/doc/jail/README.md`. Design, the checks in
 detail, the tests and all limits: `docs/jail.md` in the nix-config
@@ -32,7 +32,7 @@ jail ~/Projects/foo            # a shell in foo's jail (tmux); every terminal at
 jail                           # the same, for the repository around the current directory
 jail ~/Projects/foo -- make    # a one-off command in a fresh jail, its exit status passed on
 jail config [DIR]              # check DIR's .jail (below); never applies anything
-jail --help
+jail help                      # every command, by task (also jail --help)
 ```
 
 - A jail covers the nearest directory above `DIR` with a `.git` directory,
@@ -42,9 +42,12 @@ jail --help
 - The first `jail` starts a user unit `jail-<name>` (`<name>`: the folder
   name plus a hash of its path; inside, `$JAIL`) with a tmux server. Detach
   with the tmux prefix + `d`. The jail ends when its last window closes, or
-  with `systemctl --user stop jail-<name>`.
-- `config` is always the command, so that `jail config` means the same in
-  every folder: open a directory named `config` as `jail ./config`.
+  with `jail stop` (below).
+- `config`, `list`, `status`, `stop`, `reset`, `push` and `help` are always
+  commands, so that they mean the same in every folder: open a directory
+  named `list` as `jail ./list`.
+- bash and zsh complete the commands, folders and jail names, and for `jail
+  push` the repositories with a jail, then the branches of its mirror.
 
 ## Inside
 
@@ -56,23 +59,32 @@ jail --help
   `~/.config/direnv/direnv.toml` on every start. On the host `direnv allow`
   still applies (and you should not allow a jailed repository there).
 - Commits are unsigned inside (there is no gpg-agent). Push with
-  `jail-push` from outside.
+  `jail push` from outside.
 - Once a repository has a jail, work on it only inside: a host shell
   prompt, editor or direnv runs code the jail wrote (`core.fsmonitor`, a
-  flake's shell hook). `jail-push` is the one command meant for outside.
+  flake's shell hook). `jail push` is the one command meant for outside.
 - A port or a folder outside the repository: ask for it in `.jail` (below).
 
-## jail-push
+## jail push
 
 ```sh
-jail-push ~/Projects/foo                            # push the current branch
-jail-push ~/Projects/foo main --force-with-lease    # other git push arguments
+jail push ~/Projects/foo                            # push the current branch
+jail push ~/Projects/foo main --force-with-lease    # other git push arguments
 ```
 
-On the host, never inside. It pushes from a mirror the jail cannot see
+On the host, from outside the repository (a host shell in it is what the
+list above warns about); inside a jail it refuses. The first argument is
+`DIR` when it is a directory (one that looks like a path, `/...`, `./...`,
+`../...`, must exist); otherwise `DIR` is the current directory and every
+argument goes to `git push`. A folder here that is also a branch is
+refused: say `jail push ./docs` (the folder) or `jail push . docs` (the
+branch).
+`jail-push DIR [ARGS...]` is the same command (`DIR` required).
+
+`jail push` pushes from a mirror the jail cannot see
 (`~/.local/share/jails/<name>/mirror.git`) with your git and SSH key, and
 never runs git in the repository. The URL is `origin` as recorded at the
-first `jail` start; without one, the first `jail-push` shows the
+first `jail` start; without one, the first `jail push` shows the
 repository's URL (jailed code may have written it) and asks for `yes`.
 
 ## Ports and folders: .jail
@@ -134,8 +146,8 @@ Jailed code can write `.jail`, so `jail` applies only a copy you approved on
 a host terminal, as `direnv allow` does:
 
 1. Edit `.jail`, inside or outside.
-2. Start the jail again from a host terminal: `systemctl --user stop
-   jail-<name>` (this ends every shell in it), then `jail DIR`. A one-off
+2. Start the jail again from a host terminal: `jail stop DIR` (this ends
+   every shell in it), then `jail DIR`. A one-off
    `jail DIR -- CMD` on a terminal asks the same.
 3. `jail` shows the diff (the whole file the first time) and what it amounts
    to, and applies it once you type `yes`.
@@ -147,21 +159,48 @@ again, without asking, when the same `.jail` comes back. A port in use on
 the host keeps a shared jail from starting (it names the port); a one-off
 jail starts without that port.
 
+## Manage jails
+
+```sh
+jail list                     # every jail, one line each
+jail status [DIR]             # one jail in detail
+jail stop [DIR|NAME]          # stop its shared jail (ends every shell in it)
+jail stop --all               # stop every shared jail
+jail reset [DIR|NAME] --home  # delete state (below); always asks
+```
+
+- `jail list` shows each jail's name, its repository (`?` for a jail last
+  started before jail recorded it, `(gone)` when that folder no longer
+  exists), whether its shared jail runs and how many one-off jails, its
+  `.jail` (`approved`, `pending` your approval, `refused`, or `none`), the
+  push URL and the size of its home and cache.
+- `jail status [DIR]` prints what `jail config` does, then whether it runs,
+  its unit, the tmux clients attached, its state and cache folders and the
+  push URL.
+- `NAME` is a name from `jail list`; an argument is taken as `NAME` when
+  `~/.local/share/jails/NAME` exists and no directory of that name is in the
+  current one, otherwise as `DIR`. A jail whose repository is gone is
+  reached by its `NAME`.
+- `jail stop` stops shared jails only; it says how many one-off jails still
+  run (end those where they run).
+- These commands run on the host only.
+
 ## Reset
 
 ```sh
-systemctl --user stop jail-<name>
-rm -rf ~/.local/share/jails/<name>/home      # jail home (history, nvim state, trust lists, Claude/Codex state)
-rm -rf ~/.local/share/jails/<name>/claude-plugin-data   # its Claude plugin data
-rm -rf ~/.local/share/jails/<name>/jail.approved      # the approved .jail: the next start asks again
-rm -rf ~/.local/share/jails/<name>           # also the push mirror and its stored URL
-rm -rf ~/.cache/jails/<name>                 # its caches (~/.cache inside)
-rm -rf ~/.local/share/jails/<name>/home/.cache   # the cache of a jail from before ~/.cache/jails, unused
+jail reset [DIR|NAME] --approved   # the approved .jail: the next start asks again
+jail reset [DIR|NAME] --home       # the jail home (history, nvim state, trust lists, Claude/Codex state) and its Claude plugin data
+jail reset [DIR|NAME] --all        # all its state (also the push mirror and its stored URL) and its caches (~/.cache inside)
 ```
 
-After removing the whole state, the next `jail` start records the push URL
+`jail reset` refuses while the jail runs (shared or one-off) or a start of
+it is still asking or preparing, lists exactly what it deletes and asks
+`y/N` on the terminal, then checks again; without a terminal it deletes
+nothing. After `--all` the next `jail` start records the push URL
 again from the repository, which jailed code may have changed: check the URL
-it prints. It also asks about `.jail` again.
+it prints. It also asks about `.jail` again. The cache of a jail from before
+`~/.cache/jails`, unused, is `~/.local/share/jails/<name>/home/.cache`
+(`--home` deletes it).
 
 ## Limits
 

@@ -41,6 +41,7 @@
         pkgs.tmux
         pkgs.direnv
         pkgs.socat
+        pkgs.zsh # the completion under zsh's bashcompinit
         pkgs.dig
         (pkgs.callPackage ../../home/flodet/_shared/components/claude-code/codex/wrapper.nix { })
       ];
@@ -79,9 +80,9 @@
         return machine.succeed(full) if ok else machine.fail(full)
 
     def push_confirmed(repo, ok=True):
-        # jail-push on a terminal, answering its question about an unstored URL;
+        # jail push on a terminal, answering its question about an unstored URL;
         # a refusal must be a refusal, not a hang
-        rc = f"rc=0; printf 'yes\\n' | timeout 60 script -qec 'jail-push {repo}' /dev/null || rc=$?; echo rc=$rc; "
+        rc = f"rc=0; printf 'yes\\n' | timeout 60 script -qec 'jail push {repo}' /dev/null || rc=$?; echo rc=$rc; "
         return alice(rc + ("test $rc = 0" if ok else "test $rc != 0 && test $rc != 124"))
 
     def jail(cmd, ok=True, repo="~/repo"):
@@ -184,7 +185,7 @@
         # git works inside in every worktree; the URL is recorded at the first start
         out = start(f'test "$PWD" = /home/alice/cont/main && test -d ../var && {gc} commit -qm m --allow-empty'
                     f' && git status --short && cd ../feature && {gc} commit -qm f --allow-empty', repo="~/cont/main")
-        assert "jail-push /home/alice/cont pushes to /home/alice/cremote.git" in out, out
+        assert "jail push /home/alice/cont pushes to /home/alice/cremote.git" in out, out
         jail(f'test "$PWD" = /home/alice/cont && cd rel && {gc} commit -qm r --allow-empty && git -C ../main log --oneline | grep -q " m$"',
              repo="~/cont")
         # gitdir: without ./ is the same
@@ -206,24 +207,24 @@
         # jail-push: the worktree's branch only; the bare HEAD's from the container
         remote = "git --git-dir ~/cremote.git rev-parse"
         bare = "git --git-dir ~/cont/.bare rev-parse"
-        alice("jail-push ~/cont/feature </dev/null")
+        alice("jail push ~/cont/feature </dev/null")
         alice(f'test "$({remote} feature)" = "$({bare} feature)" && test "$({remote} main)" = "$(git -C ~/cseed rev-parse main)"'
               f' && test "$({bare} main)" != "$({remote} main)"')
-        alice("jail-push ~/cont </dev/null")
+        alice("jail push ~/cont </dev/null")
         alice(f'test "$({remote} main)" = "$({bare} main)" && ! {remote} -q --verify rel')
-        alice("jail-push ~/cont/rel/sub </dev/null")
+        alice("jail push ~/cont/rel/sub </dev/null")
         alice(f'test "$({remote} rel)" = "$({bare} rel)"')
         jail(f"{gc} -C main commit -qm m2 --allow-empty", repo="~/cont")
-        alice("jail-push ~/cont/var </dev/null")
+        alice("jail push ~/cont/var </dev/null")
         alice(f'test "$({remote} main)" = "$({bare} main)"')
 
         # a worktree whose .git points elsewhere: no branch of its own, a named one is pushed
         alice("cd ~/cont && git worktree add -q -b other other")
         for gd in ["/home/alice/cremote.git", "../../cseed/.git", "../.bare/worktrees/../../../cseed/.git", "/home/alice/cont/.bare"]:
             alice(f"printf 'gitdir: %s\\n' {shlex.quote(gd)} > ~/cont/other/.git")
-            assert "name the branch" in refuses("jail-push ~/cont/other"), gd
+            assert "name the branch" in refuses("jail push ~/cont/other"), gd
         alice(f"! {remote} -q --verify other")
-        alice(f'jail-push ~/cont/other other </dev/null && test "$({remote} other)" = "$({bare} other)"')
+        alice(f'jail push ~/cont/other other </dev/null && test "$({remote} other)" = "$({bare} other)"')
 
         # a normal repository: a linked worktree and a submodule resolve to it, jail-push pushes its HEAD
         alice("""
@@ -237,7 +238,7 @@
         for d in ["wt", "sub"]:
             jail(f'test "$PWD" = /home/alice/norm/{d} && test -e /home/alice/norm/f && git status >/dev/null', repo=f"~/norm/{d}")
         alice("! ls ~/.local/share/jails | grep -qE '^(wt|sub)-'")
-        alice("jail-push ~/norm/wt </dev/null")
+        alice("jail push ~/norm/wt </dev/null")
         alice('test "$(git --git-dir ~/nremote.git rev-parse main)" = "$(git -C ~/norm rev-parse main)"'
               " && ! git --git-dir ~/nremote.git rev-parse -q --verify wtb")
 
@@ -263,7 +264,7 @@
         }
         for make, why in bad.items():
             alice(f"cd ~/bad && {make}")
-            for cmd in ["jail ~/bad/main -- true", "jail ~/bad -- true", "jail-push ~/bad main"]:
+            for cmd in ["jail ~/bad/main -- true", "jail ~/bad -- true", "jail push ~/bad main"]:
                 out = refuses(cmd)
                 assert why in out, (make, cmd, out)
             alice("cd ~/bad && rm -rf .git && printf 'gitdir: ./.bare\\n' > .git && if [ -d bare ]; then rm -rf .bare && mv bare .bare; fi")
@@ -271,10 +272,10 @@
 
         # a FIFO instead of a worktree's git directory: no wait on it
         alice("mv ~/cont/.bare/worktrees/rel ~/relgit && mkfifo ~/cont/.bare/worktrees/rel")
-        assert "name the branch" in refuses("jail-push ~/cont/rel")
+        assert "name the branch" in refuses("jail push ~/cont/rel")
         # a link instead of worktrees: the worktree's HEAD is not read through it
         alice("mv ~/cont/.bare/worktrees ~/wtcopy && ln -s ~/wtcopy ~/cont/.bare/worktrees")
-        assert "name the branch" in refuses("jail-push ~/cont/feature")
+        assert "name the branch" in refuses("jail push ~/cont/feature")
 
     with subtest("~/.claude.json: login and MCP servers copied in, nothing back"):
         jail("grep -q oauthAccount ~/.claude.json && grep -q mcpServers ~/.claude.json && ! grep -q hostproject ~/.claude.json")
@@ -442,7 +443,7 @@
           rm -f /tmp/marker-*
         """)
         # ~/repo ran jailed code before it had a remote: the URL must be confirmed on a terminal
-        alice("jail-push ~/repo </dev/null", ok=False)
+        alice("jail push ~/repo </dev/null", ok=False)
         alice("test -z \"$(git --git-dir ~/remote.git for-each-ref)\"")
         push_confirmed("~/repo")
         alice('test "$(git --git-dir ~/remote.git rev-parse main)" = "$(cat ~/repo/.git/refs/heads/main)"')
@@ -450,7 +451,7 @@
 
         # the URL is stored on first use: a later change in the repository is ignored
         jail("git -C ~/repo -c user.name=a -c user.email=a@example.com commit -qm two --allow-empty && git -C ~/repo config remote.origin.url /home/alice/other.git")
-        alice("cd / && jail-push ~/repo")
+        alice("cd / && jail-push ~/repo")  # the alias jail-push does what jail push does
         alice('test "$(git --git-dir ~/remote.git rev-parse main)" = "$(cat ~/repo/.git/refs/heads/main)"')
         alice("test -z \"$(git --git-dir ~/other.git for-each-ref)\"")
         alice("! ls /tmp/marker-* 2>/dev/null")
@@ -462,7 +463,7 @@
           git remote add origin ssh://localhost/home/alice/remote5.git
         """)
         jail("git config remote.origin.url /home/alice/other.git", repo="~/repo5")
-        alice("jail-push ~/repo5 </dev/null")
+        alice("jail push ~/repo5 </dev/null")
         alice("git --git-dir ~/remote5.git rev-parse main && test -z \"$(git --git-dir ~/other.git for-each-ref)\"")
 
     with subtest("jail-push refuses unsafe remotes and repositories"):
@@ -478,7 +479,7 @@
         assert "refusing" in push_confirmed("~/repo2", ok=False)
         # DIR is mandatory and must exist
         alice("cd ~/repo && jail-push", ok=False)
-        alice("cd ~/repo && jail-push ~/nonexistent main", ok=False)
+        alice("cd ~/repo && jail push ~/nonexistent main", ok=False)
         # .git/config or HEAD as a link (to another repository's) or a FIFO
         alice("""
           git init -q --bare ~/victim-remote.git
@@ -504,7 +505,7 @@
         # a .git that points elsewhere (could hand out another repository)
         alice("git init -q ~/repo3 && cd ~/repo3 && git commit -q --allow-empty -m one && git remote add origin /home/alice/other.git")
         alice("mv ~/repo3/.git ~/repo3.git && ln -s ~/repo3.git ~/repo3/.git")
-        alice("jail-push ~/repo3", ok=False)
+        alice("jail push ~/repo3", ok=False)
         alice("test -z \"$(git --git-dir ~/other.git for-each-ref)\"")
 
     with subtest("a local remote's hooks run sandboxed"):
@@ -680,7 +681,7 @@
         assert "would add: ports 8095 8096 | ro /home/alice/cfg-ro | rw none" in out, out
         assert "in effect in this jail: ports 8095 | ro /home/alice/cfg-ro | rw none" in out, out
         assert ".jail differs from what is in effect in this jail" in out, out
-        assert "systemctl --user stop jail-repof-" in out and "type yes" in out and "rc=0" in out, out
+        assert "jail stop /home/alice/repof" in out and "type yes" in out and "rc=0" in out, out
         assert ".jail differs from the approved copy" in alice("jail config ~/repof 2>&1")
         # a bad line: named, non-zero, also on the host
         out = inside("printf 'port 80\\n' >> .jail &&")
@@ -737,5 +738,224 @@
         # and it starts again
         terminal("term3")
         machine.wait_until_succeeds(f"su - alice -c 'tmux -S {sock} list-clients' | grep -q .", timeout=60)
+
+    # Managing jails (jail list, status, stop, reset, push, help, completion).
+    # Here repo's shared jail runs (term3); a one-off of repo starts below.
+    import re
+    jails = "/home/alice/.local/share/jails"
+
+    def jname(repo):
+        return alice(f"cd ~ && basename {jails}/{repo}-*").strip()
+
+    def row(out, n):
+        # jail list's line for jail n, by column
+        rows = [re.split(r"  +", l.strip()) for l in out.splitlines() if l.startswith(n + " ")]
+        assert len(rows) == 1, (n, out)
+        return rows[0]
+
+    def answer(cmd, a, ok=True):
+        # cmd on a terminal, typing a
+        rc = f"rc=0; printf '{a}\\n' | timeout 60 script -qec {shlex.quote(cmd)} /dev/null || rc=$?; echo rc=$rc; "
+        return alice(rc + ("test $rc = 0" if ok else "test $rc != 0 && test $rc != 124"))
+
+    with subtest("every start records its repository; jail list shows every jail"):
+        r, c, e, f5 = jname("repo"), jname("repoc"), jname("repoe"), jname("repo5")
+        assert alice(f"cat {jails}/{r}/repo").strip() == "/home/alice/repo"
+        # a jail from before the repo file, and one whose repository is gone
+        alice(f"rm {jails}/{f5}/repo && git init -q ~/goner")
+        jail("true", repo="~/goner")
+        g = jname("goner")
+        alice("rm -rf ~/goner")
+        alice("(jail ~/repo -- sleep 300 </dev/null & echo $! > /tmp/oneoff; wait) >/dev/null 2>&1 &")
+        machine.wait_until_succeeds("pgrep -u alice -f '^sleep 300$'", timeout=30)
+        # a folder named like a command is no command: here ~/list
+        alice("mkdir ~/list")
+        out = alice("cd ~ && jail list")
+        assert re.split(r"  +", out.splitlines()[0].strip()) == ["NAME", "REPOSITORY", "SHARED", "ONE-OFF", ".JAIL", "PUSH", "HOME", "CACHE"], out
+        line = row(out, r)
+        assert line[1:6] == ["/home/alice/repo", "yes", "1", "none", "ssh://localhost/home/alice/remote.git"], line
+        assert all(re.fullmatch(r"[0-9.,]+[KMGT]?", s) for s in line[6:]), line
+        assert row(out, c)[1:6] == ["/home/alice/repoc", "no", "0", "pending", "-"], out
+        assert row(out, e)[1:5] == ["/home/alice/repoe", "no", "0", "approved"], out
+        assert row(out, f5)[1] == "?", out
+        assert row(out, g)[1] == "/home/alice/goner (gone)", out
+
+    with subtest("list, status, stop, reset, push, help and config are commands, a folder of that name is ./NAME"):
+        for w in ["list", "status", "stop", "reset", "push", "help", "config"]:
+            alice(f"mkdir -p ~/{w} && git init -q ~/{w}")
+            jail(f'test "$PWD" = /home/alice/{w}', repo=f"./{w}")
+        assert "Overview" in alice("cd ~ && jail help") and "NAME" in alice("cd ~ && jail list")
+
+    with subtest("jail help groups the commands"):
+        out = alice("jail help")
+        for s in ["Work in a jail", "Overview", "Manage", "jail push [DIR]", "jail list", "jail status [DIR]",
+                  "jail stop [DIR|NAME]", "jail reset [DIR|NAME]", "jail config [DIR]"]:
+            assert s in out, (s, out)
+        assert alice("jail --help") == out
+
+    with subtest("jail status: config, running, unit, tmux clients, state, push URL; writes nothing"):
+        out = alice("jail status ~/repo 2>&1")
+        for s in ["jail config: /home/alice/repo/.jail", "running: shared, 1 one-off", f"unit: jail-{r} (active)",
+                  f"state: {jails}/{r}", f"cache: /home/alice/.cache/jails/{r}", "push: ssh://localhost/home/alice/remote.git"]:
+            assert s in out, (s, out)
+        assert re.search(r"tmux clients: [1-9]", out), out
+        snap = f"find {jails}/{jname('repof')} -printf '%p %s %T@\\n' | sort"
+        before = alice(snap)
+        out = alice("jail status ~/repof 2>&1")
+        assert "running: no" in out and "push: none recorded" in out, out
+        assert alice(snap) == before
+
+    with subtest("jail reset refuses while the jail runs, and without saying what"):
+        out = refuses("jail reset ~/repo")
+        assert "--approved" in out and "--home" in out and "--all" in out, out
+        out = refuses("jail reset ~/repo --home")
+        assert f"jail-{r} runs" in out, out
+        out = alice("jail stop ~/repo")
+        assert f"stopped jail-{r}" in out, out
+        alice(f"! systemctl --user is-active jail-{r}")
+        out = alice("jail status ~/repo 2>&1")
+        assert "running: 1 one-off" in out and f"unit: jail-{r} (inactive)" in out and "tmux clients: 0" in out, out
+        assert "1 one-off" in refuses("jail reset ~/repo --home")
+        assert "not running" in alice("jail stop ~/repo")
+        alice("kill $(cat /tmp/oneoff)")
+        machine.wait_until_succeeds("! pgrep -u alice -f '^sleep 300$'", timeout=30)
+        assert row(alice("jail list"), r)[2:4] == ["no", "0"]
+
+    with subtest("jail reset lists what it deletes and asks on a terminal"):
+        out = refuses(f"jail reset {r} --home")
+        assert f"{jails}/{r}/home" in out and f"{jails}/{r}/claude-plugin-data" in out and "no terminal" in out, out
+        answer(f"jail reset {r} --home", "n", ok=False)
+        alice(f"test -d {jails}/{r}/home")
+        out = answer(f"jail reset {r} --home", "y")
+        alice(f"test ! -e {jails}/{r}/home && test ! -e {jails}/{r}/claude-plugin-data && test -d {jails}/{r}/mirror.git && test -e {jails}/{r}/repo")
+        # read-only folders (Go's module cache) go too
+        # and a folder jailed code made unreadable
+        jail("mkdir -p ~/ro/x && touch ~/ro/x/f && chmod -R a-w ~/ro && mkdir -p ~/z/y && touch ~/z/y/f && chmod 000 ~/z")
+        answer(f"jail reset {r} --home", "y")
+        alice(f"test ! -e {jails}/{r}/home")
+        # the next start makes a new home, the push URL stays
+        jail("grep -q from-home-manager ~/probe")
+        alice("cd ~/repo && jail push </dev/null")  # DIR: the current directory
+        answer("jail reset ~/repoe --approved", "y")
+        alice(f"test ! -e {jails}/{e}/jail.approved && test -d {jails}/{e}/home")
+        # by NAME: a gone repository, a dotted name
+        out = answer(f"jail reset {g} --all", "y")
+        assert f"/home/alice/.cache/jails/{g}" in out and "push URL" in out, out
+        alice(f"test ! -e {jails}/{g} && test ! -e /home/alice/.cache/jails/{g}")
+        alice("git init -q ~/.dotted")
+        jail("true", repo="~/.dotted")
+        d = jname(".dotted")
+        assert d.startswith(".dotted-"), d
+        answer(f"jail reset {d} --all", "y")
+        alice(f"test ! -e {jails}/{d}")
+        # a folder of that name here is a DIR, not the NAME; and no NAME outside the jails' state
+        alice(f"mkdir -p ~/t/{c}")
+        assert "not inside a git repository" in refuses(f"sh -c 'cd ~/t && jail reset {c} --approved'")
+        for bad in ["..", ".", f"../{c}", "nojail-12345678"]:
+            out = answer(f"jail reset {bad} --all", "y", ok=False)
+            assert "deletes" not in out and ("not inside a git repository" in out or "no such directory" in out), (bad, out)
+        alice(f"test -e {jails}/{c}/jail.approved && test -d ~/.local/share")
+
+    def pending(cmd, tag):
+        # cmd on a terminal in the background; it reads y once /tmp/go-tag exists
+        feed = f"until [ -e /tmp/go-{tag} ]; do sleep 0.2; done; echo y"
+        alice(f"(set +e; ({feed}) | script -qfec {shlex.quote(cmd)} /tmp/log-{tag}; echo rc=$? > /tmp/rc-{tag}) >/dev/null 2>&1 &")
+
+    def release(tag):
+        alice(f"touch /tmp/go-{tag}")
+        machine.wait_until_succeeds(f"test -e /tmp/rc-{tag}", timeout=60)
+        return alice(f"cat /tmp/log-{tag} /tmp/rc-{tag}")
+
+    with subtest("jail reset checks again after the answer, and not while a start prepares"):
+        # a one-off started while reset asks
+        pending(f"jail reset {r} --home", "a")
+        machine.wait_until_succeeds("grep -q 'Delete them' /tmp/log-a", timeout=60)
+        alice("(jail ~/repo -- sleep 301 </dev/null & wait) >/dev/null 2>&1 &")
+        machine.wait_until_succeeds("pgrep -u alice -f '^sleep 301$'", timeout=30)
+        out = release("a")
+        assert "one-off" in out and "rc=0" not in out, out
+        alice(f"test -d {jails}/{r}/home")
+        machine.succeed("pkill -u alice -f '^sleep 301$'")
+        machine.wait_until_succeeds("! pgrep -u alice -f '^sleep 301$'", timeout=30)
+        # a start still asking about .jail
+        pending("jail ~/repoc -- true", "s")
+        machine.wait_until_succeeds("grep -q 'Type yes' /tmp/log-s", timeout=60)
+        out = answer(f"jail reset {c} --approved", "y", ok=False)
+        assert "in progress" in out, out
+        alice(f"test -e {jails}/{c}/jail.approved")
+        assert "rc=0" in release("s")
+
+    with subtest("jail stop by NAME, and --all"):
+        s = jname("repos")
+        terminal("term5")
+        terminal("term6", repo="/home/alice/repos")
+        machine.wait_until_succeeds(f"su - alice -c 'export XDG_RUNTIME_DIR=/run/user/1000; systemctl --user is-active jail-{r} && systemctl --user is-active jail-{s}'", timeout=60)
+        alice(f"jail stop {s}")
+        alice(f"! systemctl --user is-active jail-{s} && systemctl --user is-active jail-{r}")
+        terminal("term7", repo="/home/alice/repos")
+        machine.wait_until_succeeds(f"su - alice -c 'export XDG_RUNTIME_DIR=/run/user/1000; systemctl --user is-active jail-{s}'", timeout=60)
+        out = alice("jail stop --all")
+        assert f"jail-{r}" in out and f"jail-{s}" in out, out
+        alice(f"! systemctl --user is-active jail-{r} && ! systemctl --user is-active jail-{s}")
+        assert "no shared jail runs" in alice("jail stop --all")
+
+    with subtest("the host commands refuse inside a jail"):
+        for cmd in ["jail list", "jail status", "jail stop", "jail reset --home", "jail push", "jail-push ~/repo"]:
+            jail(f"rc=0; {cmd} > ~/repo/inside.out 2>&1 || rc=$?; test $rc != 0")
+            assert "on the host only" in alice("cat ~/repo/inside.out"), cmd
+        alice("jail list >/dev/null && jail status ~/repo >/dev/null")  # the control
+
+    with subtest("jail push: a folder that is also a branch is refused, not guessed"):
+        alice("mkdir ~/repo/main")
+        out = refuses("sh -c 'cd ~/repo && jail push main'")
+        assert "jail push ./main" in out and "jail push . main" in out, out
+        alice("rmdir ~/repo/main")
+
+    with subtest("jail list and status escape paths"):
+        alice("git init -q ~/$'nl\\nrow'")
+        jail("true", repo="~/$'nl\\nrow'")
+        out = alice("jail list")
+        assert "/home/alice/nl^Jrow" in out and not any(l.startswith("row") for l in out.splitlines()), out
+        assert "jail config: /home/alice/nl^Jrow/.jail" in alice("jail status ~/$'nl\\nrow' 2>&1")
+
+    with subtest("bash completion for jail and jail push"):
+        def complete(words, fn="_jail"):
+            w = " ".join(shlex.quote(x) for x in words)
+            src = "/run/current-system/sw/share/bash-completion/completions/" + words[0] + ".bash"
+            return alice(f"cd ~ && set +e && source {src} && COMP_WORDS=({w}); COMP_CWORD={len(words) - 1}; {fn}; printf '%s\\n' \"''${{COMPREPLY[@]}}\"").split()
+        assert {"status", "stop"} <= set(complete(["jail", "st"])), complete(["jail", "st"])
+        assert {"reset", "repo", "repoc"} <= set(complete(["jail", "re"]))
+        assert {r, "repo"} <= set(complete(["jail", "stop", ""]))
+        assert {"--approved", "--home", "--all"} <= set(complete(["jail", "reset", r, "--"]))
+        assert "/home/alice/repo" in complete(["jail", "push", ""])
+        assert {"main", "probe"} <= set(complete(["jail", "push", "/home/alice/repo", ""]))
+        assert "/home/alice/repo" in complete(["jail-push", ""], "_jail_push")
+        assert "main" in complete(["jail-push", "/home/alice/repo", "m"], "_jail_push")
+        assert complete(["jail", "list", ""]) == []
+        # names jailed code chooses never run on the host: a mirror branch and a repository path
+        evil = "m$(touch''${IFS}/tmp/pwned)"
+        alice(f"git --git-dir={jails}/{r}/mirror.git update-ref refs/heads/{shlex.quote(evil)} refs/heads/main")
+        alice("git init -q ~/" + shlex.quote("x" + evil))
+        jail("true", repo="~/" + shlex.quote("x" + evil))
+        c1 = complete(["jail", "push", ""])
+        c2 = complete(["jail", "push", "/home/alice/repo", ""])
+        c3 = complete(["jail-push", "/home/alice/repo", "m"], "_jail_push")
+        machine.succeed("test ! -e /tmp/pwned")
+        assert "/home/alice/repo" in c1 and "/home/alice/x" + evil not in c1, c1
+        assert "main" in c2 and "main" in c3 and not any("touch" in w for w in c2 + c3), (c2, c3)
+
+    with subtest("zsh completion: the same functions under bashcompinit, no chpwd in the repository"):
+        def zcomplete(words, fn="_jail"):
+            w = " ".join(shlex.quote(x) for x in words)
+            src = "/run/current-system/sw/share/bash-completion/completions/jail.bash"
+            z = ("chpwd() { touch /tmp/chpwd; }; autoload -U +X compinit && compinit -u -d /tmp/zcd; "
+                 "autoload -U +X bashcompinit && bashcompinit; source " + src + "; "
+                 "COMP_WORDS=(" + w + "); COMP_CWORD=" + str(len(words) - 1) + "; " + fn + "; print -l -- $COMPREPLY")
+            return alice("cd ~ && zsh -fc " + shlex.quote(z)).split()
+        assert {"status", "stop"} <= set(zcomplete(["jail", "st"]))
+        z = zcomplete(["jail", "push", "/home/alice/repo", "m"])
+        assert "main" in z and not any("touch" in x for x in z), z
+        assert "main" in zcomplete(["jail-push", "/home/alice/repo", ""], "_jail_push")
+        machine.succeed("test ! -e /tmp/pwned && test ! -e /tmp/chpwd")
   '';
 }

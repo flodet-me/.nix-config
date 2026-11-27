@@ -42,5 +42,5 @@ sudo nixos-rebuild switch --flake .#<host>  # applies system and home-manager
 | Neovim, per-project LSP | [docs/neovim.md](docs/neovim.md) |
 | Claude Code | [docs/claude-code.md](docs/claude-code.md) |
 | Agent isolation (design, ADRs) | [docs/agent-isolation.md](docs/agent-isolation.md) |
-| Repository jail (`jail`, `jail-push`) | [docs/jail.md](docs/jail.md) |
+| Repository jail (`jail`, `jail push`) | [docs/jail.md](docs/jail.md) |
 | Privacy, telemetry | [docs/privacy.md](docs/privacy.md) |

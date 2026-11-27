@@ -117,7 +117,7 @@ outside it.
      prompts for the network and for writes to the jail's caches.
    - **Push** stays outside and must not read the repository's config
      (`core.sshCommand`, `url.*.insteadOf`, hooks run code):
-     `jail-push <repo>` fetches into a mirror the jail cannot write
+     `jail push <repo>` fetches into a mirror the jail cannot write
      (`~/.local/share/jails/<name>/mirror.git`) and pushes from there, to the
      URL `jail` recorded before jailed code first ran for the repository (or,
      without one, a URL you confirm on a terminal). `.git/config` and `HEAD`

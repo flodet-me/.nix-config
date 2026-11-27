@@ -1,7 +1,7 @@
 # Repository jail
 
 `jail` opens a repository in a bubblewrap jail that you and the agents share;
-`jail-push` pushes its commits from outside. Package: `pkgs/jail/` (the
+`jail push` (also `jail-push`) pushes its commits from outside. Package: `pkgs/jail/` (the
 scripts are its `.sh` files, `default.nix` builds them; `nix build .#jail`,
 `pkgs.jail`), installed system-wide on the workstations
 (`hosts/_shared/components/workstation.nix`); state stays per user. It needs
@@ -9,8 +9,9 @@ an activated home-manager generation (dotfiles for the jail home). Design
 and reasons: [agent-isolation.md](agent-isolation.md),
 [ADR 0001](adr/0001-repository-jail.md).
 
-How to use it (start, attach, one-off commands, `jail-push`, the `.jail`
-format, `jail config`, approval and restart, Reset, the main limits) is the
+How to use it (start, attach, one-off commands, `jail push`, the `.jail`
+format, `jail config`, approval and restart, `jail list`/`status`/`stop`,
+`jail reset`, the main limits) is the
 user guide [pkgs/jail/README.md](../pkgs/jail/README.md), installed as
 `share/doc/jail/README.md` (inside every jail:
 `/run/current-system/sw/share/doc/jail/README.md`, named by `jail --help`).
@@ -22,10 +23,15 @@ all limits.
 - A one-off command gets home-manager's session variables
   (`hm-session-vars.sh` of your generation: `NUGET_PACKAGES`,
   `NPM_CONFIG_CACHE`, `~/.local/bin` in `PATH`, ...), as the jail's shell does.
-- `DIR` defaults to the current directory for `jail`; `jail-push` needs it
-  (an existing directory). `jail config` is a fixed word, not a directory
-  (a directory named `config` is `jail ./config`), so the command means the
-  same in every folder, also where a repository has a `config/` folder. A
+- `DIR` defaults to the current directory for `jail` and `jail push`
+  (there the first argument is `DIR` only if it is a directory; one that
+  looks like a path must exist); `jail-push` needs it (an existing
+  directory). `config`, `list`, `status`, `stop`, `reset`, `push` and `help`
+  are fixed words, not directories (a directory named `list` is `jail
+  ./list`), so a command means the same in every folder, also where a
+  repository has a `config/` folder. `list`, `status`, `stop`, `reset` and
+  `push` (and `jail-push`) refuse inside a jail (`$JAIL` set): they work on
+  the host's state, which the jail does not see. A
   repository created inside a jail (nested, or a new folder) gets its own
   jail on its first `jail` start, and the URL printed then may come from
   jailed code: check it.
@@ -225,7 +231,12 @@ sandbox of its own (`/nix`, `/etc`, the socket): a tmux server, jailed or a
 fake one in the writable socket directory, can make a client run a command
 (`detach-client -E`, `MSG_SHELL`).
 
-## jail-push
+## jail push
+
+- `jail push [DIR] [ARGS...]` runs `jail-push DIR [ARGS...]`, the same
+  code; both refuse inside a jail. A first argument that is a folder here
+  and also a branch in the mirror of the current directory's jail is
+  refused (`jail push ./NAME` or `jail push . NAME`), not guessed.
 
 - Keeps a bare mirror in `~/.local/share/jails/<name>/mirror.git`, which the
   jail cannot see. It fetches all branches into it and pushes from there, with
@@ -248,19 +259,58 @@ fake one in the writable socket directory, can make a client run a command
 - The push URL is recorded when `jail` first starts for the repository, before
   any jailed code ran for it, and stored in the mirror; later changes in the
   repository are ignored. If none was recorded then (no remote yet, or one
-  refused), the first `jail-push` shows `remote.origin.url`, which jailed code
+  refused), the first `jail push` shows `remote.origin.url`, which jailed code
   may have written, and pushes only after you type `yes` on a terminal.
   Allowed: `ssh://`, `https://`, `user@host:path`, or the absolute path of a
   bare repository (pushed through a sandboxed `git-receive-pack`, so its hooks
   run without network or home). To change it:
   `git --git-dir ~/.local/share/jails/<name>/mirror.git remote set-url origin <url>`.
 
-## Reset
+## Managing jails
 
-The commands are in the user guide (Reset). Removing all of
-`~/.local/share/jails/<name>` also removes the recorded push URL: the next
-start records it again from the repository, which jailed code may have
-changed.
+- State per jail: `~/.local/share/jails/<name>/` holds `home/`,
+  `claude-plugin-data/`, `jail.approved`, `mirror.git/` (push URL),
+  `resolv.conf` and `repo` (the repository's path, written by every start;
+  jails last started before that have none and show `?` in `jail list`); the
+  cache is `~/.cache/jails/<name>/`. The jail never sees this folder, so
+  `jail list` and `jail status` trust what is in it; `repo` is used only when
+  its path hashes to the folder's name.
+- Running: a shared jail is the user unit `jail-<name>`
+  (`systemctl --user is-active`). A one-off jail is a `jail-run` process
+  (by `/proc/<pid>/comm`) outside a `jail-*.service` cgroup, named by the
+  cache it binds (`rw:~/.cache ~/.cache/jails/<name>` in its arguments); it
+  counts from its exec of `jail-run`, not while jail prepares it. Jailed
+  code in a one-off jail can fake such a process, naming any jail: that
+  makes `jail reset` of that or another jail refuse and inflates the counts
+  in `jail list` and `jail status`, nothing more.
+- A start holds a shared `flock` on `<name>/lock` from before its first
+  step until its jail runs (a one-off: just before its exec of `jail-run`;
+  the lock is closed for everything it starts), so a start still asking
+  about `.jail` or preparing the home makes `jail reset` refuse.
+- `jail status` counts the tmux clients through the same sandboxed client
+  as a start (the server is jailed code) and prints only the count.
+- `jail stop --all` stops the units of the jails in the state folder that
+  are active, not every `jail-*` unit.
+- `jail reset`: a `NAME` must be one path component (not `.` or `..`, no
+  `/`) and a real directory directly in `~/.local/share/jails`, and no
+  directory of that name in the current one; anything else is a `DIR`.
+  It refuses while the shared or a one-off jail runs, lists the existing
+  paths it deletes, needs `y` on a terminal (stdin and stderr), then takes
+  the lock exclusively (refusing while a start holds it) and checks again
+  that nothing runs, gives every folder in them `u+rwx` before `find`
+  descends into it (folders read-only or made unreadable by jailed code;
+  no links followed) and deletes them with `rm -rf`.
+- `jail list`, `jail status` and `jail config` print paths and URLs with
+  control characters as text (`cat -vT`, a newline as `^J`), so a path
+  cannot forge a row.
+- The completion (`completions/jail.bash`, for zsh through
+  `bashcompinit`): repository paths and mirror branches are chosen by
+  jailed code, so they never go through `compgen -W` (which expands
+  `$(...)`), only those needing no quoting are offered, and it runs no `cd`
+  or git in a repository (zsh's `chpwd` hooks, direnv), only
+  `git --git-dir=<mirror>`. `--all` also removes the recorded push
+  URL: the next start records it again from the repository, which jailed
+  code may have changed.
 
 ## Tested
 
@@ -292,10 +342,10 @@ loopback inside works; neither pasta, the jailed command nor the proxy and its
 socket outlive a one-off jail, also one ended by TERM, INT or KILL, or a
 stopped shared jail; `nix build` through the daemon; `/dev/kvm` inside iff
 outside; a link planted at a mount point does not stop the next start;
-`jail-push` pushes over ssh without running planted hooks, `core.fsmonitor`,
+`jail push` pushes over ssh without running planted hooks, `core.fsmonitor`,
 `core.sshCommand` (the global one runs) or `uploadpack.packObjectsHook`,
 uses the URL `jail` recorded at its first start, asks on a terminal for an
-unrecorded one and refuses without a terminal, keeps its stored URL, refuses
+unrecorded one and refuses without a terminal, keeps its stored URL (checked through the alias `jail-push`), refuses
 `ext::` (allowed in the test's git config), `fd::`, `file://`, option-like and
 non-repository URLs and URLs with control characters, a missing `DIR`, a
 symlinked `.git`, a `.git/config` or `HEAD` that is a link to another
@@ -303,7 +353,7 @@ repository's or a FIFO, and an `include.path` to another repository's config, an
 sandboxed; a container of worktrees (made with `git clone --bare`, a
 `gitdir: ./.bare` file and `git worktree add`) has one jail, state and unit
 from the container and from a worktree, git commits inside in each worktree,
-the URL is recorded from the bare repository at the first start, `jail-push`
+the URL is recorded from the bare repository at the first start, `jail push`
 from a worktree pushes only its branch (also from a relative-path worktree and
 a subfolder), from the container or a folder outside the worktrees the bare
 HEAD's, and from a worktree whose `.git` points elsewhere (another repository,
@@ -311,13 +361,34 @@ the bare repository itself, a `..` path out of it), whose git directory is a
 FIFO (no wait) or whose `worktrees` is a link nothing without a named branch;
 a container `.git` naming another repository, an absolute or `..` path, `./`,
 a link, an empty directory or a FIFO instead of the bare repository, or a
-FIFO as `.git` (no wait on either) is refused by `jail` and `jail-push`, from the container and
+FIFO as `.git` (no wait on either) is refused by `jail` and `jail push`, from the container and
 from a worktree; a linked worktree and a submodule of a normal repository use
-its jail, and `jail-push` from the worktree pushes the repository's HEAD;
+its jail, and `jail push` from the worktree pushes the repository's HEAD;
 two terminals share
 one tmux server and one unit, the shell in it is jailed, and a
 `detach-client -E` command does not run on the host, the shared jail reaches
 the Notifications stand-in and the second node and starts again after a stop;
+every start writes `repo`; `jail list` shows a shared jail and a one-off one
+running, `.jail` none, pending and approved, the push URL, sizes, `?` for a
+jail without `repo` and `(gone)` for a removed repository; folders named
+`list`, `status`, `stop`, `reset`, `push`, `help`, `config` open as
+`./NAME` while the words stay commands; `jail help` (= `--help`) groups the
+commands; `jail status` shows config, running, unit, tmux clients, state,
+cache and push URL and writes nothing; `jail stop` by `DIR` and `NAME`, and
+`--all`; `jail reset` without a flag, while the shared or a one-off jail
+runs and without a terminal refuses, after `n` deletes nothing, after `y`
+deletes exactly the listed paths (`--home` keeps `mirror.git`, also with
+read-only folders), by `NAME` for a gone repository and a dotted name, and
+takes a folder of the name here as `DIR`; `jail push` from the current
+directory; the host commands and `jail-push` refuse inside a jail; bash
+completion of commands, folders, jail names, flags and `jail push` /
+`jail-push` repositories and mirror branches; `jail reset` refuses after
+its `y` when a one-off started meanwhile and while a start asks about
+`.jail`, deletes a mode-000 folder in the jail home, and a bad `NAME`
+lists nothing; `jail push` refuses a folder that is also a branch; a path
+with a newline shows as `^J` in `jail list` and `jail status`; a mirror
+branch and a repository path with `$(...)` run nothing in bash and zsh
+completion, a normal branch completes, and zsh runs no `chpwd`;
 a `.jail` with a port, a `ro` and an `rw` folder is not applied before
 approval (without a terminal, or answered `no`), shows its content and then a
 diff with an escape sequence as `^[`, and once approved with `yes` (a typed
