@@ -20,7 +20,7 @@ done
 
 # Apply / deploy (human-run)
 nh os switch                                                 # current machine (alias: `update`)
-nixos-rebuild switch --flake .#<HOST> --target-host <HOST> --sudo
+nixos-rebuild switch --flake .#<HOST> --target-host <HOST> --sudo --use-substitutes   # target fetches from caches, not the workstation's upload
 
 # Workflow scripts (dev shell, sources in scripts/)
 make-installer-stick                       # build offline installer ISO, write+verify USB stick
