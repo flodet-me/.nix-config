@@ -10,7 +10,8 @@
 #   --keep        keep the test VM afterwards (default: destroy it)
 #
 # Exit status: 0 if every check passed, 1 otherwise. Needs a built image
-# (winvm build) and 4 GB of free RAM.
+# (winvm build), 4 GB of free RAM and python3 on PATH (it reads status --json;
+# e.g. nix shell nixpkgs#python3).
 set -uo pipefail
 
 WINVM=${WINVM:-$(command -v winvm)} || { echo "no winvm: put it on PATH or set WINVM" >&2; exit 2; }

@@ -1,8 +1,8 @@
 # winvm — clean, reproducible Windows test VMs
 
 Build a Windows VM once, fully unattended, then start, test and reset it from
-the Linux command line in seconds. Plain QEMU/KVM: no libvirt, no root, all
-files stay in this directory.
+the Linux command line in seconds. Plain QEMU/KVM: no libvirt, no root; every
+file winvm makes stays in one directory, `WINVM_HOME`.
 
 **What you get**
 
@@ -96,6 +96,9 @@ lives in `WINVM_HOME` (`winvm home` prints it):
 | `config.local.env`, `images/NAME.local.env` | your settings |
 | `recipes/NAME/` | your own recipes (`winvm recipes new NAME`); a shipped recipe of the same name wins |
 
+- Where it is: `$WINVM_HOME` if set, else the first line of
+  `${XDG_CONFIG_HOME:-~/.config}/winvm/home` (an absolute path), else
+  `${XDG_DATA_HOME:-~/.local/share}/winvm`.
 - Default: `${XDG_DATA_HOME:-~/.local/share}/winvm`. The first command that
   writes creates it, on btrfs as a subvolume of its own: the hourly `/home`
   snapshots (btrbk) do not contain nested subvolumes, so VM images stay out of
@@ -104,13 +107,16 @@ lives in `WINVM_HOME` (`winvm home` prints it):
   default. Let winvm create it (`winvm recipes new NAME` or the first
   `build`) before you put `config.local.env` there: a directory made with
   `mkdir` is a plain one inside the snapshots (winvm says so).
-- desktop: `WINVM_HOME=~/Projects/windows-vm` (home-manager,
+- desktop: `~/Projects/windows-vm`, from `~/.config/winvm/home` (home-manager,
   `home/flodet/desktop/default.nix`), the old checkout with its data: on the
   data disk, not snapshotted, erased by a reinstall. The copies of
   `config.env`, `images/*.env`, `provision/` and `recipes/` still lying there
   are ignored; only the local settings are read from it.
-- Command-only reads (`help`, `home`, `images`, `list`, `status`, `recipes`,
-  `ssh-config`, `completion`) do not create `WINVM_HOME`.
+- Only commands that may write create `WINVM_HOME`; reads (`help`, `home`,
+  `images`, `list`, `status`, `recipes`, `ssh-config`, `completion`) and
+  unknown commands do not.
+- Removing a home: stop its VMs, then `rm -r` it (that removes the subvolume
+  too, once empty; an empty subvolume also goes with `rmdir`).
 
 **Changing winvm**: edit it here in nix-config, then try it without switching:
 

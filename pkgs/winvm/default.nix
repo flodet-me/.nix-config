@@ -18,10 +18,12 @@
   gawk,
   gnugrep,
   gnused,
+  gnutar,
   mitmproxy,
   OVMFFull,
   openssh,
   powershell,
+  procps,
   python3,
   qemu_kvm,
   swtpm,
@@ -42,9 +44,11 @@ let
     gawk
     gnugrep
     gnused
+    gnutar # deploy
     mitmproxy
     openssh
     powershell
+    procps # ps in status
     python3
     qemu_kvm
     swtpm

@@ -47,10 +47,24 @@ runCommand "winvm-test"
     check "list without VMs" has 'no VMs yet' w list
     check "recipes lists the shipped recipes" has '^hidpi ' w recipes
     check "completion prints the bash completion" has 'complete .*_winvm winvm' w completion
+    check "status on an empty home" has 'not built' w status
+    check "status --json on an empty home" has '"state": "not-built"' w status --json
     check "home prints WINVM_HOME" has "^$WINVM_HOME\$" w home
-    check "read-only commands leave WINVM_HOME alone" test ! -e "$WINVM_HOME"
+    check "an unknown command fails" bash -c '! winvm frobnicate'
+    check "read-only and unknown commands leave WINVM_HOME alone" test ! -e "$WINVM_HOME"
     check "the default WINVM_HOME is ~/.local/share/winvm" \
       has "^$HOME/.local/share/winvm\$" env -u WINVM_HOME winvm home
+
+    # Without WINVM_HOME: the first line of ~/.config/winvm/home (home-manager on desktop).
+    mkdir -p "$HOME/.config/winvm"
+    echo "$TMPDIR/from-config" >"$HOME/.config/winvm/home"
+    check "the home from ~/.config/winvm/home" \
+      has "^$TMPDIR/from-config\$" env -u WINVM_HOME winvm home
+    check "WINVM_HOME wins over the config file" has "^$WINVM_HOME\$" w home
+    echo "relative/path" >"$HOME/.config/winvm/home"
+    check "a relative path in the config file is refused" \
+      has 'not an absolute path' bash -c '! env -u WINVM_HOME winvm home'
+    rm "$HOME/.config/winvm/home"
 
     check "home works with an invalid WINVM_VM" has "^$WINVM_HOME\$" env WINVM_VM=Bad winvm home
 

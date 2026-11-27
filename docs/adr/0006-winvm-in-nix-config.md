@@ -38,14 +38,19 @@ details decided by the agent:
   `iso/`, `cache/`, `share/`, `runs/`, `captures/`, `recipes/` (yours),
   `config.local.env`, `images/NAME.local.env`. Shipped settings and recipes
   stay in the package; a shipped recipe wins over one of the same name.
-- Default `WINVM_HOME=${XDG_DATA_HOME:-~/.local/share}/winvm`, used on the
+- The home is `$WINVM_HOME` if set, else the first line of
+  `${XDG_CONFIG_HOME:-~/.config}/winvm/home` (absolute, or winvm refuses),
+  else `${XDG_DATA_HOME:-~/.local/share}/winvm`, the default, used on the
   laptop. The first writing command creates it as a btrfs subvolume of its
   own (nested subvolumes are not part of the hourly btrbk snapshots of
   `/home`, so VM images stay out of them) with `chattr +C`; on other file
   systems a plain directory.
-- desktop: `WINVM_HOME=~/Projects/windows-vm` (home-manager, shell and
-  systemd user environment), the old checkout with its data on the data
-  disk, not snapshotted. Nothing is moved.
+- desktop: `~/Projects/windows-vm` in `~/.config/winvm/home` (home-manager
+  `xdg.configFile`), the old checkout with its data on the data disk, not
+  snapshotted. Nothing is moved. A file instead of a session variable: the
+  session environment changes only at the next login, and a winvm started
+  before that would have created and used an empty default home.
+- Only commands that may write create the home; reads and typos do not.
 
 ## Consequences
 
@@ -55,6 +60,8 @@ details decided by the agent:
 - In a jail, only data paths need binds (docs/agent-isolation.md).
 - `winvm vscode setup` / `rider setup` write store paths into IDE files;
   after an update and garbage collection they must be run again.
+- A home is removed with `rm -r` (an empty subvolume goes like a
+  directory, also with `rmdir`).
 - The laptop's VMs survive reinstalls only as far as `/home` does, but are in
   no snapshot; base images are rebuilt with `winvm build`.
 - The old repository `~/Projects/windows-vm` keeps its git history and is no
