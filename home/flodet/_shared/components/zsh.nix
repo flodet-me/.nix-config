@@ -22,10 +22,9 @@ in
 
     shellAliases = {
       ll = "ls -l";
-      # Build, review what changed since the running system (never blocks),
-      # then switch (a cached rebuild) after asking, so the review sits right
-      # above nh's prompt instead of scrolling off behind the build log.
-      update = "nh os build && { ${switch-review}/bin/switch-review; nh os switch --ask; }";
+      # Build, review what changed since the running system, then hand that
+      # build to `nh os switch --ask`; a failed review stops before the prompt.
+      update = "${switch-review}/bin/switch-review --switch";
     };
     history.size = 10000;
     history.ignoreAllDups = true;

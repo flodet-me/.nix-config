@@ -159,42 +159,50 @@ The VM test `checks.x86_64-linux.jail` asserts the table above for step 2
 
 ## Review before switch
 
-An agent may change this repository's own rules (Claude Code config, jail,
-users, nix settings, ...). Nothing it writes goes live until you switch, so
-the switch is the human gate, and `update` shows what you are about to
-apply first:
+An agent may change anything in this repository, and root code sits
+everywhere in it (every module, `hosts/<host>/`, `shell.nix`, `.envrc`,
+`installer/`). Nothing it writes goes live until you switch, so the switch is
+the human gate, and `update` shows you exactly what you are about to apply:
 
-- Every host records what it was built from: `nixos-version
-  --configuration-revision` (`self.rev`, or `self.dirtyRev`). Workstations
-  also keep `/run/current-system/flake-source`, a link to the flake source in
-  the system closure (set in `mkHost`, `flake.nix`). Servers do not: their
-  closure would carry the whole repository, other hosts' encrypted secrets
-  included.
-- `switch-review [HOST]` (`scripts/switch-review/`) diffs that source against
-  what `nix flake prefetch` fetches from `$NH_FLAKE` now, the tree `nh os
-  switch` builds (dirty tracked changes included, untracked files not). It
-  prints both revisions, the changed files, the full diff of the
-  security-relevant paths (list in the script: Claude Code, jail, users,
-  `nix.nix`, server hardening, impermanence, sops/keys, `flake.*`,
-  `overlays`, `pkgs`, `scripts`, `.claude/`, `CLAUDE.md`, `AGENTS.md`, and
-  `zsh.nix`, which defines `update`) and,
-  elsewhere, only the changed lines with a security keyword (sudo, polkit,
-  groups, trusted users, wrappers, setuid, capabilities, permissions, hooks).
+- Every host records the commit it was built from: `nixos-version
+  --configuration-revision` (`self.rev`, or `self.dirtyRev`). That makes
+  every commit, also docs-only, a new toplevel on every host, servers
+  included. Workstations also keep `/run/current-system/flake-source`, a link
+  to the flake source in the system closure, and `flake-revision` (set in
+  `mkHost`, `flake.nix`). Servers do not: their closure would carry the whole
+  repository, other hosts' encrypted secrets included.
+- `switch-review [HOST]` (`scripts/switch-review/`) builds this host's
+  toplevel from `$NH_FLAKE` and diffs its `flake-source` against the running
+  system's. That is the tree nix builds: dirty tracked changes included,
+  untracked files not. It prints both revisions, the changed files, and the
+  full diff of every change except under `docs/` (names only).
+  Symlinks (with their target), special files and type changes get their
+  own loud list; files are compared as text (`diff -a`), and everything
+  printed passes `cat -v`, so CR, ESC and other control characters show as
+  `^M`, `^[`, ... instead of acting on the terminal (non-ASCII shows as
+  `M-...`). Names are listed with `find -print0`; a newline in a name shows as
+  `\n`.
 - It runs no git on the repository: a jail may have written `.git/config`,
   and a pager, external diff, textconv or fsmonitor there could forge the
-  output. Plain `diff` on two store paths.
-- `update` = `nh os build && { switch-review; nh os switch --ask; }`: nh
-  builds first, then the review (it never blocks), then `nh os switch` finds
-  the build done, shows the package diff and asks "Apply the config?"
-  (default no), right below the review. Don't let an agent write to the
-  repository meanwhile: the switch fetches the tree again. The alias calls
-  the reviewed `switch-review` from your home profile by store path, not the
-  working tree's (direnv puts that first on PATH).
+  output. It calls nix as `/run/current-system/sw/bin/nix` and nh by store
+  path, and reads the new revision from `flake-revision`: nothing from the
+  repository or the new build runs before you agree.
+- `update` = `switch-review --switch`: after the review it runs
+  `nh os switch --ask <the reviewed store path>`. nh 4.5.0 accepts a store
+  path as installable and leaves it as is (no evaluation), builds it (a
+  no-op, it exists), shows its package diff and asks "Apply the config?"
+  (default no). So the switch applies exactly the reviewed build, and the
+  prompt follows the review directly. This is smaller than doing nh's diff,
+  prompt, profile and `switch-to-configuration` by hand. If the build or the
+  review fails, `update` stops with "nothing was switched" and never
+  prompts; `nh os switch` by hand still works.
+- The alias calls the `switch-review` of your home profile (reviewed at the
+  last switch) by store path. Run `update` outside `~/.nix-config`: inside
+  it, direnv has already evaluated the repository's `shell.nix` and run its
+  `.envrc` when you entered the directory, before any review.
 - Only this machine: `/run/current-system` is local, so a `--target-host`
   deploy to `moon` or `vps` is not reviewed. A system built before this has
   no `flake-source`; the review says so, and the next switch records it.
-- Because the source is in a workstation's closure, every commit (also
-  docs-only) is a new system generation there.
 
 ## VMs and Windows development
 

@@ -90,11 +90,10 @@ rec {
   ]) { "@ovmf@" = "${pkgs.OVMF.fd}"; };
 
   # Review before switch: what changed since the running system was built
-  # (docs/agent-isolation.md). No git on purpose.
+  # (docs/agent-isolation.md). No git on purpose; nix from the system.
   switch-review = script "switch-review" (with pkgs; [
     diffutils
-    jq
-    gnugrep
+    findutils
     coreutils
-  ]) { };
+  ]) { "@nh@" = "${pkgs.nh}"; };
 }

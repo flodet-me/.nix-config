@@ -69,9 +69,12 @@
                 system.configurationRevision = self.rev or self.dirtyRev or null;
                 # Workstations only: a server closure must not carry the repository
                 # (other hosts' encrypted secrets); switch-review is local anyway.
-                system.systemBuilderCommands = lib.mkIf (
-                  config.host.role == "workstation"
-                ) "ln -s ${self} $out/flake-source";
+                # flake-revision is read by switch-review, which runs nothing from
+                # an unreviewed build.
+                system.systemBuilderCommands = lib.mkIf (config.host.role == "workstation") ''
+                  ln -s ${self} $out/flake-source
+                  printf %s ${lib.escapeShellArg (toString config.system.configurationRevision)} > $out/flake-revision
+                '';
               }
             )
           ]
