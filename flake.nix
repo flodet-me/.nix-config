@@ -112,6 +112,15 @@
             x86_64-linux.installer-iso = installer.config.system.build.isoImage;
             x86_64-linux.install-host = installer.config.system.build.installHost;
           };
+      # `nix run .#check` / `.#gate` from the repository root (docs/testing.md)
+      apps = forEachSystem (
+        pkgs:
+        lib.genAttrs [ "check" "gate" ] (name: {
+          type = "app";
+          program = lib.getExe self.packages.${pkgs.stdenv.hostPlatform.system}.${name};
+          inherit (self.packages.${pkgs.stdenv.hostPlatform.system}.${name}) meta;
+        })
+      );
       devShells = forEachSystem (pkgs: import ./shell.nix { inherit pkgs; });
       formatter = forEachSystem (pkgs: pkgs.nixfmt);
       checks = forEachSystem (pkgs: {
