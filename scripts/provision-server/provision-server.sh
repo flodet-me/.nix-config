@@ -86,5 +86,5 @@ Done. Next steps:
   * set the address of $host in hosts/_shared/components/server-access.nix
   * commit keys/hosts/$host.age, .sops.yaml, hosts/$host/ (incl. ssh_host_ed25519_key.pub), push
   * rebuild your workstation, then: ssh $host
-  * updates later: nixos-rebuild switch --flake .#$host --target-host $host --sudo
+  * updates later: nixos-rebuild switch --flake .#$host --target-host $host --sudo --use-substitutes
 EOF

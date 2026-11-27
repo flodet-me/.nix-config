@@ -16,15 +16,6 @@
     ) inputs;
   };
 
-  # Adds pkgs.stable: the pinned nixpkgs-stable release. Only allowUnfree is
-  # carried over (the full config differs between releases).
-  stable = final: _: {
-    stable = import inputs.nixpkgs-stable {
-      inherit (final.stdenv.hostPlatform) system;
-      config.allowUnfree = final.config.allowUnfree or false;
-    };
-  };
-
   # Adds my custom packages
   additions = final: _: import ../pkgs { pkgs = final; };
 

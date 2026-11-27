@@ -74,10 +74,11 @@ workstation, after building locally (and CI building it too).
 ## Day to day
 
 ```sh
-# deploy (builds locally, copies, activates)
-nixos-rebuild switch --flake .#<name> --target-host <name> --sudo
+# deploy (builds locally, copies, activates); --use-substitutes: the target
+# fetches what the caches have instead of the workstation uploading it
+nixos-rebuild switch --flake .#<name> --target-host <name> --sudo --use-substitutes
 # try without making it the boot default
-nixos-rebuild test --flake .#<name> --target-host <name> --sudo
+nixos-rebuild test --flake .#<name> --target-host <name> --sudo --use-substitutes
 # server secrets
 sops hosts/<name>/secrets.yaml
 # what a new service writes outside of persisted paths
@@ -105,7 +106,7 @@ server.web = {
 };
 ```
 
-3. Deploy (`nixos-rebuild switch --flake .#<name> --target-host <name> --sudo`).
+3. Deploy (`nixos-rebuild switch --flake .#<name> --target-host <name> --sudo --use-substitutes`).
 
 What happens automatically:
 

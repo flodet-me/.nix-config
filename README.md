@@ -15,7 +15,7 @@ NixOS and home-manager configuration for my machines, as a flake.
 ├── scripts/       | Workflow scripts (dev shell / `nix run .#<name>`)
 ├── keys/          | Public keys only: admins, per-host sops keys, GPG/SSH
 ├── security/      | CVE scan whitelist
-├── overlays/      | pkgs.stable, pkgs.inputs.*, patches
+├── overlays/      | pkgs.inputs.*, patches
 ├── pkgs/          | Custom packages
 ├── assets/        | Wallpaper
 └── docs/          | How-tos (see below)

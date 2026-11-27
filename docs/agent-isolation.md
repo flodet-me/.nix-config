@@ -63,7 +63,8 @@ run in the same jail as the agents, so nothing written there is ever executed
 outside it.
 
 1. **Close the root paths** (useful on its own, independent of agents).
-   Implemented for `trusted-users` and Docker (`workstation.nix` asserts both):
+   Implemented for `trusted-users` and Docker (`workstation.nix` asserts both,
+   and that `flodet` is in none of `docker`, `lxd`, `libvirtd`, `podman`):
    - `trusted-users = [ "root" ]` on the workstations only. Substituters are
      already system-wide in `nix.nix`; a flake's `nixConfig`
      `extra-substituters` is no longer accepted for `flodet` there (add a
