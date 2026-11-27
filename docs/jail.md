@@ -73,13 +73,20 @@ rw /srv/scratch/foo
   reach the jail's `127.0.0.1:N` (pasta `--host-lo-to-ns-lo -t
   127.0.0.1/N`). Only host to jail: the jail still reaches no host port. The
   server inside must listen on `127.0.0.1` or `0.0.0.0` (`--host 127.0.0.1`),
-  not on `::1` only.
+  not on `::1` only. A forwarded port is open to every local process and
+  user of the host, as any listener on `127.0.0.1` is; and while the jail
+  runs it holds the port, so a host service that starts later on the same
+  port cannot bind it (and a client of that service talks to the jail).
 - `ro PATH`, `rw PATH`: a directory or file bound at the same absolute path
   (`~/` is your home). It must exist, and its path must have no symlink in it
   and be canonical (no `.`, `..`). Refused: `/`, `/tmp`, anything in `/nix`,
   `/run`, `/proc`, `/dev`, `/etc`, `/sys`, your home or a folder above it
   (`/home`), the jails' state (`~/.local/share/jails`, or a folder above it
   such as `~/.local`), and the repository or anything in it or above it.
+  Also refused, in it, at it or above it: `~/.ssh`, `~/.gnupg`, `~/.claude`,
+  `~/.codex`, `~/.claude.json`, `~/.local/share/keyrings`,
+  `~/.password-store`; and as `rw` (fine as `ro`): `~/.config`,
+  `~/.local/state`, `~/.local/bin`, `~/brain`.
 - `#` starts a comment line (only at the start of a line); blank lines are
   fine; any other line is an error naming the line. A port given twice counts
   once.
@@ -93,8 +100,9 @@ way `direnv allow` works:
 - When it differs from the approved copy and `jail` runs on a terminal
   (stdin and stderr), it
   shows the diff (the whole file the first time), with control characters
-  and other bytes as text (`cat -v`: an escape is `^[`), and applies it once
-  you type `yes`. Refused, without a terminal, or when `.jail` is a link, too
+  and other bytes as text (`cat -vT`: an escape is `^[`, a tab `^I`), then
+  one line with what it amounts to (`jail: in effect: ports ... | ro ... |
+  rw ...`), and applies it once you type `yes`. Refused, without a terminal, or when `.jail` is a link, too
   large or has a bad line: one line says that `.jail` is not applied, and the
   jail starts with the copy you approved last (or with none). A jail never
   fails to start because of an unapproved `.jail`.
@@ -103,6 +111,13 @@ way `direnv allow` works:
   writes it back); remove `jail.approved` (Reset) to be asked again.
 - The approved copy is checked again on every start: if a path is gone or
   now goes through a symlink, `jail` stops and names the line.
+- The repository and every `ro`/`rw` path are bound by fd: right before bwrap
+  (`jail-binds`, under pasta) each is opened, checked to be that very path
+  (`/proc/self/fd`, no link on the way) and passed as `--bind-fd`/`--ro-bind-fd`,
+  so a link a running jail swaps in after the check (below one of its `rw`
+  folders, or a nested repository's folder in the outer one) stops the start
+  instead of redirecting the bind. bwrap closes those fds before the jailed
+  program runs. Mount points with a link on the way are refused by bwrap.
 - Read when a jail starts: the shared jail at its first terminal, every
   one-off jail. A running shared jail keeps its config until it restarts
   (`systemctl --user stop jail-<name>`).
@@ -121,11 +136,12 @@ page read. Use a separate browser profile for it if those services matter.
 
 `rw` on a path undoes the isolation for that path: another jailed
 repository (its code then runs in both jails), personal data. `rw` on
-anything your host session runs or reads as config (`~/.claude`,
-`~/.config`, a shell rc, `~/.local/bin`) is a way out of the jail. `ro`
-shows the jail whatever is in there. A jail with `rw` on a folder can swap
-links into it; a second entry below that folder is checked at each start,
-not at the moment of the bind.
+anything your host session runs or reads as config or instructions
+(`~/.config`, a shell rc, `~/.local/bin`, `~/brain`, whose `wiki/hot.md`
+every Claude session loads) is a way out of the jail; the list above
+refuses the known ones, not every one. `ro` shows the jail whatever is in
+there. Opening a path that a jail swapped for a FIFO waits: stop that
+start with Ctrl-C.
 
 ## Network and D-Bus
 
@@ -206,7 +222,7 @@ it asks again about `.jail`.
 ## Tested
 
 `nix build .#checks.x86_64-linux.jail` (NixOS VM; the test script itself takes
-about 90 s, with a second VM): hidden home paths and `~/.cache/docker` absent; `~/brain` read-only
+about 103 s, with a second VM): hidden home paths and `~/.cache/docker` absent; `~/brain` read-only
 except `inbox/`; writes to `~/.claude` config (`CLAUDE.md`, `settings.json`,
 `skills/`, `rules/`, `agents/`, `plugins/`) and `~/.codex` (`config.toml`,
 `AGENTS.md`, `rules/`) fail; the logins are shared; state written in
@@ -251,9 +267,15 @@ port, then starts once it is free; a jail-side edit adding `rw` of a host file
 is not applied without approval and the approved copy stays in use; a linked
 `.jail`, a linked path, forbidden paths (`/`, `/home`, `~`, `~/.local`, the
 jails' state, `/etc`, `/nix/store`, `/run/user`, `/proc`, `/tmp`, the
-repository and its `.git`), relative and missing paths, ports below 1024 or
-above 65535 and unknown keywords are refused with the line named, and nothing
-is applied
+repository and its `.git`, `~/.ssh`, `~/.gnupg`, `~/.claude` and below it,
+`~/.codex`, `~/.claude.json`, keyrings, `~/.password-store`, and as `rw`
+`~/.config`, `~/.local/state`, `~/.local/bin`, `~/brain`), relative and
+missing paths, ports below 1024 or above 65535 and unknown keywords are
+refused with the line named, and nothing is applied; the approval shows a tab
+as `^I` and the line with what is in effect; a `.jail` over 64 KiB, a FIFO
+(no wait) or a directory is not applied; an approved path that is gone stops
+the start; `jail-binds` refuses a bind source that is a link when it opens
+it (a swap after the check) and the jail holds no fd beyond 0 to 2
 (a fake server answering
 the liveness check is covered by construction, the same sandbox, not by a
 test). Every negative check has

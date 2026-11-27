@@ -127,7 +127,10 @@ outside it.
    through a filtering proxy.
    Per repository, `.jail` adds forwarded ports and `ro`/`rw` folders; jailed
    code can edit it, so only a copy you approved on a terminal (diff shown,
-   typed `yes`) applies ([jail.md](jail.md), "Per-repository config").
+   typed `yes`) applies, keys, logins and (as `rw`) what the host session
+   runs are refused, and the repository and these paths are bound by fd
+   after a check that no link was swapped in ([jail.md](jail.md),
+   "Per-repository config").
 4. **Claude Code's sandbox inside the jail** for finer per-command rules, if
    wanted; the jail stays the boundary.
 5. **Untrusted third-party code**: option D (microVM) for that repository.

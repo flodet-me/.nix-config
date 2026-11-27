@@ -193,12 +193,42 @@ let
     '';
   };
 
+  # Opens each bind source of `jail` that jailed code could swap for a link
+  # (the repository, .jail's ro/rw paths), checks that the open file is that
+  # path, and hands it to bwrap by fd (`--args 5` in bwrap's args takes
+  # `--bind-fd`/`--ro-bind-fd`): a link swapped in after jail's check cannot
+  # redirect the bind. bwrap closes the fds after mounting. Runs under pasta,
+  # which closes inherited fds, right before bwrap.
+  # Args: ro|rw PATH ..., --, bwrap and its args.
+  jailBinds = pkgs.writeShellApplication {
+    name = "jail-binds";
+    runtimeInputs = [ pkgs.coreutils ];
+    text = ''
+      specs=()
+      while [ $# -ge 2 ] && [ "$1" != -- ]; do
+        case $1 in ro) b=--ro-bind-fd ;; rw) b=--bind-fd ;; *) echo "jail-binds: unknown kind $1" >&2; exit 2 ;; esac
+        exec {fd}<"$2" || { echo "jail: cannot open $2" >&2; exit 1; }
+        f=/proc/self/fd/$fd
+        if [ "$(readlink "$f")" != "$2" ] || { [ ! -d "$f" ] && [ ! -f "$f" ]; }; then
+          echo "jail: $2 changed after it was checked (a link?); not started" >&2
+          exit 1
+        fi
+        specs+=("$b" "$fd" "$2")
+        shift 2
+      done
+      [ "''${1:-}" = -- ] || { echo "usage: jail-binds [ro|rw PATH]... -- BWRAP..." >&2; exit 2; }
+      shift
+      if [ ''${#specs[@]} -gt 0 ]; then exec 5< <(printf '%s\0' "''${specs[@]}"); else exec 5</dev/null; fi
+      exec "$@"
+    '';
+  };
+
   # Runs `bwrap ARGS...` in a network namespace of its own (pasta, as rootless
   # Podman does) and, with a BUS path, after starting a D-Bus proxy there that
   # lets the jail talk to org.freedesktop.Notifications only. Both last exactly
   # as long as this script. Args: BUS (a socket path, or empty), PORTS (TCP
   # ports forwarded from host 127.0.0.1 to the jail's, comma-separated, or
-  # empty), bwrap's args.
+  # empty), jail-binds' ro|rw PATH pairs, --, bwrap's args.
   jailRun = pkgs.writeShellApplication {
     name = "jail-run";
     runtimeInputs = [
@@ -212,6 +242,10 @@ let
       tcp=(-t none)
       [ -z "$2" ] || tcp=(--host-lo-to-ns-lo -t "127.0.0.1/$2")
       shift 2
+      binds=()
+      while [ $# -ge 2 ] && [ "$1" != -- ]; do binds+=("$1" "$2"); shift 2; done
+      [ "''${1:-}" = -- ] || { echo "jail-run: no -- after the binds" >&2; exit 2; }
+      shift
       # the proxy leaves its socket behind when stopped by a signal
       cleanup() { [ -z "$bus" ] || rm -f "$bus"; }
       trap cleanup EXIT
@@ -235,7 +269,7 @@ let
       # the inner one every signal for the jailed program (pasta ignores SIGPIPE).
       setpriv --pdeathsig KILL env --default-signal=INT \
         pasta --config-net --quiet "''${tcp[@]}" -u none -T none -U none --no-map-gw --dns-forward 169.254.1.1 \
-        -- env --default-signal ${bwrap} --uid "$(id -u)" --gid "$(id -g)" --cap-drop ALL "$@" <&0 &
+        -- env --default-signal ${jailBinds}/bin/jail-binds "''${binds[@]}" -- ${bwrap} --uid "$(id -u)" --gid "$(id -g)" --cap-drop ALL "$@" <&0 &
       pid=$!
       # A signal to this script (kill, systemctl stop) goes on to pasta, whose
       # death ends bwrap (--die-with-parent); then it is raised here again.
@@ -359,7 +393,9 @@ let
       fi
       bind --ro-bind "$HOME/.local/bin" # graphify
       bind --ro-bind "$HOME/.local/share/uv/tools" # its venv
-      args+=(--bind "$root" "$root" --chdir "$cwd")
+      # the repository and .jail's paths: opened and checked by jail-binds, bound by fd here
+      fdbinds=(rw "$root")
+      args+=(--args 5 --chdir "$cwd")
       # DNS through pasta (jail-run): the host's resolv.conf (it may name
       # 127.0.0.53) with only its search and options lines. Written outside
       # the jail's reach and replaced whole, a running jail keeps its copy.
@@ -375,7 +411,7 @@ let
       # so only the copy you approved on a terminal is applied; it is read as
       # data like .git/config and stored where the jail cannot see it.
       ports=() portspec=
-      esc() { printf '%s' "$1" | cat -v; } # control characters and high bytes as text
+      esc() { printf '%s' "$1" | cat -vT; } # control characters (also tab) and high bytes as text
       # $1 is $2 or below it
       within() { [ "$1" = "$2" ] || [ "$2" = / ] || [[ $1 == "$2"/* ]]; }
       # A path for ro/rw, or why not: absolute (~/ is your home), no symlink
@@ -398,6 +434,15 @@ let
         done
         ! within "$p" "$HOME/.local/share/jails" || { echo "is in the jails' state"; return 1; }
         ! within "$p" "$root" || { echo "is in the repository"; return 1; }
+        # keys, logins, transcripts; with rw also what your host session runs or loads
+        local sensitive=(.ssh .gnupg .claude .codex .claude.json .local/share/keyrings .password-store) ro_only=()
+        [ "$2" = ro ] || ro_only=(.config .local/state .local/bin brain)
+        for x in "''${sensitive[@]}" "''${ro_only[@]}"; do
+          if within "$p" "$HOME/$x" || within "$HOME/$x" "$p"; then
+            echo "overlaps $HOME/$x$([[ " ''${ro_only[*]} " != *" $x "* ]] || echo " (ro only)")"
+            return 1
+          fi
+        done
         printf '%s\n' "$p"
       }
       # Applies a config's lines to args, mounts and ports; on the first bad
@@ -420,8 +465,8 @@ let
                   p="a port is a number from 1024 to 65535"
                 fi ;;
               ro | rw)
-                if p=$(bind_path "$val"); then
-                  if [ "$key" = ro ]; then args+=(--ro-bind "$p" "$p"); else args+=(--bind "$p" "$p"); fi
+                if p=$(bind_path "$val" "$key"); then
+                  fdbinds+=("$key" "$p")
                   # a link the jail plants in its home at the mount point goes (prepare)
                   [[ $p != "$HOME"/* ]] || mounts+=("$p")
                   p=
@@ -433,10 +478,18 @@ let
           [ -z "$p" ] || { echo "jail: .jail line $n: $(esc "$line"): $p" >&2; return 1; }
         done <<<"$1"
       }
+      # ports, then the ro and rw paths parse added after fdbinds' first $1 entries
+      in_effect() {
+        local i ro="" rw=""
+        for ((i = $1; i < ''${#fdbinds[@]}; i += 2)); do
+          if [ "''${fdbinds[i]}" = ro ]; then ro+=" $(esc "''${fdbinds[i + 1]}")"; else rw+=" $(esc "''${fdbinds[i + 1]}")"; fi
+        done
+        echo "ports ''${ports[*]:-none} | ro''${ro:- none} | rw''${rw:- none}"
+      }
       # The config to apply: the approved copy, or the repository's .jail once
       # you approve it now. Args: shared or one-off (a taken port then is skipped).
       load_config() {
-        local approved=$state/jail.approved f=/proc/self/fd/4/.jail conf="" new why="" answer p fwd=()
+        local approved=$state/jail.approved f=/proc/self/fd/4/.jail conf="" new why="" answer p summary fwd=()
         [ ! -e "$approved" ] || conf=$(cat "$approved") || die "cannot read $approved"
         exec 4<"$root" && [ "$(readlink /proc/self/fd/4)" = "$root" ] || die "$root is not a plain directory"
         if [ ! -e "$f" ] && [ ! -L "$f" ]; then
@@ -448,18 +501,23 @@ let
         elif ! new=$(dd if="$f" iflag=nofollow,nonblock bs=65536 count=1 status=none); then
           why="it cannot be read"
         elif [ "$new" != "$conf" ]; then
-          if ! (parse "$new"); then
+          # what the file amounts to, shown below the diff
+          if ! summary=$(
+            base=''${#fdbinds[@]}
+            parse "$new" && in_effect "$base"
+          ); then
             why="see the line above"
           elif [ ! -t 0 ] || [ ! -t 2 ]; then
             why="it changed, and there is no terminal to approve it"
           else
             if [ -n "$conf" ]; then
               echo "jail: $root/.jail changed since you approved it:"
-              { diff -u --label approved --label .jail <(printf '%s\n' "$conf") <(printf '%s\n' "$new") || true; } | cat -v
+              { diff -u --label approved --label .jail <(printf '%s\n' "$conf") <(printf '%s\n' "$new") || true; } | cat -vT
             else
               echo "jail: $root/.jail asks for:"
-              printf '%s\n' "$new" | cat -v
+              printf '%s\n' "$new" | cat -vT
             fi >&2
+            echo "jail: in effect: $summary" >&2
             printf 'Type yes to apply it (a running shared jail keeps its config until it restarts): ' >&2
             read -r answer || true
             if [ "$answer" = yes ]; then
@@ -517,7 +575,7 @@ let
         load_config one-off
         prepare
         bind_bus "$run/jails/$name.bus-$$"
-        exec ${jailRun}/bin/jail-run "$bus" "$portspec" "''${args[@]}" "''${env[@]}" -- "$@"
+        exec ${jailRun}/bin/jail-run "$bus" "$portspec" "''${fdbinds[@]}" -- "''${args[@]}" "''${env[@]}" -- "$@"
       fi
 
       # Shared jail: one tmux server inside per repository, every terminal attaches.
@@ -553,7 +611,7 @@ let
         # shellcheck disable=SC2016 # expanded by the inner shell
         keepalive='"$1" -S "$2" new-session -d -s main && while "$1" -S "$2" has-session -t main 2>/dev/null; do ${pkgs.coreutils}/bin/sleep 2; done'
         systemd-run --user --quiet --collect --expand-environment=no --unit="jail-$name" -- \
-          ${jailRun}/bin/jail-run "$bus" "$portspec" "''${args[@]}" --bind "$sockdir" "$sockdir" "''${env[@]}" -- \
+          ${jailRun}/bin/jail-run "$bus" "$portspec" "''${fdbinds[@]}" -- "''${args[@]}" --bind "$sockdir" "$sockdir" "''${env[@]}" -- \
           ${pkgs.runtimeShell} -c "$keepalive" sh ${tmux} "$sock" ||
           echo "jail: jail-$name did not start, maybe it is starting already" >&2
         for _ in $(seq 50); do alive && break; sleep 0.2; done

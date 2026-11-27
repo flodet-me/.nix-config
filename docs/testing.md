@@ -89,7 +89,7 @@ Measured locally with a warm cache and 4 cores; a cold cache or a new nixpkgs ma
 | `act` job `build --matrix host:vps` | ~3 min | 6 min | 20 min |
 | `act` job `cves --matrix host:vps` | ~4-5 min | 8 min | 25 min |
 | `docker build` of the act image | under 1 min | 3 min | 10 min |
-| `nix build .#checks.x86_64-linux.jail` (NixOS VM, needs KVM; the Gate's `nix flake check` runs it) | ~100 s (two VMs; test script ~90 s) | 3 min | 10 min |
+| `nix build .#checks.x86_64-linux.jail` (NixOS VM, needs KVM; the Gate's `nix flake check` runs it) | ~115 s (two VMs; test script ~103 s) | 3 min | 10 min |
 | `vmWithDisko` boot to login prompt | 1-2 min | 3 min | 8 min |
 | Installer VM: boot the ISO to a shell | 40-60 s | 2 min | 5 min |
 | Installer VM: one `install-host` run (offline) | 8-13 min | 15 min | 40 min |
