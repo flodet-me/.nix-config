@@ -84,7 +84,7 @@ Goal: "fix all small change and medium." (the 2026-11-27 repository review, item
 Accept:
 - System: earlyoom acts before the disk swapfile thrashes (`freeSwapThreshold`, prefer compilers); zram sysctls on workstations; nix-daemon `batch` scheduling; desktop without `common-gpu-amd` (closure diff: no amdgpu in the initrd); laptop thermald/throttled settled by upstream docs.
 - Claude Code: the rtk trial ends (hook, guard, its rule text and test removed; rtk dropped, ccusage and ast-grep stay); harmless Playwright MCP tools allowed (`run_code_unsafe`, `evaluate`, `file_upload` not); the settings merge deletes every Nix-owned object key, derived from the managed settings; `skillOverrides` makes graphify user-invocable only (2.1.329 ignores overrides for plugin skills, so claude-obsidian save/ingest and brainstorming stay rule-only, docs/claude-code.md); the Codex config merger is its own file.
-- Shell and git: Ctrl-R is fzf in interactive zsh (vi-mode); Nix-owned global git ignores instead of a missing `~/.gitignore_global`; the command-and-control agent identity is in Nix (inline, not a file inside the repository) and `~/.gitconfig` is no longer needed.
+- Shell and git: Ctrl-R is fzf in interactive zsh (vi-mode); Nix-owned global git ignores instead of a missing `~/.gitignore_global`; the command-and-control agent identity is in Nix (inline, not a file inside the repository); `~/.gitconfig` stays as the writable global config (user: "I need it for my own dev"), its old include is redundant.
 - Flake: `nixpkgs-stable`/`pkgs.stable` removed (AGENTS.md updated); `hardware` follows nixpkgs; dead group names gone and an assertion that flodet is in no root-equivalent group (docker, lxd, libvirtd, podman); deploy docs use `--use-substitutes`.
 - Checks: CI builds the flake checks instead of copying them (the jail VM test where KVM exists); `systemd.enableStrictShellChecks`; one nix-config checkout script for home and server that leaves a retryable state.
 - Gate green after each item.
@@ -98,7 +98,7 @@ Assumptions:
 |---|---|---|---|
 | I1 system-tuning | earlyoom, zram sysctls, daemon batch, desktop amdgpu, laptop thermald (both kept: measuring on the T480 is the user's) | done | 698127a |
 | I2 claude-code | rtk removal, Playwright allow, merge del list, skillOverrides, codex merger file | done | ec1c845 |
-| I3 shell-git | fzf Ctrl-R, git ignores, agent identity in Nix | open | |
+| I3 shell-git | fzf Ctrl-R, git ignores, agent identity in Nix | done | dd06e0f |
 | I4 flake-hygiene | stable input, hardware follows, groups + assertion, --use-substitutes docs | done | e43943d |
 | I5 checkout-dedupe | one nix-config checkout script, retryable | open | |
 | I6 ci-checks | CI runs flake checks, strict shell checks for units | open | |
