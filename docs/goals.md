@@ -22,3 +22,22 @@ Assumptions:
 | I2 jail | `jail` / `jail-push`, tmux-shared jail per repo, VM test `checks.jail`, docs | open | |
 | I3 jail-net | pasta netns (no host loopback), xdg-dbus-proxy for notifications, test | open | |
 | I4 jail-winvm | winvm binds and `winvm` wrapper inside the jail, test | open | |
+
+## G-2 LLM token tools  (status: open)
+
+Goal: "do it and keep ownership in nix" — add ccusage, ast-grep and rtk declaratively, with the rtk Claude Code hook on trial, compared via `rtk gain` after a week.
+Accept:
+- ccusage, ast-grep, rtk on the workstation user PATH from home-manager (`nix eval` of home.packages / built home-files).
+- The rtk rewrite hook is a PreToolUse Bash hook in the Nix-owned `hooks` of `~/.claude/settings.json`; nothing depends on `rtk init` writing files (no `rtk init -g` in activation or sync).
+- rtk's config (telemetry off, recovery mode) is a Nix-made file; its instructions for the agent come from Nix-managed instructions, not an `@RTK.md` written at runtime.
+- A test shows the hook rewrites `git status` to the rtk form and leaves a command rtk does not know unchanged; Claude Code's deny rules still block a denied command after rewriting (or the doc states the verified behaviour).
+- One switch turns the trial off; docs/claude-code.md says how to read `rtk gain` / `ccusage` and how to turn rtk off.
+- Gate green.
+Not in scope: rtk for Codex, rtk llm-proxy, rtk plugins/TOML filters, project-local rtk filters, extra LSP plugins (rust-analyzer, TypeScript, C# LSP plugins are already enabled).
+Assumptions:
+- Trial = enabled by default via a home-manager option that is easy to flip; the one-week review is a reminder in the docs, not automation.
+- rtk's history lives in its default data dir; inside a jail it is per jail home (G-1), accepted.
+
+| Item | What | Status | Commit |
+|---|---|---|---|
+| I1 token-tools | ccusage, ast-grep, rtk + Nix-owned rtk hook/config/instructions, test, docs | open | |
