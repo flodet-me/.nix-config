@@ -1,0 +1,63 @@
+<!--
+  winvm: copies a .NET project's build output into a winvm VM after the build,
+  so a debugger can start it there:
+    Visual Studio (Windows host, VirtualBox): launch profile with
+      remoteDebugEnabled; `winvm.ps1 vs setup` imports this from PROJECT.csproj.user
+    VS Code / Rider (Windows or Linux host): the `vscode setup` tasks and
+      `rider setup` run configurations pass it to dotnet build as
+      -p:CustomAfterMicrosoftCommonTargets=...; no project change needed
+  By hand: import it in the .csproj or a Directory.Build.targets and opt in:
+
+    <PropertyGroup>
+      <WinvmDeploy>true</WinvmDeploy>
+      <WinvmVm>default</WinvmVm>            optional: which VM
+      <WinvmApp>$(MSBuildProjectName)</WinvmApp>   optional: C:\deploy\APP in the VM
+    </PropertyGroup>
+    <Import Project="C:\path\to\windows-vm\windows-host\vs\Winvm.targets" />
+
+  On Windows it runs windows-host\winvm.ps1 deploy, on Linux ../../winvm deploy.
+  WinvmDeployArgs: more for deploy (Windows: -Run, -Service, -Wait; Linux: the
+  run, service, wait options). WinvmVsdbg=true (VS Code): vsdbg in the VM
+  matching the C# extension, and Windows-style source paths in the PDB on Linux.
+  Not for UWP / packaged apps: Visual Studio deploys those itself.
+  Guide: docs/ide-debugging.md
+-->
+<Project>
+  <PropertyGroup>
+    <WinvmScript Condition="'$(WinvmScript)' == ''">$(MSBuildThisFileDirectory)..\winvm.ps1</WinvmScript>
+    <WinvmLinuxScript Condition="'$(WinvmLinuxScript)' == ''">$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)../../winvm'))</WinvmLinuxScript>
+    <WinvmVm Condition="'$(WinvmVm)' == ''">default</WinvmVm>
+    <WinvmApp Condition="'$(WinvmApp)' == ''">$(MSBuildProjectName)</WinvmApp>
+    <!-- WinvmVsdbg (VS Code tasks): C:\vsdbg in the VM matching the C# extension first.
+         (Its own property: WinvmDeployArgs comes from the command line, which wins.) -->
+    <_WinvmVsdbgArg Condition="'$(WinvmVsdbg)' == 'true' and $([MSBuild]::IsOSPlatform('Windows'))">-Vsdbg</_WinvmVsdbgArg>
+    <_WinvmVsdbgArg Condition="'$(WinvmVsdbg)' == 'true' and !$([MSBuild]::IsOSPlatform('Windows'))">--vsdbg</_WinvmVsdbgArg>
+  </PropertyGroup>
+
+  <!-- Built on Linux, debugged by vsdbg on Windows: vsdbg rejects breakpoints
+       with /home/... source paths. The PDB gets them as C:\winvm-linux\home/...
+       instead, and lib/ide/dap-pathmap.py (VS Code's pipe to vsdbg) translates
+       the paths both ways. The binaries are unchanged. -->
+  <PropertyGroup Condition="'$(WinvmVsdbg)' == 'true' and !$([MSBuild]::IsOSPlatform('Windows'))">
+    <PathMap Condition="'$(PathMap)' == ''">/=C:\winvm-linux\</PathMap>
+    <PathMap Condition="'$(PathMap)' != '' and !$(PathMap.Contains('C:\winvm-linux\'))">$(PathMap),/=C:\winvm-linux\</PathMap>
+  </PropertyGroup>
+
+  <!-- Not in design-time builds (VS runs those constantly) or for libraries. With
+       several target frameworks (MAUI: android, ios, windows): only the Windows
+       ones, and not the outer build that just dispatches to them.
+       WinvmProfile (set by vs setup): only while that launch profile is the
+       active one (ActiveDebugProfile, which Visual Studio keeps in the .user
+       file), so builds for other profiles ("this PC") don't touch the VM. -->
+  <Target Name="WinvmDeploy" AfterTargets="Build"
+          Condition="'$(WinvmDeploy)' == 'true' and '$(DesignTimeBuild)' != 'true' and '$(OutputType)' != 'Library'
+                     and ('$(TargetPlatformIdentifier)' == '' or '$(TargetPlatformIdentifier)' == 'windows')
+                     and ('$(TargetFrameworks)' == '' or '$(TargetFramework)' != '')
+                     and ('$(WinvmProfile)' == '' or '$(ActiveDebugProfile)' == '$(WinvmProfile)')">
+    <!-- TrimEnd: a trailing \ would escape the closing quote. -->
+    <Exec Condition="$([MSBuild]::IsOSPlatform('Windows'))"
+          Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(WinvmScript)&quot; -Name $(WinvmVm) deploy &quot;$(TargetDir.TrimEnd('\'))&quot; -As $(WinvmApp) -LinkLocal $(WinvmDeployArgs) $(_WinvmVsdbgArg)" />
+    <Exec Condition="!$([MSBuild]::IsOSPlatform('Windows'))"
+          Command="&quot;$(WinvmLinuxScript)&quot; -n $(WinvmVm) deploy &quot;$(TargetDir)&quot; --as $(WinvmApp) $(WinvmDeployArgs) $(_WinvmVsdbgArg)" />
+  </Target>
+</Project>

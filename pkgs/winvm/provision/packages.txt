@@ -1,0 +1,16 @@
+# Chocolatey packages baked into the base image (https://community.chocolatey.org/packages).
+# One per line. Changing this requires `winvm build --force`, or install the
+# extras in the running VM and `winvm commit`.
+git
+7zip
+vscode
+powershell-core
+# python
+# visualstudio2022buildtools
+# visualstudio2022-workload-vctools
+# Often handy on a test machine, but each one changes what you test against
+# (e.g. installed runtimes hide missing dependencies of your app):
+# vcredist-all                # all Visual C++ runtimes
+# dotnet-desktopruntime       # .NET desktop runtime
+# notepadplusplus
+# wireshark                   # npcap needs an interactive install; pktmon.exe is built in

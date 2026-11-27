@@ -55,6 +55,9 @@ in
     # voip
     discord
 
+    # Windows test VMs (pkgs/winvm/README.md); data in WINVM_HOME
+    winvm
+
     # browser
     chromium
 
