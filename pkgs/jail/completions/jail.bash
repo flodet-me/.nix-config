@@ -2,6 +2,9 @@
 # package installs it as jail.bash and jail-push.bash, and _jail_zsh for zsh
 # (autoload -U +X bashcompinit && bashcompinit, then this file).
 # COMPREPLY=($(compgen ...)): zsh's bashcompinit has no mapfile.
+# Jailed code chooses repository paths and mirror branches: they never go
+# through compgen -W (it expands $(...)), and none runs git or cd in a
+# repository (zsh's chpwd hooks, direnv); only git --git-dir=<mirror>.
 # shellcheck disable=SC2207
 
 # the jails' state, a folder per jail
@@ -9,6 +12,14 @@ _jail_states() {
     local d
     for d in "$HOME"/.local/share/jails/* "$HOME"/.local/share/jails/.[!.]*; do
         [[ -d $d ]] && echo "$d"
+    done
+}
+
+# the words on stdin that start with $cur and need no quoting; others are left out
+_jail_add() {
+    local w
+    while IFS= read -r w; do
+        if [[ -n $w && $w == "$cur"* && $w != *[![:alnum:]._/+@:,=%-]* ]]; then COMPREPLY+=("$w"); fi
     done
 }
 
@@ -30,7 +41,7 @@ _jail_repos() {
 # path at or above it
 _jail_branches() {
     local d s r best="" mirror=""
-    d=$(cd "${1/#\~/$HOME}" 2>/dev/null && pwd -P) || return 0
+    d=$(realpath -e -- "${1/#\~/$HOME}" 2>/dev/null) || return 0
     for s in $(_jail_states); do
         [[ -f $s/repo ]] || continue
         r=$(<"$s/repo")
@@ -52,10 +63,10 @@ _jail_dirs() {
 _jail_push_args() {
     if ((COMP_CWORD == $1)); then
         [[ $cur == -* ]] && return
-        COMPREPLY=($(compgen -W "$(_jail_repos)" -- "$cur"))
+        _jail_add < <(_jail_repos)
         _jail_dirs
     else
-        COMPREPLY=($(compgen -W "$(_jail_branches "${COMP_WORDS[$1]}")" -- "$cur"))
+        _jail_add < <(_jail_branches "${COMP_WORDS[$1]}")
     fi
 }
 
@@ -75,7 +86,7 @@ _jail() {
             if [[ $cur == -* ]]; then
                 COMPREPLY=($(compgen -W "--all $([[ ${COMP_WORDS[1]} == reset ]] && echo --approved --home)" -- "$cur"))
             else
-                COMPREPLY=($(compgen -W "$(_jail_names)" -- "$cur"))
+                _jail_add < <(_jail_names)
                 _jail_dirs
             fi ;;
         push) _jail_push_args 2 ;;
