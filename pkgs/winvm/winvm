@@ -287,25 +287,24 @@ warn_expiry() {
 # shellcheck disable=SC2016  # PowerShell's $true / $false, literally
 bool() { (($1)) && echo '$true' || echo '$false'; }
 
-# Run PowerShell in the guest. Base64 avoids Windows OpenSSH's quote mangling;
-# errors go to stderr as text instead of CLIXML.
-# The guest command line that runs PowerShell CODE, under any login shell
-# (cmd.exe or PowerShell). The code goes base64 (no quoting trouble on the
-# way) inside -Command: -EncodedCommand would send Write-Host, warnings and
-# errors as CLIXML on stderr.
+# PowerShell CODE for the guest, under either login shell (cmd.exe or
+# PowerShell). Windows 10's OpenSSH 7.7 strips double quotes from a command
+# line, so the code never goes in one: base64 on stdin (guest_ps) or in a
+# copied script (cmd_ssh). -EncodedCommand would send Write-Host, warnings
+# and errors as CLIXML on stderr.
+# $global:ProgressPreference: module functions (ScheduledTasks, CIM) read the
+# global one, and progress fails without a console ("Access is denied ...
+# reading the console output buffer").
 ps_invoke() {  # one line of PowerShell that decodes and runs CODE
     local enc
     enc=$(python3 -I -c 'import base64,sys; print(base64.b64encode(sys.argv[1].encode("utf-16-le")).decode())' "$1")
     printf '%s' "& ([scriptblock]::Create([Text.Encoding]::Unicode.GetString([Convert]::FromBase64String('$enc'))))"
 }
-ps_cmdline() { printf '%s' "powershell -NoProfile -NonInteractive -Command \"$(ps_invoke "$1")\""; }
 
 guest_ps() {
     ssh_opts
     local script
-    script="\$ProgressPreference='SilentlyContinue'; \$ErrorActionPreference='Stop'; try { $1 } catch { [Console]::Error.WriteLine(\$_.ToString()); exit 1 }"
-    # The code goes in on stdin: Windows 10's built-in OpenSSH 7.7 with PowerShell as login shell
-    # strips the double quotes from a command line, so ps_cmdline breaks there.
+    script="\$global:ProgressPreference='SilentlyContinue'; \$ErrorActionPreference='Stop'; try { $1 } catch { [Console]::Error.WriteLine(\$_.ToString()); exit 1 }"
     ssh "${SSH_OPTS[@]}" -o BatchMode=yes -o LogLevel=ERROR -p "$P_SSH" "$WIN_USER@127.0.0.1" \
         "powershell -NoProfile -NonInteractive -Command -" <<<"$(ps_invoke "$script")" | tr -d '\r'   # Windows line endings
 }
@@ -1335,9 +1334,24 @@ cmd_ssh() {
     need_vm
     ssh_opts
     # PowerShell explicitly: the guest's login shell may be cmd.exe (vs-deploy
-    # recipe, for Rider). A command goes encoded, so its quotes arrive as typed.
+    # recipe, for Rider).
     (($#)) || exec ssh -t "${SSH_OPTS[@]}" -p "$P_SSH" "$WIN_USER@127.0.0.1" powershell -NoLogo
-    exec ssh "${SSH_OPTS[@]}" -p "$P_SSH" "$WIN_USER@127.0.0.1" "$(ps_cmdline "\$ProgressPreference='SilentlyContinue'; $*")"
+    # COMMAND goes as a script (UTF-8 with BOM, as typed), so the command line
+    # has no quotes and stdin stays the command's. The script deletes itself
+    # first and exits with the code of a failed last program, not just 1.
+    # shortcut: a COMMAND that does not parse leaves its script in C:\winvm; clean up if they pile up.
+    local tmp remote="C:/winvm/ssh-$$-$RANDOM.ps1"
+    tmp=$(mktemp)
+    # shellcheck disable=SC2016  # PowerShell's variables, literally
+    printf '\xef\xbb\xbfRemove-Item -LiteralPath $PSCommandPath; $global:ProgressPreference = %s; %s\nexit $(if ($?) { 0 } elseif ($LASTEXITCODE) { $LASTEXITCODE } else { 1 })\n' \
+        "'SilentlyContinue'" "$*" >"$tmp"
+    scp -q "${SSH_OPTS[@]}" -o BatchMode=yes -P "$P_SSH" "$tmp" "$WIN_USER@127.0.0.1:$remote" ||
+        { rm -f "$tmp"; die "could not copy the command into '$VM'"; }
+    rm -f "$tmp"
+    # '; exit $LASTEXITCODE': a PowerShell login shell would turn the exit code
+    # into 1; under cmd.exe the script gets it as arguments it ignores.
+    exec ssh "${SSH_OPTS[@]}" -p "$P_SSH" "$WIN_USER@127.0.0.1" \
+        "powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File ${remote//\//\\} ; exit \$LASTEXITCODE"
 }
 
 cmd_scp() {  # paths prefixed with vm: refer to the guest
@@ -2495,8 +2509,8 @@ winvm [-n NAME] ssh [COMMAND...]
 
 Opens PowerShell in the VM, or runs COMMAND there:
   winvm ssh "Get-FileHandler .pdf"
-Windows OpenSSH strips double quotes from the remote command; use single
-quotes inside it.
+COMMAND is PowerShell; its quotes arrive as typed, its exit code comes back,
+and stdin is its own (winvm ssh "cmd /c sort" < file).
 EOF
         ;;
         scp) cat <<EOF
