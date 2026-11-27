@@ -99,8 +99,9 @@ The dev shell also has `claude-code`, but not the plugins.
   it costs tokens in every session. `/memory` shows which files are loaded.
 - **Skills reserved for you** (`skillOverrides`, values `on`, `name-only`,
   `user-invocable-only`, `off`): `user-invocable-only` hides a skill from
-  Claude but keeps `/name`, for the skills `personal.md` reserves for you:
-  `graphify`, `claude-obsidian:save`, `claude-obsidian:wiki-ingest`,
+  Claude but keeps `/name`, for the skills reserved for you: `graphify`
+  (its line in `~/.claude/CLAUDE.md` says `/graphify`), and what `personal.md`
+  reserves: `claude-obsidian:save`, `claude-obsidian:wiki-ingest`,
   `superpowers:brainstorming`. Claude Code 2.1.329 applies it to
   `~/.claude/skills` skills (`graphify`, keyed by bare name) only: its
   binary says "Plugin skills can't be turned off individually" and reads
