@@ -1,8 +1,12 @@
 {
+  config,
   pkgs,
   ...
 }:
 {
+  # zsh-vi-mode rebinds keys on its (lazy) init, which drops fzf's Ctrl-R; fzf is loaded from its hook instead
+  programs.fzf.enableZshIntegration = false;
+
   programs.zsh = {
     enable = true;
     enableCompletion = true;
@@ -26,7 +30,6 @@
       enable = true;
       plugins = [
         "git"
-        "fzf"
         "aliases"
         "git-extras"
       ];
@@ -39,7 +42,14 @@
         src = pkgs.zsh-vi-mode;
         file = "share/zsh-vi-mode/zsh-vi-mode.plugin.zsh";
       }
-
     ];
+
+    # Ctrl-R history, Ctrl-T files, Alt-C cd, **<Tab> completion
+    initContent = ''
+      zvm_after_init_commands+=(
+        'source ${config.programs.fzf.package}/share/fzf/key-bindings.zsh'
+        'source ${config.programs.fzf.package}/share/fzf/completion.zsh'
+      )
+    '';
   };
 }
