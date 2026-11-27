@@ -51,9 +51,15 @@ Config: `hosts/_shared/components/impermanence/` (`disko.nix` = disk layout,
 
 `hosts/_shared/components/workstation-health.nix`:
 
-- zram swap next to the swap file, and `earlyoom`, which kills the runaway
-  process (with a notification) before the desktop freezes. `systemd-oomd` is
-  off so there is only one OOM killer.
+- zram swap next to the swap file, with the ArchWiki zram sysctls
+  (`vm.swappiness=180`, `page-cluster=0`, watermark tuning), and `earlyoom`,
+  which kills the runaway process (with a notification) once zram is full,
+  before the disk swap file thrashes (`freeSwapThreshold` 68%, assumes a swap
+  file about the RAM size). It prefers compilers, linkers, java, node and
+  dotnet and avoids gnome-shell and Xwayland. `systemd-oomd` is off so there is
+  only one OOM killer.
+- The Nix daemon builds with `SCHED_BATCH` (`components/workstation.nix`), so
+  the desktop stays responsive during builds.
 - `smartd` watches the disks and warns by desktop notification.
 - The journal is capped at 500 MB / 3 months and coredumps at 1 GB.
 - `systemd.sleep` hibernate delay (2 h): hibernate to the btrfs swap file works
