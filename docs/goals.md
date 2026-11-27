@@ -43,3 +43,19 @@ Assumptions:
 | Item | What | Status | Commit |
 |---|---|---|---|
 | I1 token-tools | ccusage, ast-grep, rtk + Nix-owned rtk hook/config/instructions, test, docs | done | f052e8a |
+
+## G-3 Jail for bare-repository worktree layouts  (status: open)
+
+Goal: "jail is not working in a worktree environment, like the command-and-control repo in Projects."
+Accept:
+- `jail DIR` and `jail DIR -- CMD` work for a container layout (`<root>/.bare` bare repository, `<root>/.git` a file `gitdir: ./.bare`, worktrees such as `<root>/main` with `.git` files pointing into `.bare/worktrees/`), from the container and from any worktree in it; all worktrees of one container share one jail; git works inside in every worktree.
+- `jail-push DIR` pushes the branch checked out in the worktree DIR is in (the bare HEAD when DIR is the container), through the same mirror and sandboxed upload-pack; the URL is recorded at the first `jail` start as for normal repositories.
+- Host side reads only data from the jail-writable `.git` files: `<root>/.git` must be a regular file `gitdir: ./<name>` naming a real (non-link) bare repository directory directly in `<root>`; a worktree's `.git` must point to `<root>/<name>/worktrees/<n>` and its HEAD is read without links; anything else is refused or falls back to "name the branch".
+- `checks.x86_64-linux.jail` covers the layout and the refused variants (gitdir to another repository, absolute or `..` gitdir, a link instead of the bare directory or of `worktrees`, a worktree `.git` pointing elsewhere); normal repositories unchanged; Gate green; docs/jail.md updated.
+Not in scope: linked worktrees outside the repository or container directory, submodules with separate git dirs, other layouts (`GIT_DIR` set elsewhere).
+Assumptions:
+- The container directory is the jail root (it holds `.bare`, the worktrees and other files such as `.claude/`), so the jail's name and mirror belong to the container.
+
+| Item | What | Status | Commit |
+|---|---|---|---|
+| I1 bare-layout | container root detection, jail-push branch per worktree, safe gitfile reads, test, docs | open | |
