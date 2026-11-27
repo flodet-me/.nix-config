@@ -84,7 +84,7 @@ run `nixos-rebuild switch` on a host that hasn't been reinstalled.
 
 1. Back up `/home/flodet` (including `~/.gnupg`) and, if wanted,
    `/etc/NetworkManager/system-connections`,
-   `/var/lib/docker`, `/var/lib/libvirt`.
+   `/var/lib/libvirt` (Docker is rootless: `~/.cache/docker`, not in the `/home` snapshots).
 2. Boot a NixOS installer, get this repo onto it, check the target disk with
    `lsblk` (it must match `device` in the host's `default.nix`).
 3. Partition, format and mount (asks for the new LUKS passphrase):
