@@ -16,7 +16,10 @@
 
   networking.hostName = "laptop";
 
-  services.thermald.enable = true; # Intel thermal management: less throttling, quieter fans
+  # Intel thermal management: less throttling, quieter fans. Runs next to
+  # nixos-hardware's throttled: its README says thermald "can conflict" but not
+  # to disable it blindly; measure both setups on the T480 before dropping one.
+  services.thermald.enable = true;
 
   # First-install release, never raised afterwards (docs/impermanence.md).
   system.stateVersion = "26.11";
