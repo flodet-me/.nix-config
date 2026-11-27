@@ -11,12 +11,17 @@
   bubblewrap,
   coreutils,
   diffutils,
+  docker-client,
+  docker-compose,
   findutils,
   git,
   gnugrep,
   iproute2,
   jq,
   passt,
+  podman,
+  runCommand,
+  shadow,
   shellcheck,
   systemd,
   tmux,
@@ -158,8 +163,55 @@ let
         xdg-dbus-proxy
       ]
       {
-        inherit jailBinds bubblewrap;
+        inherit
+          jailBinds
+          jailUserns
+          bubblewrap
+          idmap
+          ;
       };
+
+  # Containers (.jail line `containers`; docs/jail.md, ADR 0007).
+  # CMD in a user namespace with your subuid/subgid ranges (jail-run's U1,
+  # jail reset). Args: CMD...
+  jailUserns = script "jail-userns" [
+    coreutils
+    util-linux
+  ] { };
+  # shadow's newuidmap and newgidmap, not setuid: in the jail they write
+  # podman's maps with the CAP_SETUID and CAP_SETGID jail-run leaves there
+  idmap = runCommand "jail-idmap" { } ''
+    mkdir -p $out/bin
+    ln -s ${shadow}/bin/newuidmap ${shadow}/bin/newgidmap $out/bin/
+  '';
+  # bound at /run/wrappers/bin in the jail, first in every shell's PATH
+  # (NixOS's set-environment); docker's wrapper brings the compose plugin
+  containersBin = runCommand "jail-containers-bin" { } ''
+    mkdir -p $out
+    ln -s ${podman}/bin/podman ${docker-client}/bin/docker ${docker-compose}/bin/docker-compose ${idmap}/bin/* $out/
+  '';
+  # CONTAINERS_CONF and the rest: storage in the jail's ~/.cache (its own),
+  # containers and networks' state per jail instance (transient_store: in
+  # its /run/user), images from docker.io unsigned as Docker does
+  containersConf = runCommand "jail-containers-conf" { } ''
+    mkdir -p $out
+    cat > $out/containers.conf <<'EOF'
+    [engine]
+    compose_providers = ["${docker-compose}/bin/docker-compose"]
+    compose_warning_logs = false
+    EOF
+    cat > $out/storage.conf <<'EOF'
+    [storage]
+    driver = "overlay"
+    transient_store = true
+    rootless_storage_path = "$HOME/.cache/containers/storage"
+    EOF
+    echo 'unqualified-search-registries = ["docker.io"]' > $out/registries.conf
+    echo '{ "default": [ { "type": "insecureAcceptAnything" } ] }' > $out/policy.json
+  '';
+  # the jail's first process with containers: closes jail-run's user
+  # namespace fds, starts the podman API service. Args: CMD...
+  containersInit = script "jail-containers-init" [ ] { inherit podman coreutils; };
 
   jail =
     script "jail"
@@ -185,6 +237,10 @@ let
           claudeState
           codexShared
           codexState
+          containersBin
+          containersConf
+          containersInit
+          jailUserns
           ;
         jailPush = jail-push;
       };

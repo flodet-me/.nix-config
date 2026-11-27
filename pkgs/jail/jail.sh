@@ -70,7 +70,7 @@ fi
 # Per-repository config, .jail (docs/jail.md). Jailed code can write it,
 # so only the copy you approved on a terminal is applied; it is read as
 # data like .git/config and stored where the jail cannot see it.
-ports=() portspec=
+ports=() portspec="" containers=""
 esc() { printf '%s' "${1//$'\n'/^J}" | cat -vT; } # control characters (also tab, newline) and high bytes as text
 # $1 is $2 or below it
 within() { [ "$1" = "$2" ] || [ "$2" = / ] || [[ $1 == "$2"/* ]]; }
@@ -140,8 +140,10 @@ parse() {
             [[ $p != "$HOME"/* ]] || mounts+=("$p")
             p=
           fi ;;
+        # podman and docker inside (docs/jail.md, Containers)
+        containers) [ -z "$val" ] && containers=1 || p="containers takes no value" ;;
         # features: I4 adds winvm here
-        *) p="unknown keyword (port, ro, rw)" ;;
+        *) p="unknown keyword (port, ro, rw, containers)" ;;
       esac
     fi
     [ -z "$p" ] || { echo "jail: .jail line $n: $(esc "$line"): $p" >&2; return 1; }
@@ -153,7 +155,7 @@ in_effect() {
   for ((i = $1; i < ${#fdbinds[@]}; i += 2)); do
     if [ "${fdbinds[i]}" = ro ]; then ro+=" $(esc "${fdbinds[i + 1]}")"; else rw+=" $(esc "${fdbinds[i + 1]}")"; fi
   done
-  echo "ports ${ports[*]:-none} | ro${ro:- none} | rw${rw:- none}"
+  echo "ports ${ports[*]:-none} | ro${ro:- none} | rw${rw:- none}${containers:+ | containers}"
 }
 # the repository as fd 4, checked to be that directory
 open_root() { exec 4<"$root" && [ "$(readlink /proc/self/fd/4)" = "$root" ] || die "$root is not a plain directory"; }
@@ -308,8 +310,12 @@ if [ "$cmd" = reset ]; then
   idle
   # rm needs rwx in read-only folders (Go's module cache) or ones jailed code
   # made unreadable: each fixed before find descends (\;); no links followed
-  find "${there[@]}" -type d ! -perm -u=rwx -exec chmod u+rwx {} \; || die "cannot make the folders in $name writable; nothing deleted"
-  rm -rf -- "${there[@]}" || die "deleting failed part way; run jail reset again"
+  # What containers wrote as your subuids (ADR 0007) only goes in a user
+  # namespace that has them; without a range there are none.
+  u=()
+  ! @jailUserns@/bin/jail-userns true 2>/dev/null || u=(@jailUserns@/bin/jail-userns)
+  "${u[@]}" find "${there[@]}" -type d ! -perm -u=rwx -exec chmod u+rwx {} \; || die "cannot make the folders in $name writable; nothing deleted"
+  "${u[@]}" rm -rf -- "${there[@]}" || die "deleting failed part way; run jail reset again"
   echo "jail reset: deleted"
   exit 0
 fi
@@ -470,11 +476,11 @@ prepare() {
     die "could not prepare $jhome; to start over, reset its home ($readme, Reset)"
 }
 
-# jail-run's pasta namespace: --share-net keeps it. The host's name, not
+# Namespaces: jail-run's (all new, the network pasta's). The host's name, not
 # pasta's pasta-<host>: /etc/hosts resolves it (no nscd, no myhostname inside),
 # so `hostname --fqdn` in /etc/zshrc does not fail.
 args=(
-  --unshare-all --share-net --die-with-parent --new-session --clearenv
+  --die-with-parent --new-session --clearenv
   --hostname "$(</proc/sys/kernel/hostname)"
   --ro-bind /nix /nix
   --bind /nix/var/nix/daemon-socket /nix/var/nix/daemon-socket
@@ -620,8 +626,32 @@ bind_bus() {
   env+=(--setenv DBUS_SESSION_BUS_ADDRESS "unix:path=$run/bus")
 }
 
+# Containers (.jail: containers; ADR 0007): podman, docker and shadow's
+# plain newuidmap first in PATH, /var/tmp for image layers (outside the
+# jail's reach, like the resolv.conf), and the jail's own API service,
+# started by the init in front of the command.
+init=()
+with_containers() {
+  [ -n "$containers" ] || return 0
+  # without a subuid range: refused here, on the terminal, not in the unit's journal
+  @jailUserns@/bin/jail-userns true || exit 1
+  mkdir -p "$state/var-tmp" || die "cannot create $state/var-tmp"
+  args+=(--dev-bind-try /dev/net/tun /dev/net/tun --bind "$state/var-tmp" /var/tmp --ro-bind @containersBin@ /run/wrappers/bin)
+  env+=(
+    --setenv PATH "/run/wrappers/bin:/etc/profiles/per-user/$user/bin:/run/current-system/sw/bin"
+    --setenv CONTAINERS_CONF @containersConf@/containers.conf
+    --setenv CONTAINERS_STORAGE_CONF @containersConf@/storage.conf
+    --setenv CONTAINERS_REGISTRIES_CONF @containersConf@/registries.conf
+    --setenv CONTAINERS_POLICY_JSON @containersConf@/policy.json
+    --setenv DOCKER_HOST "unix://$run/podman/podman.sock"
+    --setenv DOCKER_BUILDKIT 0 # buildx's builder needs a cgroup it can write; podman builds
+  )
+  init=(@containersInit@/bin/jail-containers-init)
+}
+
 if [ $# -gt 0 ]; then
   load_config one-off
+  with_containers
   prepare
   bind_bus "$run/jails/$name.bus-$$"
   # home-manager's session variables, which the shared jail's login shell
@@ -630,8 +660,10 @@ if [ $# -gt 0 ]; then
   # shellcheck disable=SC2016 # expanded by the inner shell
   session='. "$0" && unset __HM_SESS_VARS_SOURCED && exec "$@"'
   exec 9>&-
-  exec @jailRun@/bin/jail-run "$bus" "$portspec" "${fdbinds[@]}" -- "${args[@]}" "${env[@]}" -- \
-    @runtimeShell@ -c "$session" "$vars" "$@"
+  # in a scope of its own: the jail's cgroup is not the terminal's (podman
+  # and a cgroup2 mount inside see only it)
+  exec systemd-run --user --scope --quiet --collect --expand-environment=no --unit="jail-$name-$$" -- @jailRun@/bin/jail-run "$bus" "$portspec" "$containers" "${fdbinds[@]}" -- "${args[@]}" "${env[@]}" -- \
+    "${init[@]}" @runtimeShell@ -c "$session" "$vars" "$@"
 fi
 
 # Shared jail: one tmux server inside per repository, every terminal attaches.
@@ -640,14 +672,15 @@ install -d -m 0700 "$sockdir"
 
 if ! alive; then
   load_config shared
+  with_containers
   prepare
   bind_bus "$run/jails/$name.bus"
   # The jail's main process keeps the namespace alive while the session lives.
   # shellcheck disable=SC2016 # expanded by the inner shell
   keepalive='"$1" -S "$2" new-session -d -s main && while "$1" -S "$2" has-session -t main 2>/dev/null; do @coreutils@/bin/sleep 2; done'
   systemd-run --user --quiet --collect --expand-environment=no --unit="jail-$name" -- \
-    @jailRun@/bin/jail-run "$bus" "$portspec" "${fdbinds[@]}" -- "${args[@]}" --bind "$sockdir" "$sockdir" "${env[@]}" -- \
-    @runtimeShell@ -c "$keepalive" sh @tmux@/bin/tmux "$sock" 9>&- ||
+    @jailRun@/bin/jail-run "$bus" "$portspec" "$containers" "${fdbinds[@]}" -- "${args[@]}" --bind "$sockdir" "$sockdir" "${env[@]}" -- \
+    "${init[@]}" @runtimeShell@ -c "$keepalive" sh @tmux@/bin/tmux "$sock" 9>&- ||
     echo "jail: jail-$name did not start, maybe it is starting already" >&2
   for _ in $(seq 50); do alive && break; sleep 0.2; done
   alive || die "jail-$name is not running: journalctl --user -u jail-$name; jail stop $(esc "$root") before the next start"
