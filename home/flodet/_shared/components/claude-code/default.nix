@@ -285,7 +285,7 @@ in
     # Nix-owned keys win; arrays are replaced as a whole, not merged. Delete
     # every Nix-owned object key first so entries removed in Nix don't linger.
     if printf '%s' "$current" | ${lib.getExe pkgs.jq} -s '(.[0] | del(${
-      lib.concatMapStringsSep ", " (k: ".${k}") ownedObjectKeys
+      lib.concatMapStringsSep ", " (k: ".[${builtins.toJSON k}]") ownedObjectKeys
     })) * .[1]' - ${managedSettings} > "$tmp"; then
       run install -m 600 "$tmp" "$settings"
     else

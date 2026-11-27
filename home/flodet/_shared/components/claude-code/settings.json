@@ -19,7 +19,6 @@
       "mcp__playwright__browser_close",
       "mcp__playwright__browser_console_messages",
       "mcp__playwright__browser_drag",
-      "mcp__playwright__browser_drop",
       "mcp__playwright__browser_emulate_media",
       "mcp__playwright__browser_fill_form",
       "mcp__playwright__browser_find",

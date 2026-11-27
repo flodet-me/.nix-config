@@ -61,7 +61,7 @@ The dev shell also has `claude-code`, but not the plugins.
   `claude auto-mode config` and `claude auto-mode critique`. The merge replaces arrays as a whole, so a `permissions.allow`
   rule added by hand is dropped at the next switch. It deletes every Nix-owned
   object key (`permissions`, `env`, `hooks`, `worktree`, `skillOverrides`, ...)
-  before merging, so an entry removed in Nix goes away too: `ownedObjectKeys`
+  before merging (a skill toggled in `/skills` is reset too), so an entry removed in Nix goes away too: `ownedObjectKeys`
   in `default.nix` derives that list from the managed settings (every
   top-level key whose value is an object), and an assert fails the evaluation
   if it lacks `permissions` or `worktree`. If `~/.claude/settings.json`
@@ -118,7 +118,7 @@ The dev shell also has `claude-code`, but not the plugins.
   and so are the Playwright MCP tools that only drive or read the browser
   (`mcp__playwright__browser_navigate`, `..._click`, `..._snapshot`, ...);
   `browser_run_code_unsafe`, `browser_evaluate` (run arbitrary code) and
-  `browser_file_upload` (sends a local file to a page) are not on the allow
+  `browser_file_upload` and `browser_drop` (both send local files to a page) are not on the allow
   list (prompt or auto mode classifier decides).
   In every mode there is a long deny list (secrets and sops files, gpg/ykman,
   privilege escalation, disk tools, pushes and `gh`, `nixos-rebuild`/`nh`)
