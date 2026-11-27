@@ -96,6 +96,14 @@ an untracked file. Register it from your workstation
 (`scp <host>:.nix-config/keys/hosts/<host>.age keys/hosts/`, `sops-sync`,
 commit, push) and deploy, see docs/cloud.md.
 
+Both services run `scripts/nix-config-checkout` (`nix-config-checkout
+<target> <url> <push-url> [hook...]`). It never touches a `~/.nix-config`
+that has a `.git`, clones into `~/.nix-config-checkout` (removed by the next
+run if a run was killed), and swaps the clone in with one atomic rename, so a
+failed or interrupted run leaves the copy as it was and the service retries
+every minute. Only the workstation passes a hook (sops-sync, commit); servers
+never commit. Its tests run when it is built (`checks.x86_64-linux.scripts`).
+
 If you restored a backup that contained a checkout, the installer puts the
 files there instead: run `sops-sync`, commit, push.
 
