@@ -19,9 +19,10 @@ let
     component() { [ -n "$1" ] && [ "$1" != . ] && [ "$1" != .. ] && [[ $1 != */* && $1 != *[[:cntrl:]]* ]]; }
 
     # A git directory as fd 3, checked to be that directory: a link swapped
-    # in later cannot redirect the reads below.
+    # in later cannot redirect the reads below. Opened as DIR/. so that a
+    # FIFO fails at once instead of blocking.
     open_gitdir() {
-      exec 3<"$1" && [ "$(readlink /proc/self/fd/3)" = "$1" ] && [ -d /proc/self/fd/3 ] ||
+      exec 3<"$1/." && [ "$(readlink /proc/self/fd/3)" = "$1" ] ||
         { echo "''${0##*/}: $1 is not a plain directory" >&2; return 1; }
       opened=$1
     }

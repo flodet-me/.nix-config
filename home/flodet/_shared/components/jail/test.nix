@@ -203,6 +203,9 @@
         alice(f'test "$({remote} main)" = "$({bare} main)" && ! {remote} -q --verify rel')
         alice("jail-push ~/cont/rel/sub </dev/null")
         alice(f'test "$({remote} rel)" = "$({bare} rel)"')
+        jail(f"{gc} -C main commit -qm m2 --allow-empty", repo="~/cont")
+        alice("jail-push ~/cont/var </dev/null")
+        alice(f'test "$({remote} main)" = "$({bare} main)"')
 
         # a worktree whose .git points elsewhere: no branch of its own, a named one is pushed
         alice("cd ~/cont && git worktree add -q -b other other")
@@ -245,6 +248,7 @@
             "printf 'gitdir: ./\\n' > .git": "not one directory name",
             "mv .bare bare && ln -s /home/alice/cremote.git .bare": "not a bare repository directory",
             "mv .bare bare && mkdir .bare": "not a bare repository directory",
+            "mv .bare bare && mkfifo .bare": "not a bare repository directory",
             "rm .git && mkfifo .git": "not inside a git repository",
         }
         for make, why in bad.items():
@@ -255,6 +259,9 @@
             alice("cd ~/bad && rm -rf .git && printf 'gitdir: ./.bare\\n' > .git && if [ -d bare ]; then rm -rf .bare && mv bare .bare; fi")
         assert alice("git --git-dir ~/cremote.git for-each-ref") == refs
 
+        # a FIFO instead of a worktree's git directory: no wait on it
+        alice("mv ~/cont/.bare/worktrees/rel ~/relgit && mkfifo ~/cont/.bare/worktrees/rel")
+        assert "name the branch" in refuses("jail-push ~/cont/rel")
         # a link instead of worktrees: the worktree's HEAD is not read through it
         alice("mv ~/cont/.bare/worktrees ~/wtcopy && ln -s ~/wtcopy ~/cont/.bare/worktrees")
         assert "name the branch" in refuses("jail-push ~/cont/feature")

@@ -276,12 +276,13 @@ sandboxed; a container of worktrees (made with `git clone --bare`, a
 from the container and from a worktree, git commits inside in each worktree,
 the URL is recorded from the bare repository at the first start, `jail-push`
 from a worktree pushes only its branch (also from a relative-path worktree and
-a subfolder), from the container the bare HEAD's, and from a worktree whose
-`.git` points elsewhere (another repository, the bare repository itself, a
-`..` path out of it) or whose `worktrees` is a link nothing without a named
-branch; a container `.git` naming another repository, an absolute or `..`
-path, `./`, a link or an empty directory instead of the bare repository, or a
-FIFO (no wait) is refused by `jail` and `jail-push`, from the container and
+a subfolder), from the container or a folder outside the worktrees the bare
+HEAD's, and from a worktree whose `.git` points elsewhere (another repository,
+the bare repository itself, a `..` path out of it), whose git directory is a
+FIFO (no wait) or whose `worktrees` is a link nothing without a named branch;
+a container `.git` naming another repository, an absolute or `..` path, `./`,
+a link, an empty directory or a FIFO instead of the bare repository, or a
+FIFO as `.git` (no wait on either) is refused by `jail` and `jail-push`, from the container and
 from a worktree; a linked worktree and a submodule of a normal repository use
 its jail, and `jail-push` from the worktree pushes the repository's HEAD;
 two terminals share
