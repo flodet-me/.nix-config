@@ -65,5 +65,6 @@ See [docs/testing.md](docs/testing.md) for quick checks, closure diffs (`nix sto
 - `.editorconfig` governs style; Nix files use RFC-style `nixfmt`. New files must be tracked or added with `git add -N <file>` so flakes see them.
 - `stateVersion` is the release of a machine's first install and is never raised afterwards (`desktop`, `laptop`, `moon` are `26.11`; `vps` template is `26.05`).
 - When an unstable package is broken, add a pinned input for it then (`nixpkgs-stable` was removed 2026-11-27 because nothing used it).
+- NixOS unit scripts (`script`, `preStart`, ...) are shellchecked at build time and run with `nounset`/`pipefail` (`systemd.enableStrictShellChecks` in `hosts/_shared/global.nix`); CI builds every flake check, the jail VM test only where KVM exists (docs/testing.md).
 - GitHub Actions are pinned to commit SHAs (updated by Dependabot); keep `.github/act` compatibility via `if: ${{ !env.ACT }}`.
 - Scripts and services must report which step failed and leave a retryable state (`install-host`, `provision-server`, `claude-plugins-sync`, `nix-config-checkout`).

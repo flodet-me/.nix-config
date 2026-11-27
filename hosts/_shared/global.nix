@@ -26,6 +26,9 @@
   };
   sops.gnupg.sshKeyPaths = [ ];
 
+  # Build fails when a unit's script/preStart/... has a shellcheck warning.
+  systemd.enableStrictShellChecks = true;
+
   nixpkgs = {
     overlays = builtins.attrValues outputs.overlays;
     config.allowUnfree = true;

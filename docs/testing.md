@@ -35,14 +35,18 @@ for each host. Afterwards `nix build "<old drv>^out"` and the new toplevel, then
 nix build --no-link .#install-host            # also runs shellcheck on the installer script
 shellcheck -S warning scripts/<name>/<name>.sh
 actionlint .github/workflows/*.yml
-act -W .github/workflows/nix.yml -j format    # run a CI job in Docker (one-time image build: docker build -t ubuntu-act-nix:local .github/act)
+act -W .github/workflows/nix.yml -j checks    # run a CI job in Docker (one-time image build: docker build -t ubuntu-act-nix:local .github/act)
 act -W .github/workflows/nix.yml -j build --matrix host:vps
 act -W .github/workflows/security.yml -j cves --matrix host:vps   # fails when CVEs are found: that is its job
 ```
 
 Docker is rootless on the workstations (user service `docker`, `DOCKER_HOST=unix://$XDG_RUNTIME_DIR/docker.sock` set at login, data in `~/.cache/docker`, outside the `/home` snapshots). It has its own image store, so build the act image once more after switching from the old system daemon; `.actrc` needs no socket path.
 
-`act` works for `hosts`, `format`, `installer`, `build` and `cves`; the `update` job needs a real token and cannot be tried. If a step fails only under `act`, check `if: ${{ !env.ACT }}` first.
+`act` works for `hosts`, `checks`, `installer`, `build` and `cves`; the `update` job needs a real token and cannot be tried. If a step fails only under `act`, check `if: ${{ !env.ACT }}` first. act needs a normal clone: from a `git worktree` the flake cannot be read inside the container (its `.git` file points outside), so `git clone` the worktree to a scratch directory and run `act` there.
+
+The CI job `checks` builds every `checks.x86_64-linux.*` (a new check needs no workflow edit) and the jail VM test only where the runner has KVM (`/dev/kvm` writable; the nix-installer action sets that up): without KVM the step ends with a notice, under `act` it does not run.
+
+Every host sets `systemd.enableStrictShellChecks`: a host build fails when a unit's `script`, `preStart`, `postStart`, ... has a shellcheck finding (any severity, style included). It also changes runtime: those scripts are built with `writeShellApplication` and run with `errexit`, `nounset` and `pipefail`, the initrd `rollback` too; `ExecStart` lines and home-manager units are not covered. Fix the script; for a failing upstream nixpkgs module set that service's `enableStrictShellChecks = false` with a comment naming the module.
 
 ## Run a host in a VM
 
@@ -84,7 +88,7 @@ Measured locally with a warm cache and 4 cores; a cold cache or a new nixpkgs ma
 | Build all four hosts in a loop | 3-8 min | 10 min | 30 min |
 | `nix build .#install-host` | under 1 min (5 min first time) | 5 min | 15 min |
 | `nix build .#installer-iso` | ~10 min after script change, 30+ min cold | 15 min | 60 min |
-| `act` jobs `hosts`, `format` | ~1 min | 3 min | 10 min |
+| `act` jobs `hosts`, `checks` | ~1-2 min | 4 min | 10 min |
 | `act` job `installer` | ~5-6 min | 10 min | 25 min |
 | `act` job `build --matrix host:vps` | ~3 min | 6 min | 20 min |
 | `act` job `cves --matrix host:vps` | ~4-5 min | 8 min | 25 min |

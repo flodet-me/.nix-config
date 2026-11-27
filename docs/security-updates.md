@@ -71,6 +71,6 @@ shows why something is there.
 [testing.md](testing.md)) runs `.github/workflows/*` without
 pushing. Build the runner image once, which is the usual one plus Nix:
 `docker build -t ubuntu-act-nix:local .github/act` (`.actrc` selects it), then
-e.g. `act -W .github/workflows/nix.yml -j format` or
+e.g. `act -W .github/workflows/nix.yml -j checks` or
 `act -W .github/workflows/security.yml -j cves --matrix host:vps`. The
 `update` job needs a real token and cannot be tried this way.
