@@ -96,7 +96,7 @@ Assumptions:
 
 | Item | What | Status | Commit |
 |---|---|---|---|
-| I1 system-tuning | earlyoom, zram sysctls, daemon batch, desktop amdgpu, laptop thermald | open | |
+| I1 system-tuning | earlyoom, zram sysctls, daemon batch, desktop amdgpu, laptop thermald (both kept: measuring on the T480 is the user's) | done | 698127a |
 | I2 claude-code | rtk removal, Playwright allow, merge del list, skillOverrides, codex merger file | done | ec1c845 |
 | I3 shell-git | fzf Ctrl-R, git ignores, agent identity in Nix | open | |
 | I4 flake-hygiene | stable input, hardware follows, groups + assertion, --use-substitutes docs | open | |
