@@ -76,6 +76,7 @@ Assumptions:
 | Item | What | Status | Commit |
 |---|---|---|---|
 | I1 switch-review | configurationRevision, flake-source in the closure, switch-review script, update alias, check, docs | blocked: review round 2 — new-only files not listed (find on a symlinked root); the build itself writes the flake-source the review trusts. Retry: prefetch the tree, build exactly that store path, review it | |
+| I2 switch-review-pinned | redesign (user, 2026-11-27: "retry G-4 with the redesign"): the script copies the checkout's tracked tree into the store itself, builds exactly that store path, reviews it (resolved, symlink-safe roots), fails if the build's flake-source differs | open | |
 
 ## G-5 Review fixes: small and medium changes  (status: open)
 
@@ -90,6 +91,7 @@ Accept:
 Not in scope: review items C 27-30, project snapshots, egress control.
 Assumptions:
 - "fix all" includes removing `nixpkgs-stable` (re-add when a broken package needs it) and ending rtk entirely rather than keeping dead code behind a switch (git keeps it).
+- Laptop RAM is 16 GB (user, 2026-11-27): one earlyoom swap threshold fits desktop and laptop.
 - Deleting the old plugin logs (`~/.claude/bash-commands.log`, `cost-tracker.log`, `~/.gateguard`) and the `result` link: refused by the permission system for the agent; listed for the user.
 
 | Item | What | Status | Commit |
