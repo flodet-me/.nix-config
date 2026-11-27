@@ -46,7 +46,7 @@ Docker is rootless on the workstations (user service `docker`, `DOCKER_HOST=unix
 
 The CI job `checks` builds every `checks.x86_64-linux.*` (a new check needs no workflow edit) and the jail VM test only where the runner has KVM (`/dev/kvm` writable; the nix-installer action sets that up): without KVM the step ends with a notice, under `act` it does not run.
 
-Every host sets `systemd.enableStrictShellChecks`: a host build fails when a unit's `script`, `preStart`, `postStart`, ... has a shellcheck warning. Fix the script; for a failing upstream nixpkgs module set that service's `enableStrictShellChecks = false` with a comment naming the module.
+Every host sets `systemd.enableStrictShellChecks`: a host build fails when a unit's `script`, `preStart`, `postStart`, ... has a shellcheck finding (any severity, style included). It also changes runtime: those scripts are built with `writeShellApplication` and run with `errexit`, `nounset` and `pipefail`, the initrd `rollback` too; `ExecStart` lines and home-manager units are not covered. Fix the script; for a failing upstream nixpkgs module set that service's `enableStrictShellChecks = false` with a comment naming the module.
 
 ## Run a host in a VM
 
