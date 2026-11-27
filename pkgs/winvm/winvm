@@ -610,6 +610,8 @@ cmd_build() {
     [[ $VM == default ]] || die "build makes an image's base image; use --image instead of -n"
     select_image "$img"
     need_writable_images "build on the host"
+    # hours and ~20 GB per jail (pkgs/jail/README.md, Windows VMs)
+    [[ -z ${JAIL:-} ]] || die "build runs on the host, not in a jail ($JAIL); there: winvm build${img:+ --image $img}"
     [[ $WIN_EDITION != *@* ]] || die "set WIN_EDITION in images/$IMG.env"
     if ((REQUIRES_UEFI)) && [[ $FIRMWARE != uefi ]]; then die "$IMAGE_DESC needs FIRMWARE=uefi"; fi
     # The image's own VM: "default" for the default image, else named after it.

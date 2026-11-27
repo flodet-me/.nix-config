@@ -165,8 +165,9 @@ runCommand "winvm-test"
     check "commit with read-only base images: refused, saying why" has 'read-only' bash -c '! winvm -n foo commit --yes'
     check "destroy --all with read-only base images: refused, saying why" has 'read-only' bash -c '! winvm destroy --all --yes'
     check "destroy --all with read-only base images: the VMs stay" test -f "$WINVM_HOME/state/vms/foo/disk.qcow2"
-    check "a VM is still made and deleted" bash -c 'winvm new bar --image win10 && test -d "$WINVM_HOME/state/vms/bar" && winvm destroy bar --yes'
     chmod u+w "$WINVM_HOME/state/images" "$WINVM_HOME/state/images/win10"
+    check "build in a jail: refused, saying why" has 'not in a jail' bash -c '! JAIL=x winvm build --headless'
+    check "a VM is still made and deleted" bash -c 'winvm new bar --image win10 && test -d "$WINVM_HOME/state/vms/bar" && winvm destroy bar --yes'
 
     if ((''${#failed[@]})); then
       printf 'winvm-test: %d failed: %s\n' "''${#failed[@]}" "''${failed[*]}" >&2

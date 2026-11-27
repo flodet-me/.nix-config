@@ -70,7 +70,7 @@ fi
 # Per-repository config, .jail (docs/jail.md). Jailed code can write it,
 # so only the copy you approved on a terminal is applied; it is read as
 # data like .git/config and stored where the jail cannot see it.
-ports=() portspec="" containers=""
+ports=() portspec="" containers="" winvm=""
 esc() { printf '%s' "${1//$'\n'/^J}" | cat -vT; } # control characters (also tab, newline) and high bytes as text
 # $1 is $2 or below it
 within() { [ "$1" = "$2" ] || [ "$2" = / ] || [[ $1 == "$2"/* ]]; }
@@ -142,8 +142,9 @@ parse() {
           fi ;;
         # podman and docker inside (docs/jail.md, Containers)
         containers) [ -z "$val" ] && containers=1 || p="containers takes no value" ;;
-        # features: I4 adds winvm here
-        *) p="unknown keyword (port, ro, rw, containers)" ;;
+        # the host's Windows base images and their key, read-only (docs/jail.md, Windows VMs)
+        winvm) [ -z "$val" ] && winvm=1 || p="winvm takes no value" ;;
+        *) p="unknown keyword (port, ro, rw, containers, winvm)" ;;
       esac
     fi
     [ -z "$p" ] || { echo "jail: .jail line $n: $(esc "$line"): $p" >&2; return 1; }
@@ -155,7 +156,7 @@ in_effect() {
   for ((i = $1; i < ${#fdbinds[@]}; i += 2)); do
     if [ "${fdbinds[i]}" = ro ]; then ro+=" $(esc "${fdbinds[i + 1]}")"; else rw+=" $(esc "${fdbinds[i + 1]}")"; fi
   done
-  echo "ports ${ports[*]:-none} | ro${ro:- none} | rw${rw:- none}${containers:+ | containers}"
+  echo "ports ${ports[*]:-none} | ro${ro:- none} | rw${rw:- none}${containers:+ | containers}${winvm:+ | winvm}"
 }
 # the repository as fd 4, checked to be that directory
 open_root() { exec 4<"$root" && [ "$(readlink /proc/self/fd/4)" = "$root" ] || die "$root is not a plain directory"; }
@@ -606,6 +607,9 @@ env=(
   --setenv SHELL "${SHELL:-/bin/sh}" --setenv LANG "${LANG:-C.UTF-8}"
   --setenv XDG_RUNTIME_DIR "$run"
   --setenv JAIL "$name" # codex takes its jail profile (claude-code/codex/wrapper.nix)
+  # winvm's VMs: the jail's own, in its cache (not in the /home snapshots); it
+  # wins over ~/.config/winvm/home, which names the host's
+  --setenv WINVM_HOME "$HOME/.cache/winvm"
   # no gpg-agent inside, and you do not commit there: commits and tags unsigned
   --setenv GIT_CONFIG_COUNT 2
   --setenv GIT_CONFIG_KEY_0 commit.gpgSign --setenv GIT_CONFIG_VALUE_0 false
@@ -649,9 +653,28 @@ with_containers() {
   init=(@containersInit@/bin/jail-containers-init)
 }
 
+# Windows VMs (.jail: winvm; ADR 0007): the host's base images and the key
+# they trust, read-only in the jail's WINVM_HOME; its VMs are its own.
+with_winvm() {
+  [ -n "$winvm" ] || return 0
+  local h=${WINVM_HOME:-} f=${XDG_CONFIG_HOME:-$HOME/.config}/winvm/home x p why
+  # where winvm on the host finds its home (pkgs/winvm/winvm)
+  if [ -z "$h" ] && [ -f "$f" ]; then
+    read -r h <"$f" || true # no final newline
+    [[ $h == /* ]] || die "winvm: $f: $(esc "$h") is not an absolute path"
+  fi
+  h=${h:-${XDG_DATA_HOME:-$HOME/.local/share}/winvm}
+  for x in images id_ed25519 id_ed25519.pub; do
+    p=$(realpath -e -- "$h/state/$x" 2>/dev/null) || continue # not there: nothing to share
+    why=$(bind_path "$p" ro) || die "winvm: $(esc "$p"): $why"
+    fdbinds+=("ro:$HOME/.cache/winvm/state/$x" "$p")
+  done
+}
+
 if [ $# -gt 0 ]; then
   load_config one-off
   with_containers
+  with_winvm
   prepare
   bind_bus "$run/jails/$name.bus-$$"
   # home-manager's session variables, which the shared jail's login shell
@@ -673,6 +696,7 @@ install -d -m 0700 "$sockdir"
 if ! alive; then
   load_config shared
   with_containers
+  with_winvm
   prepare
   bind_bus "$run/jails/$name.bus"
   # The jail's main process keeps the namespace alive while the session lives.

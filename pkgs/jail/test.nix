@@ -66,6 +66,9 @@
         pkgs.dig
         pkgs.curl
         (pkgs.callPackage ../../home/flodet/_shared/components/claude-code/codex/wrapper.nix { })
+        (pkgs.callPackage ../winvm { }) # as on the workstations; Windows VMs in a jail
+        pkgs.qemu-utils
+        pkgs.swtpm
       ];
       # names on the session bus: the one the jail may talk to, and another
       systemd.user.services =
@@ -86,6 +89,8 @@
           home.file.".cache/hm/.keep".text = ""; # linked into the jail home's old .cache
           home.sessionVariables.JAIL_PROBE = "from-session-vars";
           home.sessionPath = [ "$HOME/probe-bin" ];
+          # winvm's home on the host, as on desktop (home/flodet/desktop)
+          xdg.configFile."winvm/home".text = "/home/alice/winvm-host\n";
         };
       };
     };
@@ -1105,5 +1110,87 @@
         alice(f"! rm -rf ~/.cache/jails/{kn} 2>/dev/null && test -d ~/.cache/jails/{kn}")
         answer(f"jail reset {kn} --all", "y")
         alice(f"test ! -e ~/.cache/jails/{kn} && test ! -e {jails}/{kn}")
+
+    # Windows VMs (.jail line winvm; docs/jail.md, ADR 0007)
+    w = "~/repow"
+    hostsnap = "find ~/winvm-host -printf '%p %s %T@ %m\\n' | sort"
+
+    with subtest("winvm: every jail has a WINVM_HOME of its own; without the line nothing of the host's"):
+        alice("""
+          mkdir -p ~/winvm-host/state/images/win10 ~/winvm-host/state/vms/hostvm
+          qemu-img create -q -f qcow2 ~/winvm-host/state/images/win10/base.qcow2 16M
+          chmod a-w ~/winvm-host/state/images/win10/base.qcow2
+          echo bios > ~/winvm-host/state/images/win10/firmware
+          echo hostkey > ~/winvm-host/state/id_ed25519 && chmod 600 ~/winvm-host/state/id_ed25519
+          echo hostpub > ~/winvm-host/state/id_ed25519.pub
+          touch ~/winvm-host/state/vms/hostvm/disk.qcow2
+        """)
+        # the control: on the host winvm takes ~/.config/winvm/home
+        alice('test "$(winvm home)" = /home/alice/winvm-host && winvm list | grep -q "^hostvm "')
+        jail('test "$WINVM_HOME" = /home/alice/.cache/winvm && test "$(winvm home)" = /home/alice/.cache/winvm'
+             " && test ! -e ~/.cache/winvm && test ! -e ~/winvm-host && winvm list 2>&1 | grep -q 'no VMs'")
+
+    with subtest("winvm: the line binds the host's base images and key read-only, VMs are the jail's"):
+        alice("git init -q ~/repow && printf 'winvm\\nport 33891\\n' > ~/repow/.jail")
+        assert "would add: ports 33891 | ro none | rw none | winvm" in alice(f"jail config {w} 2>&1")
+        out = start("true", answer="yes", repo=w)
+        assert "jail: in effect: ports 33891 | ro none | rw none | winvm" in out, out
+        before = alice(hostsnap)
+        s = "$WINVM_HOME/state"
+        jail(f'test "$WINVM_HOME" = /home/alice/.cache/winvm && test -f {s}/images/win10/base.qcow2'
+             f" && grep -qx hostkey {s}/id_ed25519 && grep -qx hostpub {s}/id_ed25519.pub"
+             f" && test ! -e {s}/vms/hostvm && test ! -e ~/winvm-host", repo=w)
+        # read-only: no new file, no change, no removal
+        for cmd in [f"touch {s}/images/x", f"touch {s}/images/win10/x", f"echo x >> {s}/id_ed25519",
+                    f"echo x > {s}/id_ed25519.pub", f"rm -f {s}/id_ed25519.pub", f"chmod u+w {s}/images/win10/base.qcow2",
+                    f"rm -rf {s}/images/win10"]:
+            jail(f"! {cmd} 2>/dev/null && grep -qx hostpub {s}/id_ed25519.pub && test -f {s}/images/win10/base.qcow2", repo=w)
+        # winvm itself: a VM on the shared base image, in the jail's home
+        jail("winvm images | grep -Eq '^win10 +[0-9]' && winvm new t1 --image win10 && winvm list | grep -q '^t1 '"
+             f" && qemu-img info {s}/vms/t1/disk.qcow2 | grep -qx 'backing file: /home/alice/.cache/winvm/state/images/win10/base.qcow2'", repo=w)
+        alice("test -f ~/.cache/jails/repow-*/winvm/state/vms/t1/disk.qcow2")
+        # what would write the base images says why it cannot
+        jail("! winvm build --image win10 2> err && grep -q 'read-only here' err", repo=w)
+        # swtpm runs (a UEFI VM's TPM)
+        jail("swtpm socket --tpm2 --tpmstate dir=$(mktemp -d) --ctrl type=unixio,path=/tmp/tpm.sock --daemon --pid file=/tmp/tpm.pid"
+             " && for i in $(seq 50); do test -S /tmp/tpm.sock && break; sleep 0.1; done && test -S /tmp/tpm.sock && kill $(cat /tmp/tpm.pid)", repo=w)
+        if kvm:
+            # QEMU on KVM, without a PipeWire socket, its port forwards on the jail's 127.0.0.1
+            jail("printf 'VM_RAM=256M\\nVM_CPUS=1\\n' > $WINVM_HOME/state/vms/t1/vm.env && winvm -n t1 start --headless 2> err"
+                 " && grep -q 'no PipeWire' err && winvm list | grep -q '^t1 .*running'"
+                 " && ss -Htln 'sport = :33891' | grep -q 127.0.0.1 && ss -Htln 'sport = :2223' | grep -q 127.0.0.1"
+                 " && winvm -n t1 stop --force", repo=w)
+        jail("winvm destroy t1 --yes && test ! -e $WINVM_HOME/state/vms/t1", repo=w)
+        assert alice(hostsnap) == before
+
+    with subtest("winvm: RDP from the host through the .jail port"):
+        # a stand-in for the VM's RDP forward (winvm's 127.0.0.1:33891 inside, slot 1)
+        rdp = "socat TCP-LISTEN:33891,bind=127.0.0.1,fork SYSTEM:'echo rdp'"
+        alice(f"(jail {w} -- sh -c {shlex.quote(rdp)} </dev/null & wait) >/dev/null 2>&1 &")
+        machine.wait_until_succeeds("su - alice -c 'socat -u TCP:127.0.0.1:33891 -' | grep -q rdp", timeout=30)
+        machine.succeed("pkill -u alice -f 'TCP-LISTEN:33891'")
+        machine.wait_until_succeeds("! pgrep -u alice '^(xdg-dbus-proxy|passt|pasta)'", timeout=30)
+
+    with subtest("winvm: the host's WINVM_HOME as winvm finds it: $WINVM_HOME, the config file, the default"):
+        alice("mkdir -p ~/winvm-env/state/images/envmark ~/.local/share/winvm/state/images/defmark")
+        imgs = "ls $WINVM_HOME/state/images"
+        assert alice(f"WINVM_HOME=/home/alice/winvm-env jail {w} -- sh -c {shlex.quote(imgs)}").split() == ["envmark"]
+        assert alice(f"XDG_CONFIG_HOME=/home/alice/nocfg jail {w} -- sh -c {shlex.quote(imgs)}").split() == ["defmark"]
+        assert alice(f"jail {w} -- sh -c {shlex.quote(imgs)}").split() == ["win10"]
+        # none there: nothing bound, the jail's own folder (here an empty mount point of the start before)
+        alice("git init -q ~/repow2 && echo winvm > ~/repow2/.jail")
+        start("true", answer="yes", repo="~/repow2")
+        alice("WINVM_HOME=/home/alice/winvm-none jail ~/repow2 -- sh -c"
+              " 'test -z \"$(ls -A $WINVM_HOME/state/images)\" && mkdir $WINVM_HOME/state/images/x'")
+        # building stays on the host
+        jail("! winvm build --image win10 2> err && grep -q 'not in a jail' err", repo="~/repow2")
+        # one in the repository: refused, it is read-write there
+        alice("mkdir -p ~/repow/wh/state/images")
+        out = refuses(f"env WINVM_HOME=/home/alice/repow/wh jail {w} -- true")
+        assert "is in the repository" in out, out
+
+    with subtest("a repository under /tmp gets a jail"):
+        alice("git init -q /tmp/jailtmp")
+        jail('test "$PWD" = /tmp/jailtmp', repo="/tmp/jailtmp")
   '';
 }
