@@ -45,46 +45,61 @@ repository and sees only what that needs:
 | | Boundary | VMs (`/dev/kvm`) | Effort, friction |
 | --- | --- | --- | --- |
 | A. Claude Code's built-in sandbox (`sandbox.*`, bwrap + socat) | Bash and its children only; not the Read/Edit/Write tools, hooks, MCP or LSP servers, nor Codex run on its own | `/dev/kvm` must be allowed | settings only |
-| B. **bubblewrap jail, same uid** | mount namespace: only bound paths exist; `no_new_privs` makes `sudo` and other setuid useless; own PID namespace | yes, verified | one Nix-built wrapper; files keep your ownership |
+| B. **bubblewrap jail, same uid** | mount namespace: only bound paths exist; `no_new_privs` makes `sudo` and other setuid useless; own PID namespace | yes (`/dev/kvm` opens) | one Nix-built wrapper; files keep your ownership |
 | C. Separate Unix user per agent | kernel file permissions | yes (`/dev/kvm` is 0666) | shared group/ACLs on every repo, `safe.directory`, two owners per file |
 | D. MicroVM per project (microvm.nix) | own kernel | nested KVM only, slow for Windows | store sharing via virtiofs, more RAM, per-VM networking |
 
 ## Recommendation: B plus host hardening, A as an inner layer
 
 1. **Close the root paths** (useful on its own, independent of agents):
-   `trusted-users = [ "root" ]` (substituters are already system-wide in
-   `nix.nix`); Docker rootless instead of the `docker` group; agents never get
+   `trusted-users = [ "root" ]` on the workstations only (substituters are
+   already system-wide in `nix.nix`; the servers keep `@wheel`, because
+   `nixos-rebuild --target-host` copies unsigned closures as the SSH user);
+   Docker rootless instead of the `docker` group; agents never get
    the libvirt system socket (virt-manager stays a human tool). `sudo` stays
    for you, the jail kills it for agents through `no_new_privs`.
 2. **`agent-jail` wrapper** (home-manager module, `writeShellApplication`
-   around `bwrap`): `agent-jail claude` / `agent-jail codex` in a repository.
+   around `bwrap`): `agent-jail claude` / `agent-jail codex` in an agent
+   clone of a repository (step 3).
    - `--unshare-all --share-net --die-with-parent --new-session`, `--tmpfs
      /home`, own `/proc`, `/dev`, `/tmp`.
    - Read-only: `/nix`, `/etc`, `/run/current-system`, `~/brain`; read-write:
      the repository, `~/brain/inbox`, the Nix daemon socket, `/dev/kvm`, the
      caches that are only caches (`~/.cache/nix`, `nuget`, `npm`, `cargo`).
-   - Read-only inside the writable repository: `.git/hooks`, `.git/config`,
-     `.envrc`, `.nvim.lua`, `.claude/settings*.json` (change them yourself,
-     outside), so nothing the agent writes runs unjailed later.
    - `~/.claude`, `~/.claude.json`, `~/.codex` read-write for login, sessions
      and plugins, but `~/.claude/settings.json`, `rules/`, `skills/`, `agents/`
      read-only (Nix owns them anyway; a hook written there would run in your
      next unjailed session).
    - No `/run/user/1000`, no session bus. Desktop notifications through
      `xdg-dbus-proxy --talk=org.freedesktop.Notifications` only.
-   - Smoke test run by hand on 2026-11-27 with exactly these binds:
-     `~/Nextcloud` absent, `~/brain` readable, `KVM_GET_API_VERSION` 12 on
-     `/dev/kvm`, a `nix build` through the daemon worked, DNS worked,
-     `/run/user/1000`, `systemd-run --user`, the Docker and libvirt sockets
-     unreachable.
-3. **Network in its own namespace** with `pasta` (as rootless Podman does):
+   - Tested by hand on 2026-11-27 with a subset of these binds (`/nix`,
+     `/etc`, daemon socket, `/dev/kvm`, `~/brain` read-only, one repository,
+     `--share-net`): `~/Nextcloud` absent, `~/brain` readable,
+     `KVM_GET_API_VERSION` 12 on `/dev/kvm`, a `nix build` through the daemon
+     and DNS worked; `/run/user/1000`, `systemd-run --user`, the Docker and
+     libvirt sockets unreachable. Not tested yet: `claude` or `codex` inside
+     the jail, the `~/.claude` binds, a real QEMU/winvm boot, `pasta`,
+     `xdg-dbus-proxy`.
+3. **The agent works in its own clone; you review at the git boundary.**
+   Read-only binds for `.git/hooks`, `.git/config`, `.envrc` inside a
+   writable repository do not hold: tested, `mv .git .git.x && git init`
+   gives the agent fresh, writable hooks. And files that are no hooks run
+   too: `use flake` evaluates the agent-written `flake.nix` (`shellHook`), and
+   nix-direnv reloads on a `flake.nix` change without asking. So the jail
+   gets a clone (e.g. `~/agents/<repo>`, a `git worktree` would share
+   `.git/config` and hooks with yours); your checkout adds it as a remote and
+   `git fetch`es, which runs nothing from it. You read the diff, above all of
+   `flake.nix`, `.envrc`, `.nvim.lua`, `.claude/`, build scripts, before you
+   merge, enter the directory or build. Alternative: your own shell and
+   editor for that repository also run in the jail.
+4. **Network in its own namespace** with `pasta` (as rootless Podman does):
    outbound internet works, but the host's localhost services and abstract
    Unix sockets (Xwayland, some D-Bus) are no longer shared, which plain
    `--share-net` does. Optional later: an egress allowlist (model APIs, Nix
    caches, package registries) through a filtering proxy.
-4. **Claude Code's sandbox inside the jail** for finer per-command network
+5. **Claude Code's sandbox inside the jail** for finer per-command network
    and write rules, if wanted; the jail stays the boundary.
-5. **Untrusted third-party code**: profile D (microVM) for that repository
+6. **Untrusted third-party code**: profile D (microVM) for that repository
    only.
 
 Checks for the implementation: a NixOS VM test that runs the wrapper as the
@@ -94,8 +109,10 @@ user and asserts the table above (hidden paths absent, `sudo` refused,
 ## VMs and Windows development
 
 - winvm (`~/Projects/windows-vm`) is plain QEMU/KVM without libvirt or root;
-  its files live in its directory. Inside the jail it needs only `/dev/kvm`,
-  its directory and user-mode networking (passt/slirp), all unprivileged.
+  its files live in its directory. Inside the jail it should need only
+  `/dev/kvm`, its directory and user-mode networking (passt/slirp), all
+  unprivileged (`/dev/kvm` opened in the test; a full boot is still to
+  test).
   Bridged or tap networking needs root: not for agents.
 - **Building for Windows on Linux, testing in the VM** (default): .NET
   publishes `-r win-x64`; WinForms/WPF build with `EnableWindowsTargeting=true`
@@ -118,3 +135,5 @@ user and asserts the table above (hidden paths absent, `sudo` refused,
 3. Do you use Docker through the group, or is rootless Docker/Podman fine?
 4. Windows: building on Linux and testing in winvm, an agent inside the VM,
    or both?
+5. Agent clone plus `git fetch` and diff review before you enter or build
+   it, or your own shell and editor jailed for agent repositories as well?

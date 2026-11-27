@@ -22,6 +22,9 @@ nothing is downloaded at runtime. The config is `init.lua` next to the module.
   **which-key**, `mini.nvim` (statusline, pairs, surround, text objects,
   icons; stylix's colors use `mini.base16`), **direnv.vim**.
 - `.editorconfig` is honored by Neovim itself.
+- Grammars come from Nix: `:TSInstall` is not used, and `:checkhealth
+  nvim-treesitter` errors about `tree-sitter-cli` and a non-writable install
+  directory are expected.
 
 Keys (leader is Space; `which-key` shows the rest):
 

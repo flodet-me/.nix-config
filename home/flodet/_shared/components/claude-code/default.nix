@@ -350,8 +350,6 @@ in
   systemd.user.services.claude-plugins-sync = {
     Unit = {
       Description = "Install declared Claude Code plugins and skills";
-      After = [ "network-online.target" ];
-      Wants = [ "network-online.target" ];
       # a broken plugin name must not retry forever
       StartLimitIntervalSec = 3600;
       StartLimitBurst = 10;

@@ -5,6 +5,7 @@
 
 vim.g.mapleader = ' '
 vim.g.maplocalleader = ' '
+vim.g.direnv_silent_load = 1 -- no "direnv: loading" lines in the message area
 
 local o = vim.opt
 o.number = true
