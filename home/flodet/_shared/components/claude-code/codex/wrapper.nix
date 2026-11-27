@@ -11,11 +11,28 @@ let
     name = "codex";
     text = ''
       if [ -n "''${JAIL:-}" ]; then
-        case ''${1-} in
-          debug) [ "''${2-}" != prompt-input ] || set -- --profile jail "$@" ;;
-          login | logout | plugin | app-server | remote-control | completion | update | doctor | apply | a | migrate-rollouts | cloud | exec-server | features | help) ;;
-          *) set -- --profile jail "$@" ;;
-        esac
+        # the command: the first argument after codex's global options (codex --help)
+        i=1 sub="" own=""
+        while [ "$i" -le $# ]; do
+          case ''${!i} in
+            -p | --profile | -p?* | --profile=*) own=1 ;;&
+            -c | --config | --enable | --disable | --remote | --remote-auth-token-env | -i | --image | -m | --model | --local-provider | -p | --profile | -s | --sandbox | -C | --cd | --add-dir | -a | --ask-for-approval) i=$((i + 2)) ;;
+            --) break ;; # a prompt follows
+            -*) i=$((i + 1)) ;;
+            *)
+              sub=''${!i}
+              break
+              ;;
+          esac
+        done
+        next=$((i + 1))
+        if [ -z "$own" ]; then
+          case $sub in
+            debug) [ "''${!next-}" != prompt-input ] || set -- --profile jail "$@" ;;
+            login | logout | plugin | app-server | remote-control | completion | update | doctor | apply | a | migrate-rollouts | cloud | exec-server | features | help) ;;
+            *) set -- --profile jail "$@" ;;
+          esac
+        fi
       fi
       exec ${codex}/bin/codex "$@"
     '';

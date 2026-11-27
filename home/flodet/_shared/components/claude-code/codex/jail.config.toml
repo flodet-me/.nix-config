@@ -2,6 +2,6 @@
 # adds it inside a jail (docs/jail.md). The jail is the sandbox, so commands
 # run without codex's own sandbox and approval prompts, with network and
 # writes to the jail's caches; workspace-write would still ask for every write
-# outside the repository (~/.cache, ~/.nuget).
+# outside the repository (~/.cache: nix, NuGet, npm).
 sandbox_mode = "danger-full-access"
 approval_policy = "never"

@@ -138,11 +138,12 @@ bind_path() {
     ! within "$p" "$x" || { echo "is in $x"; return 1; }
   done
   [ "$p" != /tmp ] || { echo "is /tmp"; return 1; }
-  for x in "$HOME" "$HOME/.local/share/jails" "$HOME/.cache/jails" "$root"; do
+  for x in "$HOME" "$HOME/.local/share/jails" "$HOME/.cache" "$root"; do
     ! within "$x" "$p" || { echo "is or contains $x"; return 1; }
   done
   ! within "$p" "$HOME/.local/share/jails" || { echo "is in the jails' state"; return 1; }
-  ! within "$p" "$HOME/.cache/jails" || { echo "is in the jails' caches"; return 1; }
+  # the jail's ~/.cache is its own (~/.cache/jails/<name>): a bind below it would land in there
+  ! within "$p" "$HOME/.cache" || { echo "is in $HOME/.cache, the jail has its own"; return 1; }
   ! within "$p" "$root" || { echo "is in the repository"; return 1; }
   # keys, logins, transcripts; with rw also what your host session runs or loads
   local sensitive=(.ssh .gnupg .claude .codex .claude.json .local/share/keyrings .password-store) ro_only=()

@@ -320,7 +320,8 @@
         out = jail(sandbox)
         assert "danger-full-access" in out, out
         # subcommands that refuse --profile still work
-        jail("codex features list >/dev/null")
+        jail("codex features list >/dev/null && codex -c 'model=\"m\"' features list >/dev/null")
+        assert "danger-full-access" in jail("codex -c 'model=\"m\"' " + sandbox.removeprefix("codex "), repo="~/repo")
 
     with subtest("commits and tags in a jail are unsigned, the host still signs"):
         alice("""
@@ -510,7 +511,7 @@
         alice("""
           mkdir -p ~/data-ro ~/data-rw && echo ro > ~/data-ro/f && echo secret > ~/secret
           ln -s ~/data-ro ~/data-link
-          mkdir -p ~/.cache/jails/x ~/.ssh ~/.gnupg ~/.password-store ~/.local/share/keyrings ~/.local/state ~/.config/x ~/brain/wiki
+          mkdir -p ~/.cache/jails/x ~/.cache/foo ~/.ssh ~/.gnupg ~/.password-store ~/.local/share/keyrings ~/.local/state ~/.config/x ~/brain/wiki
           git init -q ~/repoc && cd ~/repoc && git commit -q --allow-empty -m one
           printf '#\\ta website and two folders\\nport 8090\\nport 8091\\nport 8090\\n\\nro ~/data-ro\\nrw /home/alice/data-rw/\\n' > .jail
         """)
@@ -587,8 +588,8 @@
             "ro ~/data-link": "goes through a symlink", "ro /": "is or contains /home/alice", "ro /home": "is or contains /home/alice",
             "rw ~": "is or contains /home/alice", "rw ~/.local": "is or contains /home/alice/.local/share/jails",
             "ro ~/.local/share/jails": "is or contains /home/alice/.local/share/jails", "ro /etc": "is in /etc",
-            "rw ~/.cache": "is or contains /home/alice/.cache/jails", "ro ~/.cache/jails": "is or contains /home/alice/.cache/jails",
-            "ro ~/.cache/jails/x": "is in the jails' caches",
+            "rw ~/.cache": "is or contains /home/alice/.cache", "ro ~/.cache/jails": "is in /home/alice/.cache, the jail has its own",
+            "ro ~/.cache/jails/x": "is in /home/alice/.cache, the jail has its own", "ro ~/.cache/foo": "is in /home/alice/.cache, the jail has its own",
             "ro /nix/store": "is in /nix", "rw /run/user": "is in /run", "ro /proc": "is in /proc", "rw /tmp": "is /tmp",
             "rw ~/repoe": "is or contains /home/alice/repoe", "rw ~/repoe/.git": "is in the repository",
             "ro relative": "not an absolute path", "ro ~/missing": "does not exist",

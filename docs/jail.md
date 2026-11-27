@@ -95,7 +95,12 @@ boundary, so codex runs commands without its own sandbox or prompts, with
 the network and the jail's caches; `workspace-write` would still ask for
 every write outside the repository (`~/.cache`). Codex 0.171 refuses
 `--profile` for commands that start no session (`login`, `features`,
-`doctor`, ...), so those run without it. Outside a jail codex keeps your
+`doctor`, ...), so those run without it; the wrapper finds the command
+after codex's global options (`codex -c k=v login`), and adds nothing when
+you give `-p`/`--profile` yourself. Without `~/.codex/jail.config.toml`
+(before the switch that brings it) codex silently keeps the host default
+(`read-only` or `workspace-write`), which is more restrictive: it asks
+again. Outside a jail codex keeps your
 default (`config.toml`); `claude-codex-review` runs plain codex with its
 explicit read-only sandbox, also inside.
 
@@ -127,8 +132,8 @@ rw /srv/scratch/foo
   and be canonical (no `.`, `..`). Refused: `/`, `/tmp`, anything in `/nix`,
   `/run`, `/proc`, `/dev`, `/etc`, `/sys`, `/.snapshots`, `/persist`, your home or a folder above it
   (`/home`), the jails' state (`~/.local/share/jails`, or a folder above it
-  such as `~/.local`), the jails' caches (`~/.cache/jails`, in it or above
-  it such as `~/.cache`), and the repository or anything in it or above it.
+  such as `~/.local`), `~/.cache` and anything in it
+  (the jail has its own, `~/.cache/jails/<name>`), and the repository or anything in it or above it.
   Also refused, in it, at it or above it: `~/.ssh`, `~/.gnupg`, `~/.claude`,
   `~/.codex`, `~/.claude.json`, `~/.local/share/keyrings`,
   `~/.password-store`; and as `rw` (fine as `ro`): `~/.config`,
@@ -292,7 +297,7 @@ planted in its place; home-manager files linked;
 `/usr/bin/env` works; a one-off command sees a home-manager session
 variable and `home.sessionPath`; the jail's `~/.cache` is in
 `~/.cache/jails/<name>` (not in the jail home), also with a link planted at
-its mount point, and an old cache in the jail home stays, unused, with one
+`.cache` in the jail home, and an old cache in the jail home stays, unused, with one
 message; codex inside reports `danger-full-access` (`codex debug
 prompt-input`, the host's default outside) and `codex features list` works
 there; with `commit.gpgSign` and `tag.gpgSign` true in a repository a commit
@@ -345,7 +350,7 @@ shared jail with the port taken on the host does not start and names the
 port, then starts once it is free; a jail-side edit adding `rw` of a host file
 is not applied without approval and the approved copy stays in use; a linked
 `.jail`, a linked path, forbidden paths (`/`, `/home`, `~`, `~/.local`, the
-jails' state, `~/.cache`, `~/.cache/jails` and a folder in it, `/etc`, `/nix/store`, `/run/user`, `/proc`, `/tmp`, the
+jails' state, `~/.cache`, `~/.cache/jails`, a folder in each, `/etc`, `/nix/store`, `/run/user`, `/proc`, `/tmp`, the
 repository and its `.git`, `~/.ssh`, `~/.gnupg`, `~/.claude` and below it,
 `~/.codex`, `~/.claude.json`, keyrings, `~/.password-store`, and as `rw`
 `~/.config`, `~/.local/state`, `~/.local/bin`, `~/brain`), relative and
