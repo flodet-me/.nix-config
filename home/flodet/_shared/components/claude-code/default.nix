@@ -218,11 +218,13 @@ let
       dir=$(jq -r '.cwd // "" | strings' <<<"$input") || exit 0
       case $dir in /*) ;; *) dir="" ;; esac
       files=()
+      repo=""
       [ -f "$HOME/.claude/settings.json" ] && files+=("$HOME/.claude/settings.json")
       while [ -n "$dir" ]; do
         for f in "$dir/.claude/settings.json" "$dir/.claude/settings.local.json"; do
           [ -f "$f" ] && files+=("$f")
         done
+        [ -e "$dir/.git" ] && repo=1
         [ "$dir" = / ] && break
         dir=$(dirname "$dir")
       done
@@ -246,6 +248,17 @@ let
       # rewrite would hide them from it.
       for word in " cd " " pushd " " popd " " -C" " --no-index" " --git-dir" " --work-tree" " --file"; do
         [[ $words == *"$word"* ]] && exit 0
+      done
+      # Outside a work tree git diffs plain files (implicit --no-index).
+      [ -n "$repo" ] || exit 0
+      # Paths outside the work tree (a git diff of them reads plain files);
+      # revision ranges like main..HEAD still pass.
+      plain=''${command//>\/dev\/null/ }
+      plain=''${plain//> \/dev\/null/ }
+      plain=''${plain//[\"\']/}
+      read -ra parts <<<"''${plain//[$'\n\t;&|()<>`']/ }"
+      for word in "''${parts[@]}"; do
+        case $word in \~* | /* | \$* | ..* | */..* | *=/* | *=\~* | *=\$*) exit 0 ;; esac
       done
       while IFS= read -r guard; do
         [[ -n $guard && $words == *" ''${guard#B}"* ]] && exit 0
@@ -379,8 +392,9 @@ let
       (
         if rtkTrial then
           ''
-            export HOME=$TMPDIR
-            mkdir -p "$HOME/.claude" "$HOME/.config/rtk"
+            export HOME=$TMPDIR/home
+            # the sessions below run in a git work tree, but the last ones
+            mkdir -p "$HOME/.git" "$HOME/.claude" "$HOME/.config/rtk"
             cp ${untestedSettings} "$HOME/.claude/settings.json" # rtk reads the rules here
             cp ${rtkConfig} "$HOME/.config/rtk/config.toml"
             # the command the hook hands to Claude Code, run like Claude Code
@@ -446,9 +460,29 @@ let
               "cat ~/link/id_ed25519" \
               "grep x ~/link/id_ed25519" \
               "git diff --no-index ~/link/id_ed25519 x" \
-              "git -C ~/link log"; do
+              "git -C ~/link log" \
+              "git diff ~/.ssh/id_ed25519 /dev/null" \
+              "git diff --stat /run/secrets/foo /dev/null" \
+              "git diff --word-diff /run/secrets/foo /dev/null" \
+              "git diff ~/link/id_ed25519 /dev/null" \
+              "git -c core.x=y diff ~/.ssh/id_ed25519 /dev/null" \
+              'git diff "$HOME/.ssh/id_ed25519" /dev/null' \
+              "git diff ../../.ssh/id_ed25519 /dev/null" \
+              "git diff ../x /dev/null" \
+              "git diff --output=~/x"; do
               expect "$c" "$c"
             done
+            # git outside a work tree diffs plain files (implicit --no-index)
+            mkdir -p "$TMPDIR/plain"
+            cwd=$TMPDIR/plain
+            expect "git diff .ssh/id_ed25519 x" "git diff .ssh/id_ed25519 x"
+            expect "git status" "git status"
+            # still rewritten in a work tree: revision ranges are not paths
+            cwd=$HOME
+            expect "git log main..HEAD" "rtk git log main..HEAD"
+            expect "git diff A...B" "rtk git diff A...B"
+            expect "git status 2>/dev/null" "rtk git status 2>/dev/null"
+            expect "git status" "rtk git status"
             [ "$failed" = 0 ]
             cp ${untestedSettings} $out
           ''
