@@ -78,7 +78,7 @@ Assumptions:
 | I1 switch-review | configurationRevision, flake-source in the closure, switch-review script, update alias, check, docs | blocked: review round 2 — new-only files not listed (find on a symlinked root); the build itself writes the flake-source the review trusts. Retry: prefetch the tree, build exactly that store path, review it | |
 | I2 switch-review-pinned | redesign (user, 2026-11-27: "retry G-4 with the redesign"): the script copies the checkout's tracked tree into the store itself, builds exactly that store path, reviews it (resolved, symlink-safe roots), fails if the build's flake-source differs | open | |
 
-## G-5 Review fixes: small and medium changes  (status: open)
+## G-5 Review fixes: small and medium changes  (status: done)
 
 Goal: "fix all small change and medium." (the 2026-11-27 repository review, items A 1-17 and B 18-26; 18 is G-6)
 Accept:
@@ -101,7 +101,7 @@ Assumptions:
 | I3 shell-git | fzf Ctrl-R, git ignores, agent identity in Nix | done | dd06e0f |
 | I4 flake-hygiene | stable input, hardware follows, groups + assertion, --use-substitutes docs | done | e43943d |
 | I5 checkout-dedupe | one nix-config checkout script, retryable | done | dc8fb5e |
-| I6 ci-checks | CI runs flake checks, strict shell checks for units | open | |
+| I6 ci-checks | CI runs flake checks, strict shell checks for units (moon VM boot: initrd rollback OK under nounset/pipefail) | done | 09c890c |
 
 ## G-6 jail as its own package  (status: open)
 
