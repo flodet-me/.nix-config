@@ -84,6 +84,27 @@ rec {
     };
   };
 
+  # The Check and the Gate (CLAUDE.md `## Factory`, docs/testing.md):
+  # `nix run .#check` / `.#gate` from the repository root. Tested while built.
+  check = pkgs.writeShellApplication {
+    name = "check";
+    meta.description = "Fast check: formatting, scripts, secrets, install-host, evaluation";
+    text = builtins.readFile ./check/check.sh;
+    derivationArgs = {
+      nativeBuildInputs = [ pkgs.shellcheck ];
+      postCheck = ''
+        shellcheck ${./check/test.sh}
+        bash ${./check/test.sh} "$target"
+      '';
+    };
+  };
+  gate = pkgs.writeShellApplication {
+    name = "gate";
+    meta.description = "Full gate: nix flake check, install-host and every host";
+    runtimeInputs = [ check ];
+    text = ''exec check --gate "$@"'';
+  };
+
   installer-vm = script "installer-vm" (with pkgs; [
     qemu_kvm
     git
