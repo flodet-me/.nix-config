@@ -1,7 +1,7 @@
-# 0007: Containers inside a jail: the jail's own rootless podman, many uids
+# 0007: Containers inside a jail: the jail's own rootless podman, many uids; Windows VMs on the host's base images
 
 Date: 2026-11-27. Status: accepted, implemented in `pkgs/jail`
-([docs/jail.md](../jail.md), Containers).
+([docs/jail.md](../jail.md), Containers and Windows VMs).
 
 ## Context
 
@@ -115,3 +115,62 @@ Design decided by the agent, option 3:
 Decided by: user (goal G-12: containers without a host daemon, opt-in, the
 jail's own API socket, real Compose); agent (design: two user namespaces,
 subuids, the cgroup view, per-instance service and storage).
+
+## Windows VMs
+
+### Context
+
+winvm (`pkgs/winvm`, ADR 0006) is plain QEMU/KVM: its code is in the store
+and `/dev/kvm` is in every jail, so only its data decides what a jail can
+do. A base image takes hours to build and ~20 GB; a jail should run VMs on
+the host's builds (goal G-12: "Share base images read-only") without
+reaching the host's VMs or writing the host's `WINVM_HOME`. Inside, winvm
+would take the host's path from `~/.config/winvm/home` (home-manager).
+
+### Options
+
+1. The jail's own `WINVM_HOME` in its cache, with the host's `state/images`
+   and the key bound read-only into it (`.jail` line `winvm`).
+2. The same, in the jail home (`~/.local/share/winvm`): in the hourly
+   `/home` snapshots, which would keep multi-GB overlays for weeks.
+3. The host's `WINVM_HOME` read-write: the host's VMs, runs and base
+   images writable by jailed code.
+4. Builds in the jail: hours per jail and repository, ~20 GB each.
+
+### Decision
+
+Option 1. Every jail gets `WINVM_HOME=~/.cache/winvm` (outside the `/home`
+snapshots, like podman's storage); with `winvm` in the approved `.jail`, the
+host's `state/images`, `state/id_ed25519` and `.pub` (from where winvm on
+the host finds its home) are bound read-only at the same names there, by fd
+and through `bind_path`, as `ro` lines are. winvm checks before `build`,
+`commit` and `destroy --all` that the images are writable, refuses `build`
+in any jail, and starts without audio when there is no PipeWire socket.
+
+### Consequences
+
+- The jail reads everything in the images folder: the base images, the
+  answer files with the Windows user's password (`unattend/`,
+  `unattend.iso`), the swtpm CA's signing key (`tpm-ca`), the build logs,
+  and the private key every VM built from these images trusts. Whoever runs
+  in the jail can log in to each such VM it reaches. The host's VMs listen
+  on the host's `127.0.0.1` only, which a jail does not reach (the jail VM
+  test); a `.jail` `port` forwards the other way only.
+- A host `build --force` or `commit` changes the base under the jails' VMs:
+  their overlays then need `winvm reset` or a new VM. An overlay names its
+  base by the jail-side path, so a jail's VM runs in that jail only.
+- The jail's VMs go with `jail reset --all`. Its `WINVM_HOME` is a plain
+  directory with the line (bwrap's mount points), else winvm's btrfs
+  subvolume; `rm -rf` removes either.
+- The host's `WINVM_HOME` must not be in a repository you jail: that jail
+  could write the images and the key, so `jail` refuses it.
+- The key (and the rest of the images folder) can leave the machine over
+  the jail's outbound network, like anything else the jail reads.
+- No sound, no display: `--headless`; RDP from the host through a `.jail`
+  `port` (the VM's slot is fixed, so the port is too).
+- A host VM in the same slot holds that port on the host, and the shared
+  jail does not start until `RDP_PORT` moves the jail's base.
+
+Decided by: user (goal G-12: winvm in a jail, base images and key shared
+read-only, VMs the jail's own); agent (design: the cache as `WINVM_HOME`,
+for every jail; the binds; winvm's checks and the audio fallback).

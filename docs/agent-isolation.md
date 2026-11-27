@@ -251,17 +251,14 @@ the human gate, and `update` shows you exactly what you are about to apply:
 
 ## VMs and Windows development
 
-Not implemented: `.jail` cannot yet bind a folder of the jail home at a host
-path, which the winvm layout below needs (skipped by the user on 2026-11-27).
-
 - winvm (`pkgs/winvm`, on PATH as `pkgs.winvm`) is plain QEMU/KVM without
   libvirt or root. Its code is in the Nix store, read-only in every jail
-  already; only its data (`WINVM_HOME`, ADR 0006) needs binds:
-  `$WINVM_HOME/state/images/` (the ~20 GB base images, bound at the same path
-  so the qcow2 backing paths resolve) read-only, `state/vms/`, `runs/` and
-  `captures/` from the jail home read-write. So every repository has its own
-  VMs on shared base images, and `winvm commit` or `build` (changing a base
-  image) happen outside, by you. User-mode networking (passt/slirp) is
+  already. Implemented ([jail.md](jail.md), "Windows VMs"; ADR 0007): every
+  jail has its own `WINVM_HOME` in its cache, and the `.jail` line `winvm`
+  binds the host's `state/images/` (the ~20 GB base images) and the SSH key
+  they trust read-only into it. So every repository has its own VMs on
+  shared base images, and `winvm commit` or `build` (changing a base image)
+  happen outside, by you. User-mode networking (passt/slirp) is
   unprivileged; bridged or tap networking needs root: not in a jail.
 - **Default: build on Linux, test in winvm.** .NET publishes `-r win-x64`;
   WinForms/WPF build with `EnableWindowsTargeting=true` and run only in the

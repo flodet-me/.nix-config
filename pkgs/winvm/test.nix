@@ -5,6 +5,8 @@
 {
   runCommand,
   bashInteractive,
+  python3,
+  qemu-utils,
   shellcheck,
   zsh,
   winvm,
@@ -131,6 +133,41 @@ runCommand "winvm-test"
     check "ssh COMMAND: the guest command line has no double quotes" bash -c '! grep -q "\"" "$1"' _ "$TMPDIR/ssh-cmd"
     check "ssh COMMAND: the guest command line runs the copied script" \
       bash -c 'grep -qF -- "-File $(cut -d: -f2- "$1" | tr / \\\\)" "$2"' _ "$TMPDIR/scp-dest" "$TMPDIR/ssh-cmd"
+
+    # start without a PipeWire socket (a jail, an ssh login): no audio device,
+    # instead of a QEMU that refuses to start; with one, audio as before.
+    # QEMU stubbed: it records its arguments and writes its pidfile.
+    cat >"$TMPDIR/stubs/qemu" <<EOF
+    #!${bashInteractive}/bin/bash
+    printf '%s\n' "\$@" >"$TMPDIR/qemu-args"
+    for ((i = 1; i < \$#; i++)); do [[ \''${!i} == -pidfile ]] && j=\$((i + 1)) && echo \$\$ >"\''${!j}"; done
+    sleep 2 # alive until start has seen the pidfile
+    EOF
+    chmod +x "$TMPDIR/stubs/qemu"
+    mkdir -p "$TMPDIR/run"
+    start_stub() { # the stub's pidfile goes: the next start sees no running VM
+      env QEMU="$TMPDIR/stubs/qemu" XDG_RUNTIME_DIR="$TMPDIR/run" winvm -n foo start --headless &&
+        rm "$WINVM_HOME/state/vms/foo/qemu.pid"
+    }
+    check "start without a PipeWire socket: says so" has 'no PipeWire' start_stub
+    check "start without a PipeWire socket: no audio device" bash -c '! grep -q audiodev "$1"' _ "$TMPDIR/qemu-args"
+    ${python3}/bin/python3 -I -c 'import socket, sys; socket.socket(socket.AF_UNIX).bind(sys.argv[1])' "$TMPDIR/run/pipewire-0"
+    check "start with a PipeWire socket: audio" start_stub
+    check "start with a PipeWire socket: the audio device" grep -qx 'pipewire,id=snd0' "$TMPDIR/qemu-args"
+
+    # Base images shared read-only (a jail's, pkgs/jail/README.md): what would
+    # write them says so before it changes anything.
+    rm "$WINVM_HOME/state/images/win10/base.qcow2"
+    ${qemu-utils}/bin/qemu-img create -q -f qcow2 "$WINVM_HOME/state/images/win10/base.qcow2" 16M
+    chmod a-w "$WINVM_HOME/state/images/win10/base.qcow2" "$WINVM_HOME/state/images" "$WINVM_HOME/state/images/win10"
+    check "build with read-only base images: refused, saying why" has 'read-only' bash -c '! winvm build --headless'
+    check "build with read-only base images: the VMs stay" test -f "$WINVM_HOME/state/vms/foo/disk.qcow2"
+    check "commit with read-only base images: refused, saying why" has 'read-only' bash -c '! winvm -n foo commit --yes'
+    check "destroy --all with read-only base images: refused, saying why" has 'read-only' bash -c '! winvm destroy --all --yes'
+    check "destroy --all with read-only base images: the VMs stay" test -f "$WINVM_HOME/state/vms/foo/disk.qcow2"
+    chmod u+w "$WINVM_HOME/state/images" "$WINVM_HOME/state/images/win10"
+    check "build in a jail: refused, saying why" has 'not in a jail' bash -c '! JAIL=x winvm build --headless'
+    check "a VM is still made and deleted" bash -c 'winvm new bar --image win10 && test -d "$WINVM_HOME/state/vms/bar" && winvm destroy bar --yes'
 
     if ((''${#failed[@]})); then
       printf 'winvm-test: %d failed: %s\n' "''${#failed[@]}" "''${failed[*]}" >&2

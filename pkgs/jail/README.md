@@ -101,6 +101,8 @@ ro ~/Datasets/images
 rw /srv/scratch/foo
 # podman, docker and docker compose inside (Containers, below)
 containers
+# winvm with the host's Windows base images (Windows VMs, below)
+winvm
 ```
 
 - `port N` (1024 to 65535): the host's `127.0.0.1:N` reaches the jail's
@@ -111,6 +113,8 @@ containers
   inside. Absolute or `~/...`, no symlink on the way, no `.` or `..`.
 - `containers`: the jail's own rootless podman, `docker` and `docker compose`
   (below).
+- `winvm`: the host's built Windows images and their SSH key, read-only,
+  for VMs of the jail's own (below).
 - `#` starts a comment line, blank lines are fine; any other line is an
   error naming the line.
 - Refused: `/tmp`; anything in `/nix`, `/etc`, `/run`, `/proc`, `/dev`,
@@ -195,6 +199,48 @@ docker build -t app .
   deletes layers that another running instance of the jail uses.
 - `podman volume ls` in a new instance lists no old volumes, but naming one
   again finds its data.
+
+## Windows VMs
+
+Every jail has a `WINVM_HOME` of its own, `~/.cache/winvm` inside (on the
+host `~/.cache/jails/<name>/winvm`): `winvm` there never sees the host's
+VMs. With the line `winvm` in an approved `.jail`, it also gets the host's
+base images (`state/images`) and the key they trust (`state/id_ed25519`,
+`.pub`), read-only, from where `winvm` on the host keeps them (`WINVM_HOME`,
+else `~/.config/winvm/home`, else `~/.local/share/winvm`):
+
+```sh
+winvm images                     # the host's builds
+winvm -n app start --headless --wait && winvm -n app ssh hostname
+```
+
+- Build and commit on the host: in a jail `winvm build` stops, and with the
+  line `commit` and `destroy --all` stop and say the images are read-only. A host
+  `build --force` or `commit` changes the base under the jail's VMs: reset
+  them (`winvm -n NAME reset`) or make them again.
+- A VM's disk refers to its base by the jail-side path: it runs in that jail
+  only.
+- Its SSH and RDP ports are on the jail's `127.0.0.1` (base + the VM's slot,
+  fixed when the VM is made: `winvm list`; RDP 33890 for `default`, 33891
+  for the first named VM). For RDP from the host, forward it: `port 33891`
+  in `.jail`, then on the host `nix shell nixpkgs#freerdp -c xfreerdp
+  /v:127.0.0.1:33891 /u:dev /p:dev /cert:ignore` (what `winvm rdp` runs).
+  A host VM in the same slot holds that port and the shared jail does not
+  start: set
+  `RDP_PORT` in the jail's `~/.cache/winvm/config.local.env` (and the port
+  line) to another base. The host's `config.local.env` is not in the jail.
+- No sound (no PipeWire in the jail) and no `winvm rdp`/`view` window inside
+  (no display).
+- The VMs go with `jail reset --all`; `--home` keeps them.
+- Start, stop and destroy a VM in the jail instance that started it (the
+  shared jail or that one-off): another instance does not see its QEMU.
+- The host's `WINVM_HOME` must not be in a repository you jail: the start
+  refuses it.
+- The jail can read everything in the images folder, including the
+  answer file with the Windows password and the swtpm CA key, and the
+  private key: whoever runs in the jail can log in to any VM built from
+  these images that it can reach. The host's VMs listen on the host's
+  `127.0.0.1`, which a jail does not reach.
 
 ## Manage jails
 

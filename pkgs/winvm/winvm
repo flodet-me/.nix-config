@@ -201,6 +201,16 @@ need() {
     ((${#missing[@]} == 0)) || die "missing tools: ${missing[*]} (the winvm package brings them: nix run .#winvm in nix-config)"
 }
 
+# Before anything that writes base images (build, commit, destroy --all): a
+# jail shares the host's read-only (pkgs/jail/README.md, Windows VMs).
+need_writable_images() {
+    local d
+    for d in "$IMAGES" "${IMGDIR:-}"; do
+        [[ -z $d || ! -e $d || -w $d ]] ||
+            die "$d is read-only here (in a jail: the host's base images, shared read-only); $1"
+    done
+}
+
 qmp() { python3 -I "$ROOT/lib/qmp.py" "$QMP_SOCK" "$@"; }
 
 # PID from a pidfile, but only while that process is still the one we started:
@@ -599,6 +609,9 @@ cmd_build() {
     done
     [[ $VM == default ]] || die "build makes an image's base image; use --image instead of -n"
     select_image "$img"
+    need_writable_images "build on the host"
+    # hours and ~20 GB per jail (pkgs/jail/README.md, Windows VMs)
+    [[ -z ${JAIL:-} ]] || die "build runs on the host, not in a jail ($JAIL); there: winvm build${img:+ --image $img}"
     [[ $WIN_EDITION != *@* ]] || die "set WIN_EDITION in images/$IMG.env"
     if ((REQUIRES_UEFI)) && [[ $FIRMWARE != uefi ]]; then die "$IMAGE_DESC needs FIRMWARE=uefi"; fi
     # The image's own VM: "default" for the default image, else named after it.
@@ -801,6 +814,12 @@ cmd_start() {
         QEMU_ARGS+=(-serial null)
     fi
     ((gdb)) && QEMU_ARGS+=(-gdb "tcp:127.0.0.1:$P_GDB")
+    # QEMU refuses to start without the PipeWire server (a jail, an ssh login)
+    local pw=${PIPEWIRE_RUNTIME_DIR:-${XDG_RUNTIME_DIR:-/run/user/$(id -u)}}/pipewire-0
+    if [[ $AUDIO == pipewire && ! -S $pw ]]; then
+        note "no PipeWire socket ($pw): starting without audio"
+        AUDIO=none
+    fi
     if [[ $AUDIO != none ]]; then
         QEMU_ARGS+=(-audiodev "$AUDIO,id=snd0" -device ich9-intel-hda -device hda-duplex,audiodev=snd0)
     fi
@@ -917,6 +936,7 @@ cmd_commit() {
     local yes=0
     [[ "${1:-}" == "--yes" ]] && yes=1
     need_vm
+    need_writable_images "commit on the host"
     is_sealed && die "'$VM' has its own reset point; 'winvm${VM_OPT} seal' updates that (commit would change the $IMG base image under it)"
     local others
     others=$(image_vms "$IMG" | grep -vx "$VM" | paste -sd " " || true)
@@ -963,6 +983,7 @@ cmd_destroy() {
     done
     if ((all)); then
         ((${#names[@]} == 0)) || die "destroy: --all or VM names, not both"
+        need_writable_images "delete the VMs by name instead: winvm destroy NAME..."
         for v in $(all_vms); do
             [[ -z $(procs_using "$VMS/$v" --build) ]] || die "'winvm build' is running (VM '$v'); stop it first"
         done

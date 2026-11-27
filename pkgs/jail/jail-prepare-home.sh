@@ -3,7 +3,8 @@ files=$1
 root=$2
 shift 2
 fail() { echo "jail: preparing the jail home failed at: $1" >&2; exit 1; }
-# bwrap cannot mount on or below a symlink: drop links the jail made there
+# bwrap cannot mount on or below a symlink: drop links the jail made there;
+# for a folder's mount point (a trailing /), also files on the way
 unlink_mounts() {
   local m p c parts
   for m in "$@"; do
@@ -12,6 +13,7 @@ unlink_mounts() {
     for c in "${parts[@]}"; do
       p=$p/$c
       [ ! -L "$p" ] || rm -f "$p"
+      [[ $m != */ || ! -e $p || -d $p ]] || rm -f "$p"
     done
   done
 }
