@@ -174,7 +174,8 @@ apply first:
   prints both revisions, the changed files, the full diff of the
   security-relevant paths (list in the script: Claude Code, jail, users,
   `nix.nix`, server hardening, impermanence, sops/keys, `flake.*`,
-  `overlays`, `pkgs`, `scripts`, `.claude/`, `CLAUDE.md`, `AGENTS.md`) and,
+  `overlays`, `pkgs`, `scripts`, `.claude/`, `CLAUDE.md`, `AGENTS.md`, and
+  `zsh.nix`, which defines `update`) and,
   elsewhere, only the changed lines with a security keyword (sudo, polkit,
   groups, trusted users, wrappers, setuid, capabilities, permissions, hooks).
 - It runs no git on the repository: a jail may have written `.git/config`,

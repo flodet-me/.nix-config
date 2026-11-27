@@ -9,8 +9,8 @@
 # usage: switch-review [HOST]          (HOST: this machine, the default)
 #        switch-review --dirs OLD NEW  (only compare two source trees)
 
-# Full diff for these paths (relative to the flake root).
-security_paths='^(\.claude/|CLAUDE\.md$|AGENTS\.md$|home/[^/]+/_shared/components/(claude-code|jail)/|hosts/_shared/components/(claude-code|nix|server-access)\.nix$|hosts/_shared/components/server/|hosts/_shared/users/|(.*/)?impermanence/|\.sops\.yaml$|keys/|(.*/)?[^/]*secrets\.yaml$|flake\.(nix|lock)$|overlays/|pkgs/|scripts/)'
+# Full diff for these paths (relative to the flake root; zsh.nix holds `update`).
+security_paths='^(\.claude/|CLAUDE\.md$|AGENTS\.md$|home/[^/]+/_shared/components/(claude-code/|jail/|zsh\.nix$)|hosts/_shared/components/(claude-code|nix|server-access)\.nix$|hosts/_shared/components/server/|hosts/_shared/users/|(.*/)?impermanence/|\.sops\.yaml$|keys/|(.*/)?[^/]*secrets\.yaml$|flake\.(nix|lock)$|overlays/|pkgs/|scripts/)'
 # Changed lines elsewhere are shown when they match these (case-insensitive).
 keywords='sudo|polkit|groups|trusted.?users|wrappers|setuid|setgid|capabilit|permission|hook'
 
