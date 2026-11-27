@@ -63,8 +63,10 @@ more than the defaults:
 ```sh
 # a dev server, reached from your browser
 port 5173
-ro ~/Datasets/images        # read-only, at the same path inside
-rw /srv/scratch/foo         # read-write
+# read-only, at the same path inside
+ro ~/Datasets/images
+# read-write
+rw /srv/scratch/foo
 ```
 
 - `port N` (1024 to 65535): TCP connections to the host's `127.0.0.1:N`
@@ -78,8 +80,9 @@ rw /srv/scratch/foo         # read-write
   `/run`, `/proc`, `/dev`, `/etc`, `/sys`, your home or a folder above it
   (`/home`), the jails' state (`~/.local/share/jails`, or a folder above it
   such as `~/.local`), and the repository or anything in it or above it.
-- `#` starts a comment line; blank lines are fine; any other line is an error
-  naming the line.
+- `#` starts a comment line (only at the start of a line); blank lines are
+  fine; any other line is an error naming the line. A port given twice counts
+  once.
 
 Jailed code can write `.jail`, so `jail` applies only a copy you approved,
 stored outside the jail in `~/.local/share/jails/<name>/jail.approved`, the
@@ -87,15 +90,17 @@ way `direnv allow` works:
 
 - `.jail` is read as data like `.git/config`: a regular file, never through
   a link, no wait on a FIFO, at most 64 KiB.
-- When it differs from the approved copy and `jail` runs on a terminal, it
+- When it differs from the approved copy and `jail` runs on a terminal
+  (stdin and stderr), it
   shows the diff (the whole file the first time), with control characters
   and other bytes as text (`cat -v`: an escape is `^[`), and applies it once
   you type `yes`. Refused, without a terminal, or when `.jail` is a link, too
   large or has a bad line: one line says that `.jail` is not applied, and the
   jail starts with the copy you approved last (or with none). A jail never
   fails to start because of an unapproved `.jail`.
-- No `.jail`: nothing applied (the approved copy stays and is used again when
-  the same `.jail` comes back).
+- No `.jail`: nothing applied. The approved copy stays and applies again,
+  without asking, when the same `.jail` comes back (also when jailed code
+  writes it back); remove `jail.approved` (Reset) to be asked again.
 - The approved copy is checked again on every start: if a path is gone or
   now goes through a symlink, `jail` stops and names the line.
 - Read when a jail starts: the shared jail at its first terminal, every
@@ -201,7 +206,7 @@ it asks again about `.jail`.
 ## Tested
 
 `nix build .#checks.x86_64-linux.jail` (NixOS VM; the test script itself takes
-about 126 s, with a second VM): hidden home paths and `~/.cache/docker` absent; `~/brain` read-only
+about 90 s, with a second VM): hidden home paths and `~/.cache/docker` absent; `~/brain` read-only
 except `inbox/`; writes to `~/.claude` config (`CLAUDE.md`, `settings.json`,
 `skills/`, `rules/`, `agents/`, `plugins/`) and `~/.codex` (`config.toml`,
 `AGENTS.md`, `rules/`) fail; the logins are shared; state written in
@@ -237,8 +242,9 @@ a `.jail` with a port, a `ro` and an `rw` folder is not applied before
 approval (without a terminal, or answered `no`), shows its content and then a
 diff with an escape sequence as `^[`, and once approved with `yes` (a typed
 answer through `script`) the `ro` folder is readable and not writable, the
-`rw` one writable, the host reaches a listener on the jail's `127.0.0.1:8090`
-(one-off and shared jail) while the jail still does not reach the host's
+`rw` one writable, the host reaches listeners on the jail's `127.0.0.1:8090`
+and `:8091` (one-off; `8090` also in the shared jail), forwarded from the
+host's `127.0.0.1` only, a port given twice counted once, while the jail still does not reach the host's
 loopback; a one-off next to a jail holding the port starts without it, a
 shared jail with the port taken on the host does not start and names the
 port, then starts once it is free; a jail-side edit adding `rw` of a host file

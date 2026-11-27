@@ -347,7 +347,7 @@
           mkdir -p ~/data-ro ~/data-rw && echo ro > ~/data-ro/f && echo secret > ~/secret
           ln -s ~/data-ro ~/data-link
           git init -q ~/repoc && cd ~/repoc && git commit -q --allow-empty -m one
-          printf '# a website and two folders\\nport 8090\\n\\nro ~/data-ro\\nrw /home/alice/data-rw/\\n' > .jail
+          printf '# a website and two folders\\nport 8090\\nport 8091\\nport 8090\\n\\nro ~/data-ro\\nrw /home/alice/data-rw/\\n' > .jail
         """)
         alice("test -d ~/data-ro && test -d ~/data-rw && cat ~/secret")
         # not approved yet: nothing applied, without a terminal or when refused
@@ -361,8 +361,13 @@
         assert "not applied" not in start("cat ~/data-ro/f")
 
         # the port: host 127.0.0.1:8090 reaches a listener on the jail's 127.0.0.1:8090
-        holder = "(jail ~/repoc -- socat TCP-LISTEN:8090,bind=127.0.0.1 SYSTEM:'echo inside' </dev/null & wait) >/dev/null 2>&1 &"
+        listeners = "socat TCP-LISTEN:8091,bind=127.0.0.1 SYSTEM:'echo two' & socat TCP-LISTEN:8090,bind=127.0.0.1 SYSTEM:'echo inside'"
+        holder = f"(jail ~/repoc -- sh -c {shlex.quote(listeners)} </dev/null & wait) >/dev/null 2>&1 &"
         alice(holder)
+        machine.wait_until_succeeds("su - alice -c 'socat -u TCP:127.0.0.1:8091 -' | grep -q two", timeout=30)
+        # on the host's 127.0.0.1 only, not on every address
+        ss = machine.succeed("ss -Htln 'sport = :8090 or sport = :8091'")
+        assert len(ss.splitlines()) == 2 and all(" 127.0.0.1:809" in l for l in ss.splitlines()), ss
         machine.wait_until_succeeds("su - alice -c 'socat -u TCP:127.0.0.1:8090 -' | grep -q inside", timeout=30)
         # and the jail still does not reach the host's loopback (control: "own network")
         start("if socat -u TCP:127.0.0.1:8123,connect-timeout=5 - | grep -q lo; then exit 1; fi; cat ~/data-ro/f")
@@ -370,11 +375,12 @@
         alice(holder)
         machine.wait_until_succeeds("ss -Htln 'sport = :8090' | grep -q .", timeout=30)
         out = start("cat ~/data-ro/f")
-        assert "8090" in out and "not forwarded" in out, out
+        assert "port 8090: 127.0.0.1:8090 is in use" in out and "not forwarded" in out, out
+        machine.wait_until_succeeds("su - alice -c 'socat -u TCP:127.0.0.1:8091 -' | grep -q two", timeout=30)
         machine.wait_until_succeeds("su - alice -c 'socat -u TCP:127.0.0.1:8090 -' | grep -q inside", timeout=30)
 
         # the shared jail: a taken port stops its start, naming the port; once free it starts
-        machine.wait_until_succeeds("! ss -Htln 'sport = :8090' | grep -q .", timeout=30)
+        machine.wait_until_succeeds("! ss -Htln 'sport = :8090 or sport = :8091' | grep -q .", timeout=30)
         machine.succeed("systemd-run --unit=busy-8090 socat TCP-LISTEN:8090,bind=127.0.0.1,reuseaddr,fork SYSTEM:'echo busy'")
         machine.wait_until_succeeds("ss -Htln 'sport = :8090' | grep -q .", timeout=30)
         assert "port 8090" in start("", answer="", shared=True, ok=False)
@@ -410,7 +416,9 @@
         }
         for line, why in refused.items():
             alice(f"rm -f ~/repoe/.jail && printf '# x\\n%s\\n' {shlex.quote(line)} > ~/repoe/.jail")
-            out = start("test ! -e ~/data-ro", answer="yes", repo="~/repoe")
+            # checked before asking: on a terminal (yes typed) only for two, as fast without one
+            answer = "yes" if line in ["ro ~/data-link", "bind /tmp"] else None
+            out = start("test ! -e ~/data-ro", answer=answer, repo="~/repoe")
             assert f".jail line 2: {line}: {why}" in out and "is not applied" in out, out
         alice("! ls ~/.local/share/jails/repoe-*/jail.approved")
         machine.wait_until_succeeds("! pgrep -u alice '^(xdg-dbus-proxy|passt|pasta)'", timeout=30)

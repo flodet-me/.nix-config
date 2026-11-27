@@ -414,7 +414,8 @@ let
             case $key in
               port)
                 if [[ $val =~ ^[1-9][0-9]{3,4}$ ]] && [ "$val" -le 65535 ]; then
-                  ports+=("$val")
+                  # pasta refuses a port given twice
+                  [[ " ''${ports[*]} " == *" $val "* ]] || ports+=("$val")
                 else
                   p="a port is a number from 1024 to 65535"
                 fi ;;
@@ -449,7 +450,7 @@ let
         elif [ "$new" != "$conf" ]; then
           if ! (parse "$new"); then
             why="see the line above"
-          elif [ ! -t 0 ]; then
+          elif [ ! -t 0 ] || [ ! -t 2 ]; then
             why="it changed, and there is no terminal to approve it"
           else
             if [ -n "$conf" ]; then
