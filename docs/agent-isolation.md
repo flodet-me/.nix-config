@@ -96,8 +96,9 @@ outside it.
      `~/.config/{nvim,git,direnv}`, `~/.local/share/nvim/site`).
    - Read-write: the repository, `~/brain/inbox`, the Nix daemon socket,
      `/dev/kvm`, a per-repository jail home (`~/.local/share/jails/<repo>`:
-     shell history, nvim state and `:trust` list, direnv allow list, its own
-     caches; never the host's `~/.cache`: the Nix eval cache would feed the
+     shell history, nvim state and `:trust` list, direnv allow list) and its
+     own caches (`~/.cache/jails/<repo>` as its `~/.cache`, outside the
+     `/home` snapshots); never the host's `~/.cache`: the Nix eval cache would feed the
      host's evaluations, and rootless Docker's data is in `~/.cache/docker`).
    - Shared with the host only the login (`~/.claude/.credentials.json`,
      `~/.codex/auth.json`). Every other host entry of `~/.claude` and
@@ -108,7 +109,12 @@ outside it.
      another jail.
    - No `/run/user/1000`, no session bus, no gpg-agent, no SSH keys.
      Desktop notifications through
-     `xdg-dbus-proxy --talk=org.freedesktop.Notifications` only.
+     `xdg-dbus-proxy --talk=org.freedesktop.Notifications` only. Commits
+     and tags made inside are unsigned (`commit.gpgSign`/`tag.gpgSign`
+     false there); you do not commit inside, the host still signs.
+   - Codex inside uses its jail profile (`danger-full-access`, approval
+     `never`): the jail is the sandbox, so codex's own would only add
+     prompts for the network and for writes to the jail's caches.
    - **Push** stays outside and must not read the repository's config
      (`core.sshCommand`, `url.*.insteadOf`, hooks run code):
      `jail-push <repo>` fetches into a mirror the jail cannot write

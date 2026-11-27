@@ -297,7 +297,7 @@
         jail("echo c > ~/.cache/probe")
         alice("grep -q c ~/.cache/jails/repo-*/probe && test ! -e ~/.local/share/jails/repo-*/home/.cache/probe && test ! -e ~/.cache/probe")
         # a link planted at the mount point does not stop the next start
-        alice("cd ~/.local/share/jails/repo-*/home && rmdir .cache && ln -s /nowhere .cache")
+        alice("cd ~/.local/share/jails/repo-*/home && rm -r .cache && ln -s /nowhere .cache")
         jail("grep -q c ~/.cache/probe")
         # a cache from before the move stays where it was, unused, and says so once
         alice("git init -q ~/repom")
@@ -307,6 +307,10 @@
         assert "is no longer used" in out, out
         assert "no longer used" not in start("true", repo="~/repom")
         alice("test -e ~/.local/share/jails/repom-*/home/.cache/old && test -e ~/.cache/jails/repom-*/new")
+        # a removed cache (Reset) is made again without that message
+        alice("rm ~/.local/share/jails/repom-*/home/.cache/old && rm -r ~/.cache/jails/repom-*")
+        assert "no longer used" not in start("true", repo="~/repom")
+        alice("test -d ~/.cache/jails/repom-*")
 
     with subtest("codex in a jail uses the jail profile, the host default stays"):
         sandbox = "codex debug prompt-input hi 2>/dev/null | grep -o 'sandbox_mode. is .[a-z-]*'"

@@ -40,7 +40,10 @@ remain the source of project-specific rules. Its terminal footer shows the
 model, reasoning effort, remaining context, branch, and current directory.
 Change the Nix files under
 `home/flodet/_shared/components/claude-code/codex/` to keep these defaults
-(`config.toml` the owned settings, `merge-config.py` the merge).
+(`config.toml` the owned settings, `merge-config.py` the merge). Inside a
+jail, `codex` (`wrapper.nix`) adds `--profile jail`, `~/.codex/jail.config.toml`
+(`jail.config.toml`: no codex sandbox or approvals, the jail is the boundary;
+[jail.md](jail.md)).
 
 The dev shell also has `claude-code`, but not the plugins.
 
