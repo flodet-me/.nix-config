@@ -10,39 +10,6 @@ git show fc929d4:docs/goals.md              # G-1 to G-6, the last full version
 git log -p --grep 'G-<n>' -- docs/goals.md  # one goal's history
 ```
 
-## G-7 Review items C 27-30  (status: open)
-
-Goal: "do them" (the 2026-11-27 repository review, items C 27-30)
-Accept:
-- 30: the Check and Gate commands exist once, as flake apps (`nix run .#check`,
-  `nix run .#gate`) that report the failing step; CLAUDE.md `## Factory`,
-  AGENTS.md and docs/testing.md call them instead of copying command lists; CI
-  is unchanged or calls the same checks.
-- 27: Easyeffects presets are no longer copied into the repository: fetched
-  pinned (hash) from upstream, only the presets in use installed; the installed
-  preset files are byte-identical to today's.
-- 29: short ADRs (context, options, decision, consequences) for decisions
-  already made: impermanence, sops with YubiKey, nixos-unstable as the main
-  channel, Nix owning `~/.claude`; each marked as recorded after the fact, with
-  the evidence (commits, docs) it rests on.
-- 28: `docs/goals.md` keeps only open goals (finished ones stay in git history,
-  the file says how to find them), lines wrapped; ADR 0001's status no longer
-  says "winvm open" as if planned (winvm binds: user skipped them for now).
-- Gate green after each item.
-Not in scope: winvm binds, egress allowlist, containers in a jail, microVM
-profile.
-Assumptions:
-- "Decided by" of the after-the-fact ADRs is the user (the decisions predate the
-  agent); the agent only records them.
-- 28 runs last, so this goal is still in the file while it is open.
-
-| Item | What | Status | Commit |
-|---|---|---|---|
-| I1 one-check-source | `nix run .#check` / `.#gate`, docs point to them | done | 5c9978c |
-| I2 easyeffects-fetch | presets fetched pinned, only those in use | done | e189a98 |
-| I3 adrs-after-the-fact | ADRs 0002-0005 | done | 1775158 |
-| I4 goals-trim | goals.md open goals only, ADR 0001 status | open | |
-
 ## G-8 jail README and .jail help inside a jail  (status: open)
 
 Goal: "Jail needs a readme and in jail i need to be able to edit and add an
