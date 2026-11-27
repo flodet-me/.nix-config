@@ -39,6 +39,9 @@ bind_path() {
     real=$(realpath -e -- "$p" 2>/dev/null) || { echo "does not exist"; return 1; }
     [ "$real" = "$p" ] || { echo "goes through a symlink or is not canonical (it is $(esc "$real"))"; return 1; }
     [ -d "$p" ] || [ -f "$p" ] || { echo "is not a directory or regular file"; return 1; }
+  else
+    # without the host's paths: at least no . or .. (the comparisons below are textual)
+    real=$(realpath -sm -- "$p") && [ "$real" = "$p" ] || { echo "is not canonical (it is $(esc "$real"))"; return 1; }
   fi
   # /.snapshots and /persist hold copies of the home and the host state
   for x in /nix /run /proc /dev /etc /sys /.snapshots /persist; do
@@ -155,7 +158,7 @@ if [ -n "$config" ]; then
     echo "would add: nothing (no .jail; the next start applies nothing)"
   fi
   exec 4<&-
-  [ -z "$inside" ] || echo "not checked inside a jail (they need the host's paths): whether each ro/rw path exists, is a directory or regular file, and has no symlink, . or .. in it; the host checks that when you approve"
+  [ -z "$inside" ] || echo "not checked inside a jail (they need the host's paths): whether each ro/rw path exists, is a directory or regular file, and has no symlink in it; the host checks that when you approve"
   # compared only when a start would apply .jail
   cmp=
   [ "$rc" != 0 ] || [ -z "$new" ] || cmp=1

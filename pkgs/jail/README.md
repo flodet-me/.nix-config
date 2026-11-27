@@ -93,12 +93,13 @@ rw /srv/scratch/foo
   inside. Absolute or `~/...`, no symlink on the way, no `.` or `..`.
 - `#` starts a comment line, blank lines are fine; any other line is an
   error naming the line.
-- Refused: `/`, `/tmp`, system trees (`/nix`, `/etc`, `/run`, `/proc`,
-  `/dev`, `/sys`, `/.snapshots`, `/persist`), your home and folders above
-  it, `~/.cache`, the jails' state, the repository itself, keys and logins
-  (`~/.ssh`, `~/.gnupg`, `~/.claude`, `~/.codex`, `~/.claude.json`,
-  keyrings, `~/.password-store`), and as `rw` (fine as `ro`) `~/.config`,
-  `~/.local/state`, `~/.local/bin`, `~/brain`.
+- Refused: `/tmp`; anything in `/nix`, `/etc`, `/run`, `/proc`, `/dev`,
+  `/sys`, `/.snapshots`, `/persist`; your home and the folders above it
+  (`/home`, `/`); the jails' state (`~/.local/share/jails`), `~/.cache` and
+  the repository, each with what is in it and above it; in, at or above
+  `~/.ssh`, `~/.gnupg`, `~/.claude`, `~/.codex`, `~/.claude.json`,
+  `~/.local/share/keyrings`, `~/.password-store`; and as `rw` (fine as `ro`)
+  the same for `~/.config`, `~/.local/state`, `~/.local/bin`, `~/brain`.
 - `rw` gives up the isolation for that path, and `ro` shows the jail
   whatever is in it: read the paths you approve.
 
@@ -115,8 +116,7 @@ rw /srv/scratch/foo
 
 It never approves or writes anything. Inside a jail it cannot see the host's
 paths, so it skips the checks that `ro`/`rw` paths exist, are a directory or
-file, and have no symlink or `.`/`..` in them; the host makes them when you
-approve. Inside, "in effect" comes from the environment the jail started
+file, and have no symlink in them; the host makes them when you approve. Inside, "in effect" comes from the environment the jail started
 with (`JAIL_IN_EFFECT`, `JAIL_APPLIED_SHA256`), which code in the jail can
 change for itself.
 

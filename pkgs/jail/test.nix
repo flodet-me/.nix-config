@@ -677,6 +677,11 @@
         assert ".jail line 4: port 80: a port is" in out and "rc=1" in out, out
         out = alice("rc=0; jail config ~/repof 2>&1 || rc=$?; echo rc=$rc")
         assert ".jail line 4: port 80: a port is" in out and "rc=1" in out, out
+        # inside as well: a linked .jail, and a path with .. (checked without the host's paths)
+        out = inside("mv .jail .jail.real && ln -s .jail.real .jail &&")
+        assert "is not applied: it is not a regular file" in out and "rc=1" in out, out
+        out = inside("rm .jail && printf 'rw ~/x/../.ssh\\n' > .jail &&")
+        assert ".jail line 1: rw ~/x/../.ssh: is not canonical" in out and "rc=1" in out, out
         # a nested repository has a jail of its own: this jail's config is not its
         out = inside("rm -rf sub && git init -q sub && cd sub &&")
         assert "has a jail of its own" in out and "in effect in this jail" not in out, out
