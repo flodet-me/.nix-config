@@ -316,7 +316,10 @@ let
             expect "git status" "rtk git status"
             expect "nix flake check" "nix flake check"
             for c in ${lib.escapeShellArgs (deniedCommands ++ deniedReads)}; do
-              expect "$c" "$c"
+              # Claude Code's denies also match past these prefixes
+              for prefix in "" "FOO=1 " "timeout 30 " "cd /tmp && "; do
+                expect "$prefix$c" "$prefix$c"
+              done
             done
             [ "$failed" = 0 ]
             cp ${untestedSettings} $out
