@@ -164,6 +164,8 @@
         alice("echo pw | sudo -S true")
         alice("grep -q '^CapBnd:.*[1-9a-f]' /proc/self/status")
         jail("test -z \"$(grep -E '^Cap(Inh|Prm|Eff|Bnd|Amb):' /proc/self/status | grep -v ':[[:space:]]*0*$')\"")
+        # no signal ignored: Ctrl-C and SIGPIPE work as outside
+        jail("grep -q '^SigIgn:[[:space:]]*0*$' /proc/self/status")
         jail("sudo -n true", ok=False)
         jail("echo pw | sudo -S true", ok=False)
         alice("systemd-run --user --wait --quiet true")
@@ -206,11 +208,15 @@
         jail("systemd-run --user --wait --quiet true", ok=False)
         # by process name (pasta runs as passt.avx2 or pasta), not by command line
         machine.wait_until_succeeds("! pgrep -u alice '^(xdg-dbus-proxy|passt|pasta)'", timeout=10)
-        # killing a one-off jail ends what runs in it
-        alice("(jail ~/repo -- sleep 300 & echo $! > /tmp/oneoff; wait) >/dev/null 2>&1 &")
-        machine.wait_until_succeeds("pgrep -u alice -x sleep")
-        alice("kill $(cat /tmp/oneoff)")
-        machine.wait_until_succeeds("! pgrep -u alice -x sleep && ! pgrep -u alice '^(xdg-dbus-proxy|passt|pasta)'", timeout=10)
+        # killing a one-off jail, also with Ctrl-C's signal or SIGKILL, ends what runs in it
+        for sig in ["TERM", "INT", "KILL"]:
+            alice("(jail ~/repo -- sleep 300 & echo $! > /tmp/oneoff; wait) >/dev/null 2>&1 &")
+            machine.wait_until_succeeds("pgrep -u alice -x sleep")
+            alice(f"kill -{sig} $(cat /tmp/oneoff)")
+            machine.wait_until_succeeds("! pgrep -u alice -x sleep && ! pgrep -u alice '^(xdg-dbus-proxy|passt|pasta)'", timeout=10)
+        # the next start removes the socket a SIGKILLed one left
+        jail("true")
+        alice("! ls /run/user/1000/jails/*.bus-* 2>/dev/null")
 
     with subtest("nix build through the daemon"):
         alice("""cat > ~/repo/t.nix <<'EOF'
@@ -352,6 +358,8 @@
         alice(f"tmux -S {sock} send-keys -t main '{notify} && socat -u TCP:server:8000 - > ~/repo/probe3' Enter")
         machine.wait_until_succeeds("grep -q remote /home/alice/repo/probe3", timeout=30)
         alice("pgrep -u alice '^xdg-dbus-proxy$' && pgrep -u alice '^(passt|pasta)'")
+        # the shared jail's processes (here its keepalive's sleep) ignore no signal
+        machine.wait_until_succeeds("grep -q '^SigIgn:[[:space:]]*0*$' /proc/$(pgrep -n -u alice -f 'bin/sleep 2$')/status", timeout=10)
         alice("systemctl --user stop 'jail-repo-*'")
         alice("! pgrep -u alice '^(xdg-dbus-proxy|passt|pasta)'")
         alice("! ls /run/user/1000/jails/*bus* 2>/dev/null")
