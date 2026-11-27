@@ -633,6 +633,8 @@ bind_bus() {
 init=()
 with_containers() {
   [ -n "$containers" ] || return 0
+  # without a subuid range: refused here, on the terminal, not in the unit's journal
+  @jailUserns@/bin/jail-userns true || exit 1
   mkdir -p "$state/var-tmp" || die "cannot create $state/var-tmp"
   args+=(--dev-bind-try /dev/net/tun /dev/net/tun --bind "$state/var-tmp" /var/tmp --ro-bind @containersBin@ /run/wrappers/bin)
   env+=(
@@ -658,7 +660,9 @@ if [ $# -gt 0 ]; then
   # shellcheck disable=SC2016 # expanded by the inner shell
   session='. "$0" && unset __HM_SESS_VARS_SOURCED && exec "$@"'
   exec 9>&-
-  exec @jailRun@/bin/jail-run "$bus" "$portspec" "$containers" "${fdbinds[@]}" -- "${args[@]}" "${env[@]}" -- \
+  # in a scope of its own: the jail's cgroup is not the terminal's (podman
+  # and a cgroup2 mount inside see only it)
+  exec systemd-run --user --scope --quiet --collect --expand-environment=no --unit="jail-$name-$$" -- @jailRun@/bin/jail-run "$bus" "$portspec" "$containers" "${fdbinds[@]}" -- "${args[@]}" "${env[@]}" -- \
     "${init[@]}" @runtimeShell@ -c "$session" "$vars" "$@"
 fi
 

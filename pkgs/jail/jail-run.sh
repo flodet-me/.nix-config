@@ -43,6 +43,15 @@ else
   # setuid) needs; in U1, which owns the mounts, they have none.
   # Holders keep both alive until bwrap and pasta have joined them; each
   # prints its PID once its maps are written.
+  # the jail's own cgroup as /sys/fs/cgroup, read-only: podman reads it
+  # (its cgroup namespace makes it the root); refused when it is not the
+  # jail's own (/, or no cgroup v2)
+  cg=() line=""
+  while IFS= read -r line; do [[ $line != 0::/?* ]] || cg=(--ro-bind "/sys/fs/cgroup${line#0::}" /sys/fs/cgroup); done </proc/self/cgroup
+  if [ ${#cg[@]} = 0 ]; then
+    echo "jail: containers need a cgroup (v2) of the jail's own; this one is the root or none (start the jail from a systemd user session)" >&2
+    exit 1
+  fi
   # shellcheck disable=SC2016 # expanded by the holder's shell
   hold='echo $$; PATH=$1:$PATH setpriv --pdeathsig KILL unshare --user --map-users=all --map-groups=all -- "$0" -c "echo \$\$; exec sleep infinity" & wait'
   exec {h}< <(exec setpriv --pdeathsig KILL @jailUserns@/bin/jail-userns "$BASH" -c "$hold" "$BASH" @idmap@/bin)
@@ -55,10 +64,6 @@ else
   # bwrap waits for a byte on the block fd until pasta has attached
   exec {iw}<> <(:)
   exec {info}</proc/self/fd/"$iw" {blk}<> <(:)
-  # the jail's own cgroup as /sys/fs/cgroup, read-only: podman reads it
-  # (its cgroup namespace makes it the root); none when it is /
-  cg=() line=""
-  while IFS= read -r line; do [[ $line != 0::/?* ]] || cg=(--ro-bind "/sys/fs/cgroup${line#0::}" /sys/fs/cgroup); done </proc/self/cgroup
   (
     # no fd but these for the jail (pasta closes them on the other path)
     for f in /proc/self/fd/*; do

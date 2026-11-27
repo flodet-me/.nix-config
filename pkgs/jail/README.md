@@ -183,8 +183,9 @@ docker build -t app .
   through the jail's `~/.cache`.
 - Images and containers run with many uids: your subuid range
   (`/etc/subuid`). Files a container writes into the repository can belong
-  to uid 100000 and up; delete those with `podman unshare rm ...` inside, or
-  they go with `jail reset --all`.
+  to uid 100000 and up. `jail reset` does not touch the repository: delete
+  those with `podman unshare rm -rf PATH` inside the jail. In the jail's
+  cache and state they go with `jail reset --all`.
 - A port a container publishes (`-p 8080:80`) is on the jail's
   `127.0.0.1:8080`; add `port 8080` to `.jail` to reach it from the host.
 - `--memory`, `--cpus` and other cgroup limits fail: the jail has no cgroup
