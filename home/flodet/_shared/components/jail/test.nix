@@ -33,6 +33,7 @@
           imports = [ ./. ];
           home.stateVersion = "26.05";
           home.file.probe.text = "from-home-manager";
+          home.file.".codex/AGENTS.md".text = "from-home-manager"; # also bound read-only
         };
       };
     };
@@ -66,11 +67,10 @@
       echo host > .claude/CLAUDE.md
       echo host > .claude/.credentials.json
       echo host > .codex/config.toml
-      echo host > .codex/AGENTS.md
       echo host > .codex/auth.json
       echo '{"oauthAccount":{"a":1},"mcpServers":{"m":{}},"projects":{"hostproject":{}}}' > .claude.json
       cp .claude.json claude.json.orig
-      echo target > target
+      echo '{"leak":1}' > target
       git init -q repo
       cd repo
       echo one > f
@@ -82,7 +82,7 @@
         alice("cat ~/Nextcloud/secret && test -d ~/.cache/docker")
         jail("test ! -e ~/Nextcloud && test ! -e ~/.cache/docker && test ! -e ~/.gitconfig")
         jail('test "$HOME" = /home/alice && test "$PWD" = /home/alice/repo')
-        jail("cat ~/brain/note && grep -q host ~/.claude/CLAUDE.md ~/.codex/config.toml")
+        jail("cat ~/brain/note && grep -q host ~/.claude/CLAUDE.md ~/.codex/config.toml && grep -q from-home-manager ~/.codex/AGENTS.md")
         jail("touch ~/brain/inbox/x ~/repo/w")
         alice("test -e ~/brain/inbox/x && test -e ~/repo/w")
         # config, instructions and code: read-only
@@ -109,8 +109,8 @@
         jail("grep -q jailproject ~/.claude.json && grep -q oauthAccount ~/.claude.json")
         # a link planted in the jail home does not make the next start touch host files
         jail("ln -sfn /home/alice/target ~/.claude.json")
-        jail("test ! -L ~/.claude.json && grep -q oauthAccount ~/.claude.json")
-        alice('test "$(cat ~/target)" = target && cmp ~/.claude.json ~/claude.json.orig')
+        jail("test ! -L ~/.claude.json && grep -q oauthAccount ~/.claude.json && ! grep -q leak ~/.claude.json")
+        alice("""test "$(cat ~/target)" = '{"leak":1}' && cmp ~/.claude.json ~/claude.json.orig""")
 
     with subtest("home-manager dotfiles are mirrored into the jail home"):
         jail("grep -q from-home-manager ~/probe")
@@ -212,6 +212,11 @@
         alice(f"tmux -S {sock} send-keys -t main 'ls ~/Nextcloud > ~/repo/probe 2>&1; echo done >> ~/repo/probe' Enter")
         machine.wait_until_succeeds("grep -q done /home/alice/repo/probe", timeout=30)
         alice("grep -q 'No such file' ~/repo/probe")
+        # a one-off start next to it leaves its read-only binds in place
+        jail("true")
+        alice(f"tmux -S {sock} send-keys -t main 'touch ~/.codex/AGENTS.md 2> ~/repo/probe2; grep -c from-home-manager ~/.codex/AGENTS.md >> ~/repo/probe2' Enter")
+        machine.wait_until_succeeds("grep -q '^1$' /home/alice/repo/probe2", timeout=30)
+        alice("grep -q 'cannot touch' ~/repo/probe2")
         # jailed code can make a client exec a command on detach: it must stay sandboxed
         alice(f"tmux -S {sock} send-keys -t main 'tmux detach-client -s main -E \": > /tmp/marker-detach\"' Enter")
         machine.wait_until_succeeds(f"test -z \"$(su - alice -c 'tmux -S {sock} list-clients')\"", timeout=30)

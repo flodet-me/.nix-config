@@ -72,14 +72,15 @@ fake one in the writable socket directory, can make a client run a command
 
 ```sh
 systemctl --user stop jail-<name>
-rm -rf ~/.local/share/jails/<name>/home      # jail home (history, nvim state, trust lists)
+rm -rf ~/.local/share/jails/<name>/home      # jail home (history, nvim state, trust lists, Claude/Codex state)
+rm -rf ~/.local/share/jails/<name>/claude-plugin-data   # its Claude plugin data
 rm -rf ~/.local/share/jails/<name>           # also the push mirror and its stored URL
 ```
 
 ## Tested
 
 `nix build .#checks.x86_64-linux.jail` (NixOS VM; the test script itself takes
-about 28 s): hidden home paths and `~/.cache/docker` absent; `~/brain` read-only
+about 27 s): hidden home paths and `~/.cache/docker` absent; `~/brain` read-only
 except `inbox/`; writes to `~/.claude` config (`CLAUDE.md`, `settings.json`,
 `skills/`, `rules/`, `agents/`, `plugins/`) and `~/.codex` (`config.toml`,
 `AGENTS.md`, `rules/`) fail; the logins are shared; state written in
@@ -110,14 +111,19 @@ a positive control outside the jail.
 - A host entry of `~/.claude`/`~/.codex` that is state but not in the lists in
   `default.nix` comes in read-only, and the program fails to write it: add its
   name to the list.
-- Claude Code's OAuth refresh lock is a directory next to the shared
-  credentials, so it is per jail: a token refresh inside and outside a jail
-  at the same moment can still race and ask for a new login.
+- The shared login is one file bound into the jail. Claude Code outside
+  saves it by rename, so after a token refresh outside, a running jail keeps
+  the old file (and writes a refresh of its own there) until it restarts; if
+  its old token is refused, log in inside or restart the jail. Its OAuth
+  refresh lock is per jail as well. How codex saves `auth.json` is not
+  checked.
 - `mcpServers` come from your `~/.claude.json`, environment (and any token in
   it) included.
-- A host file bound into the jail and replaced by rename on the host (an
-  editor save, home-manager) stays the old file in a running jail until it
-  restarts.
+- The same holds for any host file bound into the jail and replaced by
+  rename on the host (an editor save, home-manager): a running jail keeps the
+  old one until it restarts.
+- Home-manager files at paths the jail replaced with its own stay the jail's
+  (reset the jail home to get them back).
 - No `/sys`, `/run/opengl-driver`, Wayland or X11: GUI programs and GPU compute
   do not run inside.
 - Home-manager's files are linked when a jail starts; after a switch, restart

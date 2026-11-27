@@ -124,9 +124,11 @@ let
       h=/tmp/home
       files=$1
       shift
-      # home-manager's dotfiles as links into the store; files the jail made stay
+      # home-manager's dotfiles as links into the store; files the jail made
+      # stay, and so do mount points of a running jail (replacing one would
+      # detach that mount in the jail)
       find "$h" -type l -lname '/nix/store/*-home-manager-files/*' -delete
-      cp -rsf --no-preserve=mode "$files/." "$h/"
+      cp -rs --update=none --no-preserve=mode "$files/." "$h/"
       # bwrap cannot mount on a symlink, and home-manager links some of them
       for m in "$@"; do [ ! -L "$h/$m" ] || rm -f "$h/$m"; done
 
