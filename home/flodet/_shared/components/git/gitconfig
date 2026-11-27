@@ -37,8 +37,7 @@ untrack = rm --cache --
 
 [core]
 # No core.pager: diff/log/show/blame go through delta (default.nix), the rest through less
-# Global ignore file (not shared)
-excludesfile = ~/.gitignore_global
+# No core.excludesfile: global ignores are ~/.config/git/ignore (default.nix)
 editor = nvim
 # Don't consider trailing space change as a cause for merge conflicts
 whitespace = -trailing-space

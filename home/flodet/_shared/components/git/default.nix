@@ -4,6 +4,16 @@
     lfs = {
       enable = true;
     };
+    # ~/.config/git/ignore, for every repository
+    ignores = [
+      ".direnv/"
+      "result"
+      "result-*"
+      ".envrc.local"
+      "*.swp"
+      "*~"
+      ".DS_Store"
+    ];
     includes = [
       {
         path = ./gitconfig;
