@@ -15,9 +15,12 @@ jail-push ~/Projects/foo       # outside the jail: push the current branch
 jail-push ~/Projects/foo main --force-with-lease   # other git push arguments
 ```
 
-- `DIR` defaults to the current directory; the jail covers the nearest
-  directory above it with a real `.git` directory, so worktrees and submodules
-  inside a repository use that repository's jail.
+- `DIR` defaults to the current directory for `jail`; `jail-push` needs it
+  (an existing directory). The jail covers the nearest directory above it
+  with a real `.git` directory, so worktrees and submodules inside a
+  repository use that repository's jail. A repository created inside a jail
+  (nested, or a new folder) gets its own jail on its first `jail` start, and
+  the URL printed then may come from jailed code: check it.
 - The first `jail` starts a user unit `jail-<name>` (`<name>`: folder name
   plus a hash of its path) with a tmux server inside. Detach with the tmux
   prefix + `d`; the jail ends when its last tmux window closes, or with
@@ -61,11 +64,13 @@ fake one in the writable socket directory, can make a client run a command
   jail cannot see. It fetches all branches into it and pushes from there, with
   your normal git and SSH (YubiKey) outside the jail.
 - Never runs git in the repository: `remote.origin.url` and `HEAD` are read as
-  data, and `git-upload-pack` runs in a sandbox with only `.git` bound
+  data (`git config --no-includes` on a copy, so a planted `include.path`
+  reads nothing), and `git-upload-pack` runs in a sandbox with only `.git` bound
   read-only (no network, no home), so planted `core.fsmonitor`,
   `core.sshCommand`, hooks or symlinks in `.git` reach nothing. `.git` must be
   a real directory, `.git/config` and `.git/HEAD` regular files (read without
-  following links, at most 64 KiB, no wait on a FIFO).
+  following links, at most 64 KiB, no wait on a FIFO). URLs with control
+  characters are refused, and URLs are printed quoted.
 - The push URL is recorded when `jail` first starts for the repository, before
   any jailed code ran for it, and stored in the mirror; later changes in the
   repository are ignored. If none was recorded then (no remote yet, or one
@@ -85,10 +90,13 @@ rm -rf ~/.local/share/jails/<name>/claude-plugin-data   # its Claude plugin data
 rm -rf ~/.local/share/jails/<name>           # also the push mirror and its stored URL
 ```
 
+After the last line the next `jail` start records the URL again from the
+repository, which jailed code may have changed: check the URL it prints.
+
 ## Tested
 
 `nix build .#checks.x86_64-linux.jail` (NixOS VM; the test script itself takes
-about 27 s): hidden home paths and `~/.cache/docker` absent; `~/brain` read-only
+about 55 s): hidden home paths and `~/.cache/docker` absent; `~/brain` read-only
 except `inbox/`; writes to `~/.claude` config (`CLAUDE.md`, `settings.json`,
 `skills/`, `rules/`, `agents/`, `plugins/`) and `~/.codex` (`config.toml`,
 `AGENTS.md`, `rules/`) fail; the logins are shared; state written in
@@ -105,8 +113,9 @@ outside; a link planted at a mount point does not stop the next start;
 uses the URL `jail` recorded at its first start, asks on a terminal for an
 unrecorded one and refuses without a terminal, keeps its stored URL, refuses
 `ext::` (allowed in the test's git config), `fd::`, `file://`, option-like and
-non-repository URLs, a symlinked `.git`, and a `.git/config` or `HEAD` that
-is a link to another repository's or a FIFO, and runs a local remote's hooks
+non-repository URLs and URLs with control characters, a missing `DIR`, a
+symlinked `.git`, a `.git/config` or `HEAD` that is a link to another
+repository's or a FIFO, and an `include.path` to another repository's config, and runs a local remote's hooks
 sandboxed; two terminals share
 one tmux server and one unit, the shell in it is jailed, and a
 `detach-client -E` command does not run on the host (a fake server answering

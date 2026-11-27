@@ -215,6 +215,12 @@
             alice(f"git -C ~/repo2 config -- remote.origin.url {shlex.quote(url)}")
             push_confirmed("~/repo2", ok=False)
         alice("! ls /tmp/marker-* 2>/dev/null")
+        # a control character (terminal escape) in an otherwise valid URL
+        alice("git -C ~/repo2 config remote.origin.url \"$(printf 'ssh://localhost/home/alice/remote.git\\033[2J')\"")
+        assert "refusing" in push_confirmed("~/repo2", ok=False)
+        # DIR is mandatory and must exist
+        alice("cd ~/repo && jail-push", ok=False)
+        alice("cd ~/repo && jail-push ~/nonexistent main", ok=False)
         # .git/config or HEAD as a link (to another repository's) or a FIFO
         alice("""
           git init -q --bare ~/victim-remote.git
@@ -222,13 +228,20 @@
           git remote add origin /home/alice/victim-remote.git
           git init -q ~/repo6 && cd ~/repo6 && git commit -q --allow-empty -m one
           git remote add origin /home/alice/other.git
-          cp -r ~/repo6 ~/repo7 && cp -r ~/repo6 ~/repo8
+          cp -r ~/repo6 ~/repo7 && cp -r ~/repo6 ~/repo8 && cp -r ~/repo6 ~/repo11
           ln -sf ~/victim/.git/config ~/repo6/.git/config
           rm ~/repo7/.git/config && mkfifo ~/repo7/.git/config
           ln -sf ~/victim/.git/HEAD ~/repo8/.git/HEAD
+          rm ~/repo11/.git/HEAD && mkfifo ~/repo11/.git/HEAD
+          git init -q ~/repo9 && cd ~/repo9 && git commit -q --allow-empty -m one
+          printf '[include]\\n\\tpath = /home/alice/victim/.git/config\\n' >> ~/repo9/.git/config
         """)
-        for r in ["repo6", "repo7", "repo8"]:
+        for r in ["repo6", "repo7", "repo8", "repo11"]:
             push_confirmed(f"~/{r}", ok=False)
+        # an include in .git/config is not followed: neither jail nor jail-push take its URL
+        jail("true", repo="~/repo9")
+        alice("! ls -d ~/.local/share/jails/repo9-*/mirror.git")
+        push_confirmed("~/repo9", ok=False)
         alice("test -z \"$(git --git-dir ~/victim-remote.git for-each-ref)\" && test -z \"$(git --git-dir ~/other.git for-each-ref)\"")
         # a .git that points elsewhere (could hand out another repository)
         alice("git init -q ~/repo3 && cd ~/repo3 && git commit -q --allow-empty -m one && git remote add origin /home/alice/other.git")

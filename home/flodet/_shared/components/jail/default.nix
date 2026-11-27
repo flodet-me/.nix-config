@@ -37,13 +37,14 @@ let
       [ -f "$f" ] && [ ! -L "$f" ] || { echo "''${0##*/}: .git/$1 is not a regular file" >&2; return 1; }
       dd if="$f" iflag=nofollow,nonblock bs=65536 count=1 status=none
     }
-    # remote.origin.url; with --file, includes are off (git help config)
+    # remote.origin.url; includes would make host git read any path the jail names
     origin_url() {
       local cfg
-      cfg=$(read_git_file config) && printf '%s\n' "$cfg" | git config --file - --get remote.origin.url
+      cfg=$(read_git_file config) && printf '%s\n' "$cfg" | git config --no-includes --file - --get remote.origin.url
     }
     # Accepted push URLs: ssh, https, scp-like, or an existing bare repository.
     valid_url() {
+      [[ $1 != *[[:cntrl:]]* ]] || return 1
       local host='[A-Za-z0-9][A-Za-z0-9.-]*' user='[A-Za-z0-9_][A-Za-z0-9._~-]*'
       local ssh="^ssh://($user@)?$host(:[0-9]+)?/[^[:space:]]*$"
       local https="^https://$host(:[0-9]+)?/[^[:space:]]*$"
@@ -227,7 +228,7 @@ let
         # push URL is still yours. Later ones jail-push asks you to confirm.
         if open_gitdir "$root" && url=$(origin_url) && valid_url "$url"; then
           store_url "$state/mirror.git" "$url" || die "cannot store the push URL in $state/mirror.git"
-          echo "jail: jail-push $root pushes to $url"
+          printf 'jail: jail-push %s pushes to %q\n' "$root" "$url"
         else
           echo "jail: no push URL recorded for $root (none, or refused: $bad_url); jail-push asks on first use" >&2
         fi
@@ -393,12 +394,9 @@ let
     ];
     text = common + ''
       for v in "''${!GIT_@}"; do unset "$v"; done # GIT_DIR and friends would redirect git
-      dir=$PWD
-      if [ $# -gt 0 ] && [ -d "$1" ]; then
-        dir=$1
-        shift
-      fi
-      root=$(repo_root "$dir")
+      [ $# -gt 0 ] && [ -d "$1" ] || die "usage: jail-push DIR [git push arguments] (DIR: an existing directory in the repository)"
+      root=$(repo_root "$1")
+      shift
       gitdir=$root/.git
       state=$HOME/.local/share/jails/$(jail_name "$root")
       mirror=$state/mirror.git
@@ -407,24 +405,25 @@ let
 
 
       open_gitdir "$root" || exit 1
+      head=$(read_git_file HEAD | head -n 1) || die "cannot read $gitdir/HEAD"
       url=$( [ -d "$mirror" ] && g config --get remote.origin.url || true)
       if [ -z "$url" ]; then
         # Not recorded when the jail first started: jailed code may have set it.
         url=$(origin_url) || die "$root has no readable remote.origin.url"
-        valid_url "$url" || die "refusing remote.origin.url '$url': $bad_url"
-        [ -t 0 ] || die "no push URL stored for $root; run jail-push on a terminal to confirm '$url'"
-        printf 'jail-push: no push URL stored for %s; jailed code may have set this one:\n  %s\nType yes to push there from now on: ' "$root" "$url" >&2
+        printf -v qurl %q "$url"
+        valid_url "$url" || die "refusing remote.origin.url $qurl: $bad_url"
+        [ -t 0 ] || die "no push URL stored for $root; run jail-push on a terminal to confirm $qurl"
+        printf 'jail-push: no push URL stored for %s; jailed code may have set this one:\n  %s\nType yes to push there from now on: ' "$root" "$qurl" >&2
         read -r answer || true
         [ "$answer" = yes ] || die "not confirmed"
         { mkdir -p "$state" && store_url "$mirror" "$url"; } || die "cannot store the push URL in $mirror"
-        echo "jail-push: $root pushes to $url from now on (stored in $mirror/config)"
+        echo "jail-push: $root pushes to $qurl from now on (stored in $mirror/config)"
       fi
 
       g fetch --quiet --no-tags --prune --upload-pack="${gitSandbox}/bin/jail-git-sandbox git-upload-pack" \
         "$gitdir" '+refs/heads/*:refs/heads/*' || die "fetching $root into $mirror failed"
 
       if [ $# -eq 0 ]; then
-        head=$(read_git_file HEAD | head -n 1) || die "cannot read $gitdir/HEAD"
         case $head in
           "ref: refs/heads/"?*) branch=''${head#ref: refs/heads/} ;;
           *) die "$root has a detached HEAD: name the branch, e.g. jail-push $root main" ;;
