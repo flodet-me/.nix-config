@@ -88,3 +88,7 @@ Design decided by the agent, option 3:
   again.
 - `/run/wrappers/bin` in such a jail holds podman, docker, docker-compose and
   the plain `newuidmap`/`newgidmap`, not setuid wrappers.
+
+Decided by: user (goal G-12: containers without a host daemon, opt-in, the
+jail's own API socket, real Compose); agent (design: two user namespaces,
+subuids, the cgroup view, per-instance service and storage).
