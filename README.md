@@ -41,4 +41,5 @@ sudo nixos-rebuild switch --flake .#<host>  # applies system and home-manager
 | Testing, VMs, closure diffs | [docs/testing.md](docs/testing.md) |
 | Neovim, per-project LSP | [docs/neovim.md](docs/neovim.md) |
 | Claude Code | [docs/claude-code.md](docs/claude-code.md) |
+| Agent isolation (concept) | [docs/agent-isolation.md](docs/agent-isolation.md) |
 | Privacy, telemetry | [docs/privacy.md](docs/privacy.md) |
