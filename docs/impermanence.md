@@ -17,6 +17,8 @@ services that isn't declared) is gone after a reboot.
 Config: `hosts/_shared/components/impermanence/` (`disko.nix` = disk layout,
 `default.nix` = rollback + persist list).
 
+Why: [ADR 0002](adr/0002-impermanence.md).
+
 ## Day to day
 
 - `fs-diff` lists every file currently on the ephemeral root, i.e. what the

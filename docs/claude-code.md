@@ -5,6 +5,8 @@ works out of the box after `nixos-rebuild switch`: the plugins, skills and MCP
 servers, plus the tools their hooks and scripts call. No manual `npm`, `pip`
 or `/plugin install` steps.
 
+Why: [ADR 0005](adr/0005-nix-owns-claude-config.md).
+
 - `hosts/_shared/components/claude-code.nix` (system): installs
   `claude-code`, and adds the libraries that npm-installed Playwright's
   downloaded Chromium needs to `programs.nix-ld`.
