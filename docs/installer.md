@@ -98,13 +98,15 @@ commit, push) and deploy, see docs/cloud.md.
 
 Both services run `scripts/nix-config-checkout` (`nix-config-checkout
 <target> <url> <push-url> [hook...]`). It never touches a `~/.nix-config`
-that has a `.git`, clones into `~/.nix-config-checkout` (removed by the next
-run if a run was killed), and swaps the clone in with one atomic rename, so a
-run that fails or is killed before the swap leaves the copy as it was and the
-service retries every minute. Killed after the swap, `~/.nix-config` is a
-checkout already: delete a leftover `~/.nix-config-checkout` and, on a
-workstation, do the registration by hand (`sops-sync`, commit). Only the workstation passes a hook (sops-sync, commit); servers
-never commit. Its tests run when it is built (`checks.x86_64-linux.scripts`).
+that has a `.git`, clones into `~/.nix-config-checkout` (marked as its own;
+the next run removes it if a run was killed, and refuses to start if
+something else is at that path), and swaps the clone in with one atomic
+rename. A run that fails or is stopped before the swap leaves the copy as it
+was and the service retries every minute. After the swap `~/.nix-config` is
+a checkout already: if the hook fails or is stopped, the run says so and the
+registration is left to do by hand (`sops-sync`, commit). Only the
+workstation passes a hook (sops-sync, commit); servers never commit. Its
+tests run when it is built (`checks.x86_64-linux.scripts`).
 
 If you restored a backup that contained a checkout, the installer puts the
 files there instead: run `sops-sync`, commit, push.

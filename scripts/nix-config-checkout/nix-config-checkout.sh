@@ -9,17 +9,29 @@
 # Callers: the user service (home/flodet/_shared/components/nix-config-checkout.nix,
 # hook: sops-sync + commit) and the server service
 # (hosts/_shared/components/server/nix-config-checkout.nix, no hook).
-# A target that already has .git is never touched. Every failure leaves the
-# copy as it was, and the next run starts over.
+# A target that already has .git is never touched. A failure (or kill)
+# before the swap leaves the copy as it was and the next run starts over;
+# after the swap the target is a checkout, the run exits != 0 naming the
+# step, and the rest (the hook) is left to do by hand. Only a temp dir holding
+# our marker is ever deleted.
 
 [[ $# -ge 3 ]] || {
   echo "usage: nix-config-checkout <target> <url> <push-url> [hook...]" >&2
   exit 1
 }
-target="$1"
+target="${1%/}"
 url="$2"
 push="$3"
 shift 3
+
+# Fixed name next to the target, so the next run finds what a killed one left
+tmp="$target-checkout"
+marker=.nix-config-checkout
+ours() { [[ ! -L $tmp && -d $tmp && -f $tmp/$marker ]]; }
+if ours; then
+  echo "removing $tmp, left by a killed run"
+  rm -rf "$tmp"
+fi
 
 if [[ -e $target/.git ]]; then
   echo "$target is a git checkout already, left alone"
@@ -32,16 +44,14 @@ fi
 
 phase="starting"
 swapped=false
+created=false
 step() {
   phase="$1"
   echo "==> $1"
 }
-# Fixed name next to the target: a run that was killed leaves it behind and
-# the next run removes it
-tmp="$target-checkout"
 cleanup() {
   local rc=$?
-  rm -rf "$tmp"
+  if $created; then rm -rf "$tmp"; fi
   if ((rc != 0)); then
     echo "nix-config-checkout FAILED (exit $rc) during: $phase" >&2
     if $swapped; then
@@ -52,9 +62,19 @@ cleanup() {
   fi
 }
 trap cleanup EXIT
+# systemd stops the unit with SIGTERM: report the step like an error
+trap 'exit 143' TERM
+trap 'exit 130' INT
 step "prepare $tmp"
-rm -rf "$tmp"
-mkdir "$tmp"
+if [[ -e $tmp || -L $tmp ]]; then
+  echo "$tmp exists and is not ours (no $marker in it): left alone, move it away" >&2
+  exit 1
+fi
+# Marker first, then one rename: $tmp never exists without it
+new=$(mktemp -d "$tmp.XXXXXX")
+touch "$new/$marker"
+mv --no-target-directory "$new" "$tmp"
+created=true
 
 step "clone $url"
 git clone --quiet "$url" "$tmp/clone"
