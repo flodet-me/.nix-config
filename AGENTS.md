@@ -19,7 +19,7 @@ for h in laptop desktop moon vps; do
 done
 
 # Apply / deploy (human-run)
-nh os switch                                                 # current machine (alias: `update`)
+update                                                       # current machine: switch-review, then `nh os switch --ask`
 nixos-rebuild switch --flake .#<HOST> --target-host <HOST> --sudo --use-substitutes   # target fetches from caches, not the workstation's upload
 
 # Workflow scripts (dev shell, sources in scripts/)
@@ -29,6 +29,7 @@ sops-register-host <host> <age-pubkey>     # add/replace a host key (keys/hosts/
 sops-sync                                  # regenerate .sops.yaml + re-encrypt (YubiKey)
 provision-server <host> root@<ip>          # first install of a cloud server
 check-cves [host...]                       # known CVEs in what the hosts run (docs/security-updates.md)
+switch-review [HOST]                       # what changed since the running system was built, no git (docs/agent-isolation.md)
 claude-plugins-sync                        # install declared Claude Code plugins now (docs/claude-code.md)
 ```
 

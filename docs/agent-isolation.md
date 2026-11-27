@@ -157,6 +157,40 @@ checked by hand).
 The VM test `checks.x86_64-linux.jail` asserts the table above for step 2
 (list in [jail.md](jail.md), "Tested").
 
+## Review before switch
+
+An agent may change this repository's own rules (Claude Code config, jail,
+users, nix settings, ...). Nothing it writes goes live until you switch, so
+the switch is the human gate, and `update` shows what you are about to
+apply first:
+
+- Every host records what it was built from: `nixos-version
+  --configuration-revision` (`self.rev`, or `self.dirtyRev`) and
+  `/run/current-system/flake-source`, a link to the flake source in the
+  system closure (set in `mkHost`, `flake.nix`).
+- `switch-review [HOST]` (`scripts/switch-review/`) diffs that source against
+  what `nix flake prefetch` fetches from `$NH_FLAKE` now, the tree `nh os
+  switch` builds (dirty tracked changes included, untracked files not). It
+  prints both revisions, the changed files, the full diff of the
+  security-relevant paths (list in the script: Claude Code, jail, users,
+  `nix.nix`, server hardening, impermanence, sops/keys, `flake.*`,
+  `overlays`, `pkgs`, `scripts`, `.claude/`, `CLAUDE.md`, `AGENTS.md`) and,
+  elsewhere, only the changed lines with a security keyword (sudo, polkit,
+  groups, trusted users, wrappers, setuid, capabilities, permissions, hooks).
+- It runs no git on the repository: a jail may have written `.git/config`,
+  and a pager, external diff, textconv or fsmonitor there could forge the
+  output. Plain `diff` on two store paths.
+- `update` = `switch-review; nh os switch --ask`: the review never blocks,
+  nh builds, shows the package diff and asks "Apply the config?" (default
+  no). Read the review before answering; nh's build output follows it. The
+  alias calls the reviewed `switch-review` from your home profile by store
+  path, not the working tree's (direnv puts that first on PATH).
+- Only this machine: `/run/current-system` is local, so a `--target-host`
+  deploy to `moon` or `vps` is not reviewed. A system built before this has
+  no `flake-source`; the review says so, and the next switch records it.
+- Because the source is in the closure, every commit (also docs-only) is a
+  new system generation.
+
 ## VMs and Windows development
 
 - winvm (`~/Projects/windows-vm`) is plain QEMU/KVM without libvirt or root.
