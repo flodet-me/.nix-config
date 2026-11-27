@@ -80,7 +80,7 @@ rw /srv/scratch/foo
 - `ro PATH`, `rw PATH`: a directory or file bound at the same absolute path
   (`~/` is your home). It must exist, and its path must have no symlink in it
   and be canonical (no `.`, `..`). Refused: `/`, `/tmp`, anything in `/nix`,
-  `/run`, `/proc`, `/dev`, `/etc`, `/sys`, your home or a folder above it
+  `/run`, `/proc`, `/dev`, `/etc`, `/sys`, `/.snapshots`, `/persist`, your home or a folder above it
   (`/home`), the jails' state (`~/.local/share/jails`, or a folder above it
   such as `~/.local`), and the repository or anything in it or above it.
   Also refused, in it, at it or above it: `~/.ssh`, `~/.gnupg`, `~/.claude`,
@@ -139,9 +139,12 @@ repository (its code then runs in both jails), personal data. `rw` on
 anything your host session runs or reads as config or instructions
 (`~/.config`, a shell rc, `~/.local/bin`, `~/brain`, whose `wiki/hot.md`
 every Claude session loads) is a way out of the jail; the list above
-refuses the known ones, not every one. `ro` shows the jail whatever is in
-there. Opening a path that a jail swapped for a FIFO waits: stop that
-start with Ctrl-C.
+refuses the known ones, not every one, and compares paths, not folders:
+another path to the same folder (desktop's `/data/projects` is `~/Projects`)
+passes, so read the paths you approve. `ro` shows the jail whatever is in
+there. Opening a path that a jail swapped for a FIFO waits: stop a one-off
+start with Ctrl-C; a shared jail then reports it is not running, and
+`systemctl --user stop jail-<name>` clears it for the next start.
 
 ## Network and D-Bus
 

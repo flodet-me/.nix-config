@@ -425,7 +425,8 @@ let
         real=$(realpath -e -- "$p" 2>/dev/null) || { echo "does not exist"; return 1; }
         [ "$real" = "$p" ] || { echo "goes through a symlink or is not canonical (it is $(esc "$real"))"; return 1; }
         [ -d "$p" ] || [ -f "$p" ] || { echo "is not a directory or regular file"; return 1; }
-        for x in /nix /run /proc /dev /etc /sys; do
+        # /.snapshots and /persist hold copies of the home and the host state
+        for x in /nix /run /proc /dev /etc /sys /.snapshots /persist; do
           ! within "$p" "$x" || { echo "is in $x"; return 1; }
         done
         [ "$p" != /tmp ] || { echo "is /tmp"; return 1; }
@@ -615,7 +616,7 @@ let
           ${pkgs.runtimeShell} -c "$keepalive" sh ${tmux} "$sock" ||
           echo "jail: jail-$name did not start, maybe it is starting already" >&2
         for _ in $(seq 50); do alive && break; sleep 0.2; done
-        alive || die "jail-$name is not running: journalctl --user -u jail-$name"
+        alive || die "jail-$name is not running: journalctl --user -u jail-$name; systemctl --user stop jail-$name before the next start"
       fi
       # attach-session, never new-session -A: that would start a server outside the jail
       client attach-session -t main
