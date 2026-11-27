@@ -195,7 +195,24 @@ let
   brain = "${config.home.homeDirectory}/brain";
   settings = lib.importJSON ./settings.json;
 
-  managedSettings = pkgs.writeText "claude-managed-settings.json" (
+  # Trial (docs/claude-code.md, "Token tools"): rtk rewrites Bash commands to a
+  # compact form. false: no hook and no instructions; the tools stay installed.
+  rtkTrial = true;
+  # What `rtk init -g` registers, with a store path; `rtk verify` recognizes it.
+  rtkHook = "${lib.getExe pkgs.rtk} hook claude";
+  rtkConfig = (pkgs.formats.toml { }).generate "rtk-config.toml" {
+    telemetry.enabled = false;
+    retriever.mode = "sqlite"; # recovery: elided output stays recallable (`rtk recall`)
+    # Their rewrite (`rtk read <file>`) would dodge the Read denies Claude Code
+    # applies to cat/head paths, and rtk misses globbed Bash denies such as
+    # `cat ~/.ssh/*`; managedSettings below fails the build on such a rewrite.
+    hooks.exclude_commands = [
+      "cat"
+      "head"
+    ];
+  };
+
+  untestedSettings = pkgs.writeText "claude-managed-settings.json" (
     builtins.toJSON (
       settings
       // {
@@ -217,21 +234,99 @@ let
           type = "command";
           command = lib.getExe statusline;
         };
-        hooks.Notification = [
-          {
-            # only when Claude waits for you, not on auth or agent events
-            matcher = "permission_prompt|idle_prompt|elicitation_dialog|elicitation_url_dialog|agent_needs_input|quota_auto_resume_fired|quota_auto_resume_stale|quota_auto_resume_disabled";
-            hooks = [
-              {
-                type = "command";
-                command = lib.getExe notify;
-              }
-            ];
-          }
-        ];
+        hooks = {
+          Notification = [
+            {
+              # only when Claude waits for you, not on auth or agent events
+              matcher = "permission_prompt|idle_prompt|elicitation_dialog|elicitation_url_dialog|agent_needs_input|quota_auto_resume_fired|quota_auto_resume_stale|quota_auto_resume_disabled";
+              hooks = [
+                {
+                  type = "command";
+                  command = lib.getExe notify;
+                }
+              ];
+            }
+          ];
+        }
+        // lib.optionalAttrs rtkTrial {
+          PreToolUse = [
+            {
+              matcher = "Bash";
+              hooks = [
+                {
+                  type = "command";
+                  command = rtkHook;
+                }
+              ];
+            }
+          ];
+        };
       }
     )
   );
+
+  # Claude Code checks its permission rules against the command a hook returns,
+  # so a rewrite must not turn a denied command into one no rule matches. Fails
+  # the build: every Bash deny rule and every Read-denied path read with the
+  # commands Claude Code checks against Read rules stays unchanged.
+  denyRules =
+    kind:
+    map (r: lib.removeSuffix ")" (lib.removePrefix "${kind}(" r)) (
+      lib.filter (lib.hasPrefix "${kind}(") settings.permissions.deny
+    );
+  example = lib.replaceStrings [ "**" "*" ] [ "x" "x" ];
+  deniedCommands = map example (denyRules "Bash");
+  deniedReads = lib.concatMap (
+    rule:
+    let
+      path = example (if lib.hasPrefix "//" rule then lib.removePrefix "/" rule else rule);
+    in
+    [
+      "cat ${path}"
+      "head -5 ${path}"
+      "tail ${path}"
+      "sed -n 1p ${path}"
+    ]
+  ) (denyRules "Read");
+  managedSettings =
+    pkgs.runCommand "claude-managed-settings.json"
+      {
+        nativeBuildInputs = [
+          pkgs.jq
+          pkgs.rtk
+        ];
+      }
+      (
+        if rtkTrial then
+          ''
+            export HOME=$TMPDIR
+            mkdir -p "$HOME/.claude" "$HOME/.config/rtk"
+            cp ${untestedSettings} "$HOME/.claude/settings.json" # rtk reads the rules here
+            cp ${rtkConfig} "$HOME/.config/rtk/config.toml"
+            # the command the hook hands to Claude Code
+            hook() {
+              jq -n --arg c "$1" '{hook_event_name: "PreToolUse", tool_name: "Bash", cwd: env.HOME, tool_input: {command: $c}}' \
+                | ${rtkHook} | jq -rs --arg c "$1" '.[0].hookSpecificOutput.updatedInput.command // $c'
+            }
+            failed=0
+            expect() {
+              got=$(hook "$1")
+              [ "$got" = "$2" ] || { echo "FAIL: '$1' became '$got', expected '$2'"; failed=1; }
+            }
+            expect "git status" "rtk git status"
+            expect "nix flake check" "nix flake check"
+            for c in ${lib.escapeShellArgs (deniedCommands ++ deniedReads)}; do
+              expect "$c" "$c"
+            done
+            [ "$failed" = 0 ]
+            cp ${untestedSettings} $out
+          ''
+        else
+          ''
+            jq -e '.hooks | has("PreToolUse") | not' ${untestedSettings}
+            cp ${untestedSettings} $out
+          ''
+      );
 
   # Downloads/installs everything declared above; every step is idempotent.
   # Runs automatically (systemd user service below) and by hand.
@@ -307,6 +402,10 @@ in
     pkgs.typescript-language-server # typescript-lsp plugin
     pkgs.csharp-ls # csharp-lsp plugin
     pkgs.nixd # Nix LSP
+    # Token tools (docs/claude-code.md, "Token tools")
+    pkgs.ccusage
+    pkgs.ast-grep
+    pkgs.rtk
   ];
   home.sessionPath = [ "$HOME/.local/bin" ]; # uv tool binaries (graphify)
 
@@ -314,6 +413,9 @@ in
   # ~/.claude/CLAUDE.md, because graphify writes into that one.
   home.file.".claude/rules/personal.md".source = ./personal.md;
   home.file.".codex/AGENTS.md".source = ./codex/AGENTS.md;
+  # rtk's own `rtk init -g` would write RTK.md plus an @RTK.md line instead.
+  home.file.".claude/rules/rtk.md" = lib.mkIf rtkTrial { source = ./rtk.md; };
+  xdg.configFile."rtk/config.toml".source = rtkConfig;
 
   # Goal -> merged code: the factory skill and its two agents (docs/claude-code.md, "Factory").
   home.file.".claude/skills/factory/SKILL.md".source = ./skills/factory/SKILL.md;
