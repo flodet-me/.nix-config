@@ -115,7 +115,8 @@ let
         exit 2
       fi
 
-      exec codex exec --sandbox read-only --ask-for-approval never "$@"
+      # --ask-for-approval is a global flag: `codex exec` rejects it
+      exec codex --ask-for-approval never exec --sandbox read-only "$@"
     '';
   };
 
