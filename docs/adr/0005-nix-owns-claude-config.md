@@ -26,16 +26,14 @@ a reinstall without manual `npm`, `pip` or `/plugin install` steps
 
 ## Decision
 
-Option 3. `home/flodet/_shared/components/claude-code/default.nix` and
-`settings.json` declare marketplaces, plugins, plugin configs, MCP servers,
-permissions, hooks, `env` and `skillOverrides`; the system half is
-`hosts/_shared/components/claude-code.nix`. The `claudeCodeSettings`
-activation deletes every Nix-owned object key (`ownedObjectKeys`, derived
-from the managed settings) and merges the managed settings in with `jq`.
-The `claude-plugins-sync` user service installs marketplaces, plugins, MCP
-servers and graphify idempotently, at login and when the lists change.
-`personal.md`, the factory and consult-codex skills and the agents are
-linked from the store.
+Option 3. The module declares marketplaces, plugins, plugin configs, MCP
+servers, permissions, hooks, `env` and `skillOverrides`. The
+`claudeCodeSettings` activation deletes every Nix-owned object key
+(`ownedObjectKeys`, derived from the managed settings) and merges the managed
+settings in with `jq`. The `claude-plugins-sync` user service installs
+marketplaces, plugins, MCP servers and graphify idempotently, at login and
+when the lists change. `personal.md`, the factory and consult-codex skills
+and the agents are linked from the store.
 
 ## Consequences
 

@@ -6,16 +6,16 @@ Recorded after the fact on 2026-11-27.
 
 ## Context
 
-Every host (`desktop`, `laptop`, `moon`, `vps`) is meant to be fully
-described by this flake. State that a host collects outside the config
-(stray files in `/etc` and `/var`, undeclared service state) cannot be
-reproduced by a reinstall. Why that mattered enough to wipe the root is not
-recorded beyond the "Erase your darlings" comment in the module.
+On a normal root, state collects outside the config: stray files in `/etc`
+and `/var`, files in `/tmp` and `/root`, state from services that isn't
+declared (docs/impermanence.md lists these as what a reboot now deletes).
+Why removing that mattered is not recorded beyond the "Erase your darlings"
+comment in the module.
 
 ## Options
 
-1. A normal persistent root (what the hosts had before: switching an old
-   ext4 install to this config does not work, docs/impermanence.md).
+1. A normal persistent root: the earlier ext4 installs (`a66fda6^`,
+   `hosts/desktop/hardware-configuration.nix`).
 2. btrfs: replace the root subvolume with an empty one on every boot and
    keep listed paths in `/persist` (nix-community/impermanence).
 3. A tmpfs root (obvious alternative; reason for not choosing it not
@@ -53,9 +53,9 @@ hourly `/home` snapshots but survive reboots.
   (`persistVarLib`); `hosts/desktop/default.nix`, `hosts/laptop/default.nix`
   (`cacheSubvolume`); [impermanence.md](../impermanence.md); AGENTS.md,
   "Impermanence & Storage".
-- `a66fda6` (2026-11-06): impermanence module, disko layout, `persistVarLib`,
-  `fs-diff`, docs. `411a203` (2026-11-07): LUKS. `2b6ede5` (2026-11-07):
-  `names.nix`. `b7f0436` (2026-11-07): `cacheSubvolume`. `5281859`
-  (2026-11-27): rootless Docker data in `~/.cache`.
+- `a66fda6` (2026-11-06): impermanence module, disko layout with LUKS,
+  `persistVarLib`, `fs-diff`, docs. `2b6ede5` (2026-11-07): `names.nix`.
+  `b7f0436` (2026-11-07): `cacheSubvolume`. `5281859` (2026-11-27): rootless
+  Docker data in `~/.cache`.
 
 Decided by: user (recorded by agent).
