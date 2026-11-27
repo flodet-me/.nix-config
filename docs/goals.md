@@ -37,9 +37,13 @@ Accept:
   matches.
 - The jail VM test covers every command, including reset refusing while
   running and `gone` in `list`; `nix run .#check -- --jail` and the Gate are green.
-Not in scope: `jail push` as a subcommand, `list --json`, automatic pruning.
+- `jail push [DIR] [GIT-PUSH-ARGS...]` does what `jail-push` does (host only,
+  refused inside a jail); `jail-push` stays as an alias; `push` is reserved
+  like the others; docs and completion use `jail push`.
+Not in scope: `list --json`, automatic pruning.
 Assumptions: reserved command words approved by the user ("do as you
-suggest"); reset always asks.
+suggest"); reset always asks; `jail push` added by the user ("make jail-push
+a command in jail").
 
 | Item | What | Status | Commit |
 |---|---|---|---|
