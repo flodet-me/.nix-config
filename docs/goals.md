@@ -15,8 +15,7 @@ Assumptions:
 - The user's "yes" to Docker means rootless is fine. Old system Docker images/volumes stay in /persist/var/lib/docker, unused.
 - `jail` is a home-manager module on the workstations (desktop.nix), the repo is bound at its own absolute path, HOME stays /home/flodet inside.
 - A real Windows boot through winvm in a jail is checked by hand after the switch, not in the VM test.
-- User, 2026-11-27, asked for custom directories per jail: added I3c as a Nix option keyed by repository path (host-owned, never a file inside the repository), read-only by default.
-- User, 2026-11-27, asked to see websites served from a jail: added I3b, host→jail TCP forwards on 127.0.0.1 chosen at jail start (pasta `-t`), never jail→host.
+- User, 2026-11-27: websites served from a jail must be viewable, and custom directories are defined per repository (repo-agnostic jail, not home-manager). Hence I3b: a `.jail` file in the repository, read host-side without links like `.git/config`; jailed code can edit it, so `jail` uses only a copy the user approved on a terminal (diff shown, typed `yes`), stored under `~/.local/share/jails/<name>/`; ports only host→jail on 127.0.0.1, never jail→host; directories read-only unless marked writable.
 - User, 2026-11-27: a running jail may keep a stale Claude login after a refresh outside; accepted for now (restart the jail). After G-1 is done, re-run the Claude Code setup audit and re-evaluate its quick wins (deny rules for ~/Nextcloud, ~/Documents, keyring, key files).
 
 | Item | What | Status | Commit |
@@ -24,8 +23,7 @@ Assumptions:
 | I1 host-hardening | trusted-users root on workstations, rootless Docker, docs | done | 067e623 |
 | I2 jail | `jail` / `jail-push`, tmux-shared jail per repo, VM test `checks.jail`, docs | done | 015d25b |
 | I3 jail-net | pasta netns (no host loopback), xdg-dbus-proxy for notifications, test | open | |
-| I3b jail-ports | `jail --port N`: host 127.0.0.1:N forwarded into the jail (host→jail only), test, docs | open | |
-| I3c jail-binds | home-manager option: extra read-only / read-write directories per repository (and for all jails), Nix-owned, test, docs | open | |
+| I3b jail-config | per-repository `.jail` file (ports forwarded host 127.0.0.1→jail, extra read-only / read-write directories), approved on the host like `direnv allow` and used from the approved copy, test, docs | open | |
 | I4 jail-winvm | winvm binds and `winvm` wrapper inside the jail, test | open | |
 
 ## G-2 LLM token tools  (status: done)
