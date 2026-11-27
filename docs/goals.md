@@ -103,7 +103,7 @@ Assumptions:
 | I5 checkout-dedupe | one nix-config checkout script, retryable | done | dc8fb5e |
 | I6 ci-checks | CI runs flake checks, strict shell checks for units (moon VM boot: initrd rollback OK under nounset/pipefail) | done | 09c890c |
 
-## G-6 jail as its own package  (status: open)
+## G-6 jail as its own package  (status: done)
 
 Goal: "Shouldn't jail be its own tool and just called in nixos? Like a package? Can be owned in this repo, but I think that would be cleaner" (plus review items 7, 22, 23)
 Accept:
@@ -121,4 +121,4 @@ Assumptions:
 | Item | What | Status | Commit |
 |---|---|---|---|
 | I1 jail-package | pkgs/jail with .sh files, system install, test moved | done | bb52bd6 |
-| I2 jail-env-cache | one-off env, cache outside snapshots, codex jail profile, unsigned commits | open | |
+| I2 jail-env-cache | one-off env, cache outside snapshots, codex jail profile (dev shell too), unsigned commits | done | c6f96b1 |
