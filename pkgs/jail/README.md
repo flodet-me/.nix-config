@@ -69,14 +69,16 @@ jail help                      # every command, by task (also jail --help)
 
 ```sh
 jail push ~/Projects/foo                            # push the current branch
-jail push                                           # the same, for the repository around the current directory
 jail push ~/Projects/foo main --force-with-lease    # other git push arguments
 ```
 
-On the host; inside a jail it refuses. The first argument is `DIR` when it
-is a directory (one that looks like a path, `/...`, `./...`, `../...`, must
-exist); otherwise `DIR` is the current directory and every argument goes to
-`git push`. A branch named like a folder here: `jail push . docs`.
+On the host, from outside the repository (a host shell in it is what the
+list above warns about); inside a jail it refuses. The first argument is
+`DIR` when it is a directory (one that looks like a path, `/...`, `./...`,
+`../...`, must exist); otherwise `DIR` is the current directory and every
+argument goes to `git push`. A folder here that is also a branch is
+refused: say `jail push ./docs` (the folder) or `jail push . docs` (the
+branch).
 `jail-push DIR [ARGS...]` is the same command (`DIR` required).
 
 `jail push` pushes from a mirror the jail cannot see
@@ -191,9 +193,10 @@ jail reset [DIR|NAME] --home       # the jail home (history, nvim state, trust l
 jail reset [DIR|NAME] --all        # all its state (also the push mirror and its stored URL) and its caches (~/.cache inside)
 ```
 
-`jail reset` refuses while the jail runs (shared or one-off), lists exactly
-what it deletes and asks `y/N` on the terminal; without a terminal it
-deletes nothing. After `--all` the next `jail` start records the push URL
+`jail reset` refuses while the jail runs (shared or one-off) or a start of
+it is still asking or preparing, lists exactly what it deletes and asks
+`y/N` on the terminal, then checks again; without a terminal it deletes
+nothing. After `--all` the next `jail` start records the push URL
 again from the repository, which jailed code may have changed: check the URL
 it prints. It also asks about `.jail` again. The cache of a jail from before
 `~/.cache/jails`, unused, is `~/.local/share/jails/<name>/home/.cache`

@@ -234,7 +234,9 @@ fake one in the writable socket directory, can make a client run a command
 ## jail push
 
 - `jail push [DIR] [ARGS...]` runs `jail-push DIR [ARGS...]`, the same
-  code; both refuse inside a jail.
+  code; both refuse inside a jail. A first argument that is a folder here
+  and also a branch in the mirror of the current directory's jail is
+  refused (`jail push ./NAME` or `jail push . NAME`), not guessed.
 
 - Keeps a bare mirror in `~/.local/share/jails/<name>/mirror.git`, which the
   jail cannot see. It fetches all branches into it and pushes from there, with
@@ -278,8 +280,13 @@ fake one in the writable socket directory, can make a client run a command
   (by `/proc/<pid>/comm`) outside a `jail-*.service` cgroup, named by the
   cache it binds (`rw:~/.cache ~/.cache/jails/<name>` in its arguments); it
   counts from its exec of `jail-run`, not while jail prepares it. Jailed
-  code in a one-off jail can fake such a process: that only makes
-  `jail reset` refuse.
+  code in a one-off jail can fake such a process, naming any jail: that
+  makes `jail reset` of that or another jail refuse and inflates the counts
+  in `jail list` and `jail status`, nothing more.
+- A start holds a shared `flock` on `<name>/lock` from before its first
+  step until its jail runs (a one-off: just before its exec of `jail-run`;
+  the lock is closed for everything it starts), so a start still asking
+  about `.jail` or preparing the home makes `jail reset` refuse.
 - `jail status` counts the tmux clients through the same sandboxed client
   as a start (the server is jailed code) and prints only the count.
 - `jail stop --all` stops the units of the jails in the state folder that
@@ -288,9 +295,20 @@ fake one in the writable socket directory, can make a client run a command
   `/`) and a real directory directly in `~/.local/share/jails`, and no
   directory of that name in the current one; anything else is a `DIR`.
   It refuses while the shared or a one-off jail runs, lists the existing
-  paths it deletes, needs `y` on a terminal (stdin and stderr), makes
-  read-only folders in them writable (`find -type d`, no links followed)
-  and deletes them with `rm -rf`. `--all` also removes the recorded push
+  paths it deletes, needs `y` on a terminal (stdin and stderr), then takes
+  the lock exclusively (refusing while a start holds it) and checks again
+  that nothing runs, gives every folder in them `u+rwx` before `find`
+  descends into it (folders read-only or made unreadable by jailed code;
+  no links followed) and deletes them with `rm -rf`.
+- `jail list`, `jail status` and `jail config` print paths and URLs with
+  control characters as text (`cat -vT`, a newline as `^J`), so a path
+  cannot forge a row.
+- The completion (`completions/jail.bash`, for zsh through
+  `bashcompinit`): repository paths and mirror branches are chosen by
+  jailed code, so they never go through `compgen -W` (which expands
+  `$(...)`), only those needing no quoting are offered, and it runs no `cd`
+  or git in a repository (zsh's `chpwd` hooks, direnv), only
+  `git --git-dir=<mirror>`. `--all` also removes the recorded push
   URL: the next start records it again from the repository, which jailed
   code may have changed.
 
@@ -364,7 +382,13 @@ read-only folders), by `NAME` for a gone repository and a dotted name, and
 takes a folder of the name here as `DIR`; `jail push` from the current
 directory; the host commands and `jail-push` refuse inside a jail; bash
 completion of commands, folders, jail names, flags and `jail push` /
-`jail-push` repositories and mirror branches;
+`jail-push` repositories and mirror branches; `jail reset` refuses after
+its `y` when a one-off started meanwhile and while a start asks about
+`.jail`, deletes a mode-000 folder in the jail home, and a bad `NAME`
+lists nothing; `jail push` refuses a folder that is also a branch; a path
+with a newline shows as `^J` in `jail list` and `jail status`; a mirror
+branch and a repository path with `$(...)` run nothing in bash and zsh
+completion, a normal branch completes, and zsh runs no `chpwd`;
 a `.jail` with a port, a `ro` and an `rw` folder is not applied before
 approval (without a terminal, or answered `no`), shows its content and then a
 diff with an escape sequence as `^[`, and once approved with `yes` (a typed
