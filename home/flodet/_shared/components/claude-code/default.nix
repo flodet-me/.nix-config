@@ -199,12 +199,13 @@ let
   # compact form. false: no hook and no instructions; the tools stay installed.
   rtkTrial = true;
   # Claude Code checks its rules against the command a hook returns. rtk 1.2.0
-  # misses path-glob and ask rules, rewrites reads into `rtk <cmd> <path>`
-  # that Claude Code no longer checks against Read denies, and grants `allow`
-  # when allow rules cover a command. So a command that mentions a Read-guarded
-  # path or matches a Bash deny/ask rule (user settings, and every .claude/ from
-  # the session's directory up) stays as it is, and of rtk's answer only
-  # updatedInput is passed on: this hook never decides.
+  # misses path-glob and ask rules and grants `allow` when allow rules cover a
+  # command; file commands are excluded in rtkConfig. So a command that matches
+  # a Bash deny/ask rule (user settings, every .claude/ from the session's
+  # directory up) or changes directory or names a git path option stays as it
+  # is, and of rtk's answer only updatedInput is passed on: this hook never
+  # decides. Anything unexpected (a broken settings file, odd input): it says
+  # nothing and Claude Code runs the command unchanged.
   rtkHook = pkgs.writeShellApplication {
     name = "claude-rtk-hook";
     runtimeInputs = [
@@ -213,8 +214,8 @@ let
     ];
     text = ''
       input=$(cat)
-      command=$(jq -r '.tool_input.command // ""' <<<"$input")
-      dir=$(jq -r '.cwd // ""' <<<"$input")
+      command=$(jq -er '.tool_input.command | strings' <<<"$input") || exit 0
+      dir=$(jq -r '.cwd // "" | strings' <<<"$input") || exit 0
       case $dir in /*) ;; *) dir="" ;; esac
       files=()
       [ -f "$HOME/.claude/settings.json" ] && files+=("$HOME/.claude/settings.json")
@@ -225,30 +226,34 @@ let
         [ "$dir" = / ] && break
         dir=$(dirname "$dir")
       done
-      # One guard per line: B<command prefix> or R<path fragment>, from every
-      # deny and ask rule. Shortcut: a fragment is the path before its first *,
-      # so it guards more than the rule (proc guards /proc/*/environ).
-      mapfile -t guards < <(jq -rn '
-        def lit: split("*")[0];
-        inputs | .permissions? // {} | (.deny // []) + (.ask // []) | .[] | strings
-        | capture("^(?<k>Bash|Read)\\((?<p>.*)\\)$")?
-        | if .k == "Bash" then
-            "B" + (.p | sub(":\\*$"; " *") | if contains("*") then lit else . + " " end)
-          else
-            "R" + (.p | sub("^//"; "") | sub("^~/"; "") | sub("^(\\*\\*/)+"; "") | lit | sub("/$"; ""))
-          end
-      ' "''${files[@]}")
-      # shell operators separate words like spaces do
-      words=" ''${command//[$'\n\t;&|()<>`']/ } "
-      for guard in "''${guards[@]}"; do
-        case $guard in
-          B*) [[ $words == *" ''${guard#B}"* ]] && exit 0 ;;
-          R*) [[ $command == *"''${guard#R}"* ]] && exit 0 ;;
-        esac
+      # One line per Bash deny/ask rule: B + its words up to the first *.
+      guards=$(jq -rn '
+        inputs
+        | if type == "object" then . else error("settings: not an object") end
+        | .permissions // {}
+        | if type == "object" then . else error("permissions: not an object") end
+        | (.deny // []), (.ask // [])
+        | if type == "array" then .[] else error("rules: not a list") end
+        | if type == "string" then . else error("rule: not a string") end
+        | capture("^Bash\\((?<p>.*)\\)$")? | .p
+        | sub(":\\*$"; " *") | gsub("\\s+"; " ") | sub("^ "; "")
+        | "B" + (if contains("*") then split("*")[0] else . + " " end)
+      ' "''${files[@]}") || exit 0
+      # shell operators and runs of whitespace separate words alike
+      read -ra parts <<<"''${command//[$'\n\t;&|()<>`']/ }"
+      words=" ''${parts[*]} "
+      # Claude Code resolves paths after cd and in git's path options; the
+      # rewrite would hide them from it.
+      for word in " cd " " pushd " " popd " " -C" " --no-index" " --git-dir" " --work-tree" " --file"; do
+        [[ $words == *"$word"* ]] && exit 0
       done
-      rtk hook claude <<<"$input" | jq -c '
+      while IFS= read -r guard; do
+        [[ -n $guard && $words == *" ''${guard#B}"* ]] && exit 0
+      done <<<"$guards"
+      out=$(rtk hook claude <<<"$input" | jq -c '
         select(.hookSpecificOutput.updatedInput?)
-        | {hookSpecificOutput: {hookEventName: "PreToolUse", updatedInput: .hookSpecificOutput.updatedInput}}'
+        | {hookSpecificOutput: {hookEventName: "PreToolUse", updatedInput: .hookSpecificOutput.updatedInput}}') || exit 0
+      if [ -n "$out" ]; then printf '%s\n' "$out"; fi
     '';
   };
   rtkHookCommand = lib.getExe rtkHook;
@@ -256,6 +261,15 @@ let
     telemetry.enabled = false;
     retriever.mode = "sqlite"; # recovery: elided output stays recallable (`rtk recall`)
     hooks.suppress_hook_warning = true; # rtk does not recognize the wrapper below as its hook
+    # Claude Code 2.1.329's table of commands whose paths it checks against
+    # Read/Edit rules (but git, see rtkHook), plus tree and du: their rewrite
+    # `rtk <cmd> <path>` would hide the path, and no text check can resolve
+    # paths the way Claude Code does (cd, symlinks, `/./`, `\`).
+    hooks.exclude_commands = lib.splitString " " (
+      "cd ls find mkdir touch rm rmdir mv cp cat head tail sort uniq wc cut paste column tr file stat"
+      + " diff awk gawk mawk nawk strings hexdump od base64 nl tac man rev fold expand unexpand fmt comm"
+      + " cmp pr numfmt tsort grep egrep fgrep rg sed jq sha256sum sha1sum md5sum tee tree du"
+    );
   };
 
   untestedSettings = pkgs.writeText "claude-managed-settings.json" (
@@ -406,6 +420,34 @@ let
               expect "grep foo ~/.ssh/id_ed25519" "grep foo ~/.ssh/id_ed25519"
               expect "git log -3" "git log -3"
               expect "timeout 30 git log -3" "timeout 30 git log -3"
+              expect "git  log -3" "git  log -3"
+            done
+            # A nearer settings file that is broken or oddly shaped must not
+            # drop the guards: the command stays unchanged.
+            for bad in '{"permissions": {' '{"permissions": "x"}' '{"permissions": {"deny": "Bash(x)"}}'; do
+              rm -rf "$HOME/proj/bad"
+              mkdir -p "$HOME/proj/bad/.claude"
+              printf '%s' "$bad" > "$HOME/proj/bad/.claude/settings.json"
+              cwd=$HOME/proj/bad
+              expect "git status" "git status"
+              expect "git log -3" "git log -3"
+            done
+            # Spellings text matching cannot follow: other directories,
+            # odd path forms, a link into a denied directory.
+            ln -s "$HOME/.ssh" "$HOME/link"
+            cwd=$HOME
+            for c in \
+              "cd ~/.config && cat sops/age/keys.txt" \
+              "cd /run && grep x secrets/foo" \
+              "pushd /run && wc secrets/foo" \
+              "cat ~/.config//sops/age/keys.txt" \
+              "cat /run/./secrets/foo" \
+              'cat ~/.\ssh/id_ed25519' \
+              "cat ~/link/id_ed25519" \
+              "grep x ~/link/id_ed25519" \
+              "git diff --no-index ~/link/id_ed25519 x" \
+              "git -C ~/link log"; do
+              expect "$c" "$c"
             done
             [ "$failed" = 0 ]
             cp ${untestedSettings} $out
