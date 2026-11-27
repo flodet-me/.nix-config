@@ -215,9 +215,6 @@
   },
   "attribution": false,
   "skillOverrides": {
-    "claude-obsidian:save": "user-invocable-only",
-    "claude-obsidian:wiki-ingest": "user-invocable-only",
-    "graphify": "user-invocable-only",
-    "superpowers:brainstorming": "user-invocable-only"
+    "graphify": "user-invocable-only"
   }
 }

@@ -6,7 +6,7 @@ things. Three layers:
 | Layer | Where | What |
 | --- | --- | --- |
 | Opt-out variables | `hosts/_shared/components/privacy.nix` (all hosts) | The specific switches of Claude Code (error reports only), .NET, PowerShell, Azure, vcpkg, Next/Nuxt/Astro/Gatsby/Storybook/Turbo/Angular, Scarf, Hugging Face, HashiCorp, AWS SAM. Set for login sessions and systemd services. |
-| App settings | `firefox.nix` (enforced policies + prefs), `vscode.nix`, `claude-code/settings.json` (`env`) | Firefox: telemetry, studies, crash reports, sponsored content, AI features off, locked. VS Code: telemetry, experiments, online lookups, update checks off. Claude Code: error reports off. rtk (`claude-code/default.nix`, `rtkConfig`): telemetry off. |
+| App settings | `firefox.nix` (enforced policies + prefs), `vscode.nix`, `claude-code/settings.json` (`env`) | Firefox: telemetry, studies, crash reports, sponsored content, AI features off, locked. VS Code: telemetry, experiments, online lookups, update checks off. Claude Code: error reports off. |
 | Network | `hosts/moon/dns.nix` | Everything using moon as DNS: ads/trackers (StevenBlack) and device/OS telemetry (hagezi "native" lists: Windows/Office, Samsung, LG, Amazon, Apple, Xiaomi, TikTok). Covers what can't be configured: smart TVs, phones, proprietary apps. |
 
 Also: location services (geoclue) are off, so GNOME's automatic time zone and

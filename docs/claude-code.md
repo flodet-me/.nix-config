@@ -98,16 +98,11 @@ The dev shell also has `claude-code`, but not the plugins.
   knowledge (project, brain, personal vault), done. Edit the file in the repo and switch; keep it short,
   it costs tokens in every session. `/memory` shows which files are loaded.
 - **Skills reserved for you** (`skillOverrides`, values `on`, `name-only`,
-  `user-invocable-only`, `off`): `user-invocable-only` hides a skill from
-  Claude but keeps `/name`, for the skills reserved for you: `graphify`
-  (its line in `~/.claude/CLAUDE.md` says `/graphify`), and what `personal.md`
-  reserves: `claude-obsidian:save`, `claude-obsidian:wiki-ingest`,
-  `superpowers:brainstorming`. Claude Code 2.1.329 applies it to
-  `~/.claude/skills` skills (`graphify`, keyed by bare name) only: its
-  binary says "Plugin skills can't be turned off individually" and reads
-  overrides of plugin skills only for claude.ai-synced ones. The three plugin
-  entries are inert there (kept for a version that honours them);
-  `personal.md` still keeps Claude off them.
+  `user-invocable-only`, `off`): `graphify` is `user-invocable-only`, hidden
+  from Claude but still `/graphify`. Claude Code 2.1.329 reads plugin-skill
+  overrides only for synced claude.ai skills, so for `claude-obsidian:save`,
+  `claude-obsidian:wiki-ingest` and `superpowers:brainstorming` the
+  instruction in `personal.md` remains the only control.
 - **Status line** (`claude-statusline` in the module): model, folder and git
   branch, context used, session cost, ponytail badge. Watch the context
   number: around 60-70 % is a good moment for `/compact` or `/clear`.
