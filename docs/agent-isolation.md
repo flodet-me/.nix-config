@@ -1,6 +1,6 @@
-# Agent isolation (concept)
+# Agent isolation
 
-Status: proposal, not implemented. Findings verified on `desktop` on
+Status: design agreed, not implemented. Findings verified on `desktop` on
 2026-11-27.
 
 ## Goal
@@ -49,91 +49,103 @@ repository and sees only what that needs:
 | C. Separate Unix user per agent | kernel file permissions | yes (`/dev/kvm` is 0666) | shared group/ACLs on every repo, `safe.directory`, two owners per file |
 | D. MicroVM per project (microvm.nix) | own kernel | nested KVM only, slow for Windows | store sharing via virtiofs, more RAM, per-VM networking |
 
-## Recommendation: B plus host hardening, A as an inner layer
+## Design: one jail per repository, you work inside it too
+
+Decided 2026-11-27 ([ADR 0001](adr/0001-repository-jail.md)): option B,
+plus host hardening, with option A as an optional inner layer. One
+repository per jail. Your shell, Neovim, direnv and git for that repository
+run in the same jail as the agents, so nothing written there is ever executed
+outside it.
 
 1. **Close the root paths** (useful on its own, independent of agents):
-   `trusted-users = [ "root" ]` on the workstations only (substituters are
-   already system-wide in `nix.nix`; the servers keep `@wheel`, because
-   `nixos-rebuild --target-host` copies unsigned closures as the SSH user);
-   Docker rootless instead of the `docker` group; agents never get
-   the libvirt system socket (virt-manager stays a human tool). `sudo` stays
-   for you, the jail kills it for agents through `no_new_privs`.
-2. **`agent-jail` wrapper** (home-manager module, `writeShellApplication`
-   around `bwrap`): `agent-jail claude` / `agent-jail codex` in an agent
-   clone of a repository (step 3).
-   - `--unshare-all --share-net --die-with-parent --new-session`, `--tmpfs
-     /home`, own `/proc`, `/dev`, `/tmp`.
-   - Read-only: `/nix`, `/etc`, `/run/current-system`, `~/brain`; read-write:
-     the repository, `~/brain/inbox`, the Nix daemon socket, `/dev/kvm`, the
-     caches that are only caches (`~/.cache/nix`, `nuget`, `npm`, `cargo`).
-   - `~/.claude`, `~/.claude.json`, `~/.codex` read-write for login, sessions
-     and plugins, but `~/.claude/settings.json`, `rules/`, `skills/`, `agents/`
-     read-only (Nix owns them anyway; a hook written there would run in your
-     next unjailed session).
-   - No `/run/user/1000`, no session bus. Desktop notifications through
+   - `trusted-users = [ "root" ]` on the workstations only. Substituters are
+     already system-wide in `nix.nix`. The servers keep `@wheel`, because
+     `nixos-rebuild --target-host` copies unsigned closures as the SSH user.
+   - Rootless Docker instead of the `docker` group (`act` then talks to
+     `$XDG_RUNTIME_DIR/docker.sock`). Images and volumes of the system daemon
+     stay in `/var/lib/docker` and are not seen by the rootless one.
+   - Agents never get the libvirt system socket; virt-manager stays outside.
+   - `sudo` stays for you; inside the jail `no_new_privs` disables it.
+2. **`jail <repo>`** (home-manager module, `writeShellApplication` around
+   `bwrap`) opens a shell in the jail of that repository. The first call
+   starts a tmux server inside the jail, later calls attach to it, so every
+   terminal of one repository shares one jail (processes, network, VMs).
+   `claude`, `codex`, `nvim` are started from that shell.
+   - `--unshare-all --die-with-parent --new-session`, `--tmpfs /home`, own
+     `/proc`, `/dev`, `/tmp`.
+   - Read-only: `/nix`, `/etc`, `/run/current-system`, `~/brain`, and the
+     Nix-made dotfiles the shell and editor need (`~/.zshrc`,
+     `~/.config/{nvim,git,direnv}`, `~/.local/share/nvim/site`).
+   - Read-write: the repository, `~/brain/inbox`, the Nix daemon socket,
+     `/dev/kvm`, a per-repository jail home (`~/.local/share/jails/<repo>`:
+     shell history, nvim state and `:trust` list, direnv allow list), the
+     shared caches (`~/.cache/nix`, `nuget`, `npm`, `cargo`).
+   - `~/.claude`, `~/.claude.json`, `~/.codex` read-write and shared by all
+     jails (one login; transcripts of all repositories in one place, accepted),
+     except `~/.claude/settings.json`, `rules/`, `skills/`, `agents/`
+     read-only: a hook written there would run in every other jail.
+   - No `/run/user/1000`, no session bus, no gpg-agent, no SSH keys.
+     Desktop notifications through
      `xdg-dbus-proxy --talk=org.freedesktop.Notifications` only.
-   - Tested by hand on 2026-11-27 with a subset of these binds (`/nix`,
-     `/etc`, daemon socket, `/dev/kvm`, `~/brain` read-only, one repository,
-     `--share-net`): `~/Nextcloud` absent, `~/brain` readable,
-     `KVM_GET_API_VERSION` 12 on `/dev/kvm`, a `nix build` through the daemon
-     and DNS worked; `/run/user/1000`, `systemd-run --user`, the Docker and
-     libvirt sockets unreachable. Not tested yet: `claude` or `codex` inside
-     the jail, the `~/.claude` binds, a real QEMU/winvm boot, `pasta`,
-     `xdg-dbus-proxy`.
-3. **The agent works in its own clone; you review at the git boundary.**
-   Read-only binds for `.git/hooks`, `.git/config`, `.envrc` inside a
-   writable repository do not hold: tested, `mv .git .git.x && git init`
-   gives the agent fresh, writable hooks. And files that are no hooks run
-   too: `use flake` evaluates the agent-written `flake.nix` (`shellHook`), and
-   nix-direnv reloads on a `flake.nix` change without asking. So the jail
-   gets a clone (e.g. `~/agents/<repo>`, a `git worktree` would share
-   `.git/config` and hooks with yours); your checkout adds it as a remote and
-   `git fetch`es, which runs nothing from it. You read the diff, above all of
-   `flake.nix`, `.envrc`, `.nvim.lua`, `.claude/`, build scripts, before you
-   merge, enter the directory or build. Alternative: your own shell and
-   editor for that repository also run in the jail.
-4. **Network in its own namespace** with `pasta` (as rootless Podman does):
+   - **Push** stays outside and must not read the repository's config
+     (`core.sshCommand`, `url.*.insteadOf`, hooks run code):
+     `jail-push <repo>` fetches into a mirror the jail cannot write
+     (`~/.local/share/jails/<repo>.git`) and pushes from there. To verify:
+     that `git fetch` from a local path runs nothing from the source
+     repository's config.
+   - GUI IDEs (Rider, VS Code) on a jailed repository: only inside the jail
+     with the Wayland socket bound (Rider natively on Wayland; never the X11
+     socket, which lets any client read all input). Otherwise use nvim.
+3. **Network in its own namespace** with `pasta` (as rootless Podman does):
    outbound internet works, but the host's localhost services and abstract
-   Unix sockets (Xwayland, some D-Bus) are no longer shared, which plain
-   `--share-net` does. Optional later: an egress allowlist (model APIs, Nix
-   caches, package registries) through a filtering proxy.
-5. **Claude Code's sandbox inside the jail** for finer per-command network
-   and write rules, if wanted; the jail stays the boundary.
-6. **Untrusted third-party code**: profile D (microVM) for that repository
-   only.
+   Unix sockets (Xwayland, some D-Bus) are not shared, which `--share-net`
+   does. winvm's port forwards on 127.0.0.1 then stay inside the jail.
+   Later, if wanted: an egress allowlist (model APIs, Nix caches, registries)
+   through a filtering proxy.
+4. **Claude Code's sandbox inside the jail** for finer per-command rules, if
+   wanted; the jail stays the boundary.
+5. **Untrusted third-party code**: option D (microVM) for that repository.
 
-Checks for the implementation: a NixOS VM test that runs the wrapper as the
-user and asserts the table above (hidden paths absent, `sudo` refused,
-`/dev/kvm` opens, `nix build` works).
+Tested by hand on 2026-11-27 with a subset of these binds (`/nix`, `/etc`,
+daemon socket, `/dev/kvm`, `~/brain` read-only, one repository,
+`--share-net`): `~/Nextcloud` absent, `~/brain` readable,
+`KVM_GET_API_VERSION` 12 on `/dev/kvm`, `nix build` through the daemon and DNS
+worked; `/run/user/1000`, `systemd-run --user`, the Docker and libvirt sockets
+unreachable. Also tested: read-only binds of `.git/hooks` inside the writable
+repository do not hold (`mv .git .git.x && git init`), which is why your own
+tools move into the jail rather than the agent getting read-only islands.
+Not tested yet: `claude`, `codex`, zsh and nvim inside the jail, a real winvm
+boot, `pasta`, `xdg-dbus-proxy`, the push mirror.
+
+Implementation checks: a NixOS VM test that runs `jail` as the user and
+asserts the table above (hidden paths absent, `sudo` refused, `/dev/kvm`
+opens, `nix build` works, `jail-push` ignores a planted `core.sshCommand`).
 
 ## VMs and Windows development
 
-- winvm (`~/Projects/windows-vm`) is plain QEMU/KVM without libvirt or root;
-  its files live in its directory. Inside the jail it should need only
-  `/dev/kvm`, its directory and user-mode networking (passt/slirp), all
-  unprivileged (`/dev/kvm` opened in the test; a full boot is still to
-  test).
-  Bridged or tap networking needs root: not for agents.
-- **Building for Windows on Linux, testing in the VM** (default): .NET
-  publishes `-r win-x64`; WinForms/WPF build with `EnableWindowsTargeting=true`
-  but run only on Windows; Rust targets `x86_64-pc-windows-gnu` with a MinGW
-  cross toolchain in the dev shell. The agent runs the result with
-  `winvm run ./app.exe` from inside the jail and reads exit code, output and
-  crash analysis.
-- **Agent inside the Windows VM** (when a toolchain exists only on Windows,
-  e.g. Visual Studio-only projects): the VM is the sandbox. It gets the repo
-  by git over SSH or a share of that one directory, never the host home, and
-  its own Claude/Codex login.
-- Rider, VS Code and virt-manager stay unjailed: they are you.
+- winvm (`~/Projects/windows-vm`) is plain QEMU/KVM without libvirt or root.
+  In a jail: its code and `state/images/` (the ~20 GB base images, bound at
+  the same path so the qcow2 backing paths resolve) read-only, `state/vms/`
+  and `runs/` from the jail home read-write. So every repository has its own
+  VMs on shared base images, and `winvm commit` or `build` (changing a base
+  image) happen outside, by you. User-mode networking (passt/slirp) is
+  unprivileged; bridged or tap networking needs root: not in a jail.
+- **Default: build on Linux, test in winvm.** .NET publishes `-r win-x64`;
+  WinForms/WPF build with `EnableWindowsTargeting=true` and run only in the
+  VM; Rust targets `x86_64-pc-windows-gnu` with a MinGW cross toolchain from
+  the dev shell. The agent runs the result with `winvm run --dir build/
+  bin/app.exe` and reads exit code, output and the WinDbg analysis. This covers
+  most .NET and Rust work, keeps the agent on Linux under the jail, and a
+  reset VM is a second away.
+- **Only when a toolchain exists only on Windows** (MSVC C++, Visual
+  Studio-only project types, MSIX packaging and signing): the agent runs
+  inside a winvm VM, which is then the sandbox. It gets the repository by git
+  over SSH from the jail, never a share of the host home, has its own
+  Claude/Codex login, and the VM is reset to a snapshot afterwards.
 
-## Open questions
+## Open
 
-1. One repository per session, or all of `~/Projects` for cross-repo work?
-2. `~/.claude/projects/` holds transcripts of every project: is one shared
-   Claude home acceptable, or one `CLAUDE_CONFIG_DIR` per repository (one
-   login each)?
-3. Do you use Docker through the group, or is rootless Docker/Podman fine?
-4. Windows: building on Linux and testing in winvm, an agent inside the VM,
-   or both?
-5. Agent clone plus `git fetch` and diff review before you enter or build
-   it, or your own shell and editor jailed for agent repositories as well?
+- Containers for jailed repositories (`act`, test databases): rootless
+  Podman inside the jail needs nested user namespaces; to test. The rootless
+  Docker socket must not be bound into a jail: its containers can mount
+  every file you own.
