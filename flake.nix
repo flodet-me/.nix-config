@@ -36,6 +36,10 @@
       url = "github:nix-community/nix-index-database";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    nix-topology = {
+      url = "github:oddlama/nix-topology";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
   outputs =
     {
@@ -111,6 +115,20 @@
           {
             x86_64-linux.installer-iso = installer.config.system.build.isoImage;
             x86_64-linux.install-host = installer.config.system.build.installHost;
+            # `nix build .#network-map`: SVGs of topology.nix (docs/network.md)
+            x86_64-linux.network-map =
+              (import inputs.nix-topology {
+                pkgs = pkgsFor.x86_64-linux.extend inputs.nix-topology.overlays.default;
+                modules = [
+                  ./topology.nix
+                  {
+                    # Extended only here, so the real hosts stay untouched
+                    nixosConfigurations = lib.mapAttrs (
+                      _: host: host.extendModules { modules = [ inputs.nix-topology.nixosModules.default ]; }
+                    ) (lib.getAttrs [ "moon" "desktop" ] self.nixosConfigurations);
+                  }
+                ];
+              }).config.output;
           };
       # `nix run .#check` / `.#gate` from the repository root (docs/testing.md)
       apps = forEachSystem (
