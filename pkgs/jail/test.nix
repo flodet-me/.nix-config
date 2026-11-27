@@ -39,6 +39,7 @@
         (pkgs.callPackage ./. { }) # as on the workstations
         pkgs.git
         pkgs.tmux
+        pkgs.direnv
         pkgs.socat
         pkgs.dig
         (pkgs.callPackage ../../home/flodet/_shared/components/claude-code/codex/wrapper.nix { })
@@ -292,6 +293,14 @@
     with subtest("home-manager dotfiles are mirrored into the jail home"):
         jail("grep -q from-home-manager ~/probe")
         alice("test -d ~/.local/share/jails/repo-*/home")
+
+    with subtest("the repository's .envrc loads in the jail without direnv allow, the host still asks"):
+        alice("echo 'export DIRENV_PROBE=loaded' > ~/repo/.envrc")
+        jail("direnv exec . printenv DIRENV_PROBE | grep -qx loaded")
+        jail("grep -qF 'prefix = [\"/home/alice/repo\"]' ~/.config/direnv/direnv.toml")
+        alice("cd ~/repo && direnv exec . printenv DIRENV_PROBE", ok=False)
+        alice("test ! -e ~/.config/direnv/direnv.toml")
+        alice("rm ~/repo/.envrc")
 
     with subtest("one-off jails get the home-manager session variables"):
         jail('test "$JAIL_PROBE" = from-session-vars && case ":$PATH:" in *:/home/alice/probe-bin:*) ;; *) exit 1 ;; esac')

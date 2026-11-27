@@ -1,6 +1,7 @@
 h=/tmp/home
 files=$1
-shift
+root=$2
+shift 2
 fail() { echo "jail: preparing the jail home failed at: $1" >&2; exit 1; }
 # bwrap cannot mount on or below a symlink: drop links the jail made there
 unlink_mounts() {
@@ -21,6 +22,14 @@ unlink_mounts "$@" || fail "removing links at mount points"
 find "$h" -type l -lname '/nix/store/*-home-manager-files/*' -delete || fail "removing old home-manager links"
 cp -rs --update=none --no-preserve=mode "$files/." "$h/" || fail "linking home-manager files"
 unlink_mounts "$@" || fail "removing home-manager links at mount points"
+
+# direnv: the repository's .envrc loads without `direnv allow`. Inside, it
+# runs as jailed code anyway; the allow list only guards the host, which
+# keeps its own. Only this jail's home has the whitelist.
+mkdir -p "$h/.config/direnv" || fail "creating ~/.config/direnv"
+jq -nr --arg r "$root" '"# written by jail on every start\n[whitelist]\nprefix = [\($r | tojson)]"' >/tmp/direnv.toml ||
+  fail "writing direnv's whitelist"
+cp --remove-destination /tmp/direnv.toml "$h/.config/direnv/direnv.toml" || fail "writing ~/.config/direnv/direnv.toml"
 
 # ~/.claude.json: login and MCP servers from the host, the jail's own
 # project state stays; nothing goes back

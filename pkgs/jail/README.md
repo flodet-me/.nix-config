@@ -51,6 +51,10 @@ jail --help
 - Start `claude`, `codex` and `nvim` from the jail's shell. `$JAIL` is set;
   codex runs with its jail profile (no sandbox or prompts of its own: the
   jail is the boundary).
+- direnv loads the repository's `.envrc` (`use flake`) without `direnv
+  allow`: the jail writes a whitelist for the repository into its own
+  `~/.config/direnv/direnv.toml` on every start. On the host `direnv allow`
+  still applies (and you should not allow a jailed repository there).
 - Commits are unsigned inside (there is no gpg-agent). Push with
   `jail-push` from outside.
 - Once a repository has a jail, work on it only inside: a host shell

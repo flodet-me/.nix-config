@@ -223,7 +223,7 @@ if [ ! -e "$cache" ] && [ -d "$jhome/.cache" ] && [ ! -L "$jhome/.cache" ] &&
 fi
 mkdir -p "$cache" || die "cannot create $cache"
 
-# On every start: dotfiles, mount points, ~/.claude.json (prepareHome).
+# On every start: dotfiles, mount points, direnv's whitelist, ~/.claude.json (prepareHome).
 prepare() {
   local gen=$HOME/.local/state/home-manager/gcroots/current-home files host=()
   files=$(readlink -f "$gen/home-files") && [ -d "$files" ] ||
@@ -233,7 +233,7 @@ prepare() {
   [ ! -f "$HOME/.claude.json" ] || host=(--ro-bind "$HOME/.claude.json" /tmp/host.json)
   bwrap --unshare-all --die-with-parent --clearenv --ro-bind /nix /nix \
     --proc /proc --dev /dev --tmpfs /tmp "${host[@]}" --bind "$jhome" /tmp/home \
-    -- @prepareHome@/bin/jail-prepare-home "$files" "${mounts[@]#"$HOME"/}" ||
+    -- @prepareHome@/bin/jail-prepare-home "$files" "$root" "${mounts[@]#"$HOME"/}" ||
     die "could not prepare $jhome; to start over, reset its home ($readme, Reset)"
 }
 
