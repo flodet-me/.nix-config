@@ -160,8 +160,10 @@
     with subtest("shebang paths work"):
         jail("/usr/bin/env true && /bin/sh -c true")
 
-    with subtest("no sudo, no user manager, no session bus or agent sockets"):
+    with subtest("no sudo, no capabilities, no user manager or agent sockets, the bus only through the proxy"):
         alice("echo pw | sudo -S true")
+        alice("grep -q '^CapBnd:.*[1-9a-f]' /proc/self/status")
+        jail("test -z \"$(grep -E '^Cap(Inh|Prm|Eff|Bnd|Amb):' /proc/self/status | grep -v ':[[:space:]]*0*$')\"")
         jail("sudo -n true", ok=False)
         jail("echo pw | sudo -S true", ok=False)
         alice("systemd-run --user --wait --quiet true")
@@ -175,10 +177,13 @@
     with subtest("own network: outbound and DNS work, host loopback does not"):
         server.wait_for_unit("remote-listener.service")
         machine.succeed("systemd-run --unit=lo-listener socat TCP-LISTEN:8123,bind=127.0.0.1,reuseaddr,fork SYSTEM:'echo lo'")
+        machine.succeed("systemd-run --unit=lo6-listener socat TCP6-LISTEN:8125,bind=[::1],reuseaddr,fork SYSTEM:'echo lo'")
         machine.wait_for_open_port(8123)
-        alice("socat -u TCP:server:8000 - | grep -q remote && socat -u TCP:127.0.0.1:8123 - | grep -q lo")
+        machine.wait_for_open_port(8125, addr="::1")
+        alice("socat -u TCP:server:8000 - | grep -q remote && socat -u TCP:127.0.0.1:8123 - | grep -q lo && socat -u TCP6:[::1]:8125 - | grep -q lo")
         jail("socat -u TCP:server:8000 - | grep -q remote")
         jail("socat -u TCP:127.0.0.1:8123 - | grep -q lo", ok=False)
+        jail("socat -u TCP6:[::1]:8125 - | grep -q lo", ok=False)
         # nor through the namespace's gateway, which pasta maps to host loopback by default
         jail('gw=$(ip route show default | cut -d" " -f3) && test -n "$gw" && ! socat -u TCP:$gw:8123,connect-timeout=5 - | grep -q lo')
         # DNS from resolv.conf, not /etc/hosts: resolved answers the test nodes' names
@@ -201,6 +206,11 @@
         jail("systemd-run --user --wait --quiet true", ok=False)
         # by process name (pasta runs as passt.avx2 or pasta), not by command line
         machine.wait_until_succeeds("! pgrep -u alice '^(xdg-dbus-proxy|passt|pasta)'", timeout=10)
+        # killing a one-off jail ends what runs in it
+        alice("(jail ~/repo -- sleep 300 & echo $! > /tmp/oneoff; wait) >/dev/null 2>&1 &")
+        machine.wait_until_succeeds("pgrep -u alice -x sleep")
+        alice("kill $(cat /tmp/oneoff)")
+        machine.wait_until_succeeds("! pgrep -u alice -x sleep && ! pgrep -u alice '^(xdg-dbus-proxy|passt|pasta)'", timeout=10)
 
     with subtest("nix build through the daemon"):
         alice("""cat > ~/repo/t.nix <<'EOF'

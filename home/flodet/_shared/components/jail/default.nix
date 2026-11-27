@@ -207,11 +207,11 @@ let
     text = ''
       bus=$1
       shift
+      # the proxy leaves its socket behind when stopped by a signal
+      cleanup() { [ -z "$bus" ] || rm -f "$bus"; }
+      trap cleanup EXIT
       if [ -n "$bus" ]; then
         rm -f "$bus"
-        # the proxy leaves its socket behind when stopped by a signal
-        trap 'rm -f "$bus"' EXIT
-        trap 'exit 143' TERM INT HUP
         # The proxy stops when the pipe's read end closes: it is held here only
         # (pasta closes inherited fds), so the proxy ends with this script.
         exec {ready}< <(exec xdg-dbus-proxy --fd=1 "unix:path=''${XDG_RUNTIME_DIR:?}/bus" "$bus" \
@@ -222,9 +222,27 @@ let
       # host's loopback not mapped to the gateway; DNS goes to pasta's
       # forwarder at 169.254.1.1 (the jail's resolv.conf), which asks the
       # host's nameserver. Inside pasta's user namespace we are root: bwrap
-      # maps back to our ids. Not exec: the proxy's pipe must stay open.
+      # maps back to our ids and drops every capability, as it does when
+      # started by a normal user. Not exec: the proxy's pipe must stay open.
       pasta --config-net --quiet -t none -u none -T none -U none --no-map-gw --dns-forward 169.254.1.1 \
-        -- ${bwrap} --uid "$(id -u)" --gid "$(id -g)" "$@"
+        -- ${bwrap} --uid "$(id -u)" --gid "$(id -g)" --cap-drop ALL "$@" <&0 &
+      pid=$!
+      # A signal to this script (kill, systemctl stop) goes on to pasta, whose
+      # death ends bwrap (--die-with-parent); then it is raised here again.
+      sig=
+      for s in TERM INT HUP; do
+        # shellcheck disable=SC2064 # $s now, $pid is set
+        trap "sig=$s; kill -$s $pid 2>/dev/null || true" "$s"
+      done
+      rc=0
+      wait "$pid" || rc=$?
+      while kill -0 "$pid" 2>/dev/null; do rc=0; wait "$pid" || rc=$?; done
+      if [ -n "$sig" ]; then
+        cleanup
+        trap - EXIT "$sig"
+        kill -"$sig" $$
+      fi
+      exit "$rc"
     '';
   };
 
@@ -334,8 +352,8 @@ let
       # 127.0.0.53) with only its search and options lines. Written outside
       # the jail's reach and replaced whole, a running jail keeps its copy.
       if [ -e /etc/resolv.conf ]; then
-        if ! { { grep -E '^(search|domain|options)([[:space:]]|$)' /etc/resolv.conf || true; echo "nameserver 169.254.1.1"; } >"$state/resolv.conf.new" &&
-          mv "$state/resolv.conf.new" "$state/resolv.conf"; }; then
+        if ! { { grep -E '^(search|domain|options)([[:space:]]|$)' /etc/resolv.conf || true; echo "nameserver 169.254.1.1"; } >"$state/resolv.conf.$$" &&
+          mv "$state/resolv.conf.$$" "$state/resolv.conf"; }; then
           die "cannot write $state/resolv.conf"
         fi
         args+=(--ro-bind "$state/resolv.conf" "$(readlink -f /etc/resolv.conf)")

@@ -73,8 +73,11 @@ The environment is built, not inherited: `HOME`, `USER`, `LOGNAME`, `PATH`
   `<name>.bus-<pid>` per one-off), outside the jail. Without a session bus the
   jail starts without one.
 - pasta and the proxy are children of `jail-run`, the jail's main process
-  (the `jail-<name>` unit, or the one-off command): they end with it, and the
-  namespace has no name on disk, so nothing stale is left after a stop.
+  (the `jail-<name>` unit, or the one-off command): a signal to it reaches
+  pasta, whose end ends the jail; the proxy ends with `jail-run` and its
+  socket is removed. The namespace has no name on disk, so nothing stale is
+  left after a stop. bwrap starts as root of pasta's user namespace and drops
+  every capability (`--cap-drop ALL`), as it does for a normal user.
 
 Every tmux client `jail` starts (the liveness check and the attach) runs in a
 sandbox of its own (`/nix`, `/etc`, the socket): a tmux server, jailed or a
@@ -128,14 +131,14 @@ except `inbox/`; writes to `~/.claude` config (`CLAUDE.md`, `settings.json`,
 host's is not visible; `~/.claude.json` gets the login and MCP servers and
 keeps the jail's projects, the host file stays unchanged, also with a link
 planted in its place; home-manager files linked;
-`/usr/bin/env` works; `sudo`, `systemd-run --user` and
-gpg-agent unavailable, the only socket in `/run/user` the D-Bus proxy, which
+`/usr/bin/env` works; no capabilities (also none in the bounding set);
+`sudo`, `systemd-run --user` and gpg-agent unavailable, the only socket in `/run/user` the D-Bus proxy, which
 answers for `org.freedesktop.Notifications` (a stand-in on the session bus) and
 not for another name; outbound TCP to a second test node and DNS (UDP and TCP,
-via resolved on the test VM) work, a host listener on `127.0.0.1`, the same port
+via resolved on the test VM) work, host listeners on `127.0.0.1` and `::1`, the same port
 on the namespace's gateway and a host abstract socket are unreachable,
-loopback inside works; neither pasta nor the proxy outlives a one-off jail or
-a stopped shared jail; `nix build` through the daemon; `/dev/kvm` inside iff
+loopback inside works; neither pasta nor the proxy outlives a one-off jail,
+also one killed, or a stopped shared jail; `nix build` through the daemon; `/dev/kvm` inside iff
 outside; a link planted at a mount point does not stop the next start;
 `jail-push` pushes over ssh without running planted hooks, `core.fsmonitor`,
 `core.sshCommand` (the global one runs) or `uploadpack.packObjectsHook`,
