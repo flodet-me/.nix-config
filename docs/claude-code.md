@@ -123,7 +123,8 @@ The dev shell also has `claude-code`, but not the plugins.
   and so are the Playwright MCP tools that only drive or read the browser
   (`mcp__playwright__browser_navigate`, `..._click`, `..._snapshot`, ...);
   `browser_run_code_unsafe`, `browser_evaluate` (run arbitrary code) and
-  `browser_file_upload` (sends a local file to a page) still ask.
+  `browser_file_upload` (sends a local file to a page) are not on the allow
+  list (prompt or auto mode classifier decides).
   In every mode there is a long deny list (secrets and sops files, gpg/ykman,
   privilege escalation, disk tools, pushes and `gh`, `nixos-rebuild`/`nh`)
   and `disableBypassPermissionsMode`. The Bash denies match the command text,
@@ -516,7 +517,7 @@ browsers NixOS can't run.
 Gives Claude a real browser: navigate, click, fill forms, screenshots,
 console and network logs. Ask e.g. "open localhost:3000 and check the login
 form works". Check it's connected with `/mcp`. Its browsing tools run without
-a prompt; running code in the page and uploading files ask (see
+a prompt; running code in the page and uploading files are not allowed (see
 Permissions above).
 
 ### Language servers (`rust-analyzer-lsp`, `typescript-lsp`, `csharp-lsp`)
