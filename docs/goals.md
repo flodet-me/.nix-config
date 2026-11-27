@@ -75,7 +75,7 @@ Assumptions:
 
 | Item | What | Status | Commit |
 |---|---|---|---|
-| I1 switch-review | configurationRevision, flake-source in the closure, switch-review script, update alias, check, docs | open | |
+| I1 switch-review | configurationRevision, flake-source in the closure, switch-review script, update alias, check, docs | blocked: review round 2 — new-only files not listed (find on a symlinked root); the build itself writes the flake-source the review trusts. Retry: prefetch the tree, build exactly that store path, review it | |
 
 ## G-5 Review fixes: small and medium changes  (status: open)
 
@@ -118,5 +118,5 @@ Assumptions:
 
 | Item | What | Status | Commit |
 |---|---|---|---|
-| I1 jail-package | pkgs/jail with .sh files, system install, test moved | open | |
+| I1 jail-package | pkgs/jail with .sh files, system install, test moved | done | bb52bd6 |
 | I2 jail-env-cache | one-off env, cache outside snapshots, codex jail profile, unsigned commits | open | |
