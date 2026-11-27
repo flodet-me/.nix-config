@@ -1,7 +1,10 @@
 {
   description = "Custom config for myself";
   inputs = {
-    hardware.url = "github:nixos/nixos-hardware";
+    hardware = {
+      url = "github:nixos/nixos-hardware";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     systems.url = "github:nix-systems/default-linux";
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
     sops-nix = {
