@@ -110,9 +110,10 @@ server.web = {
 
 What happens automatically:
 
-- **State is kept and backed up:** servers persist all of `/var/lib`
+- **State is kept:** servers persist all of `/var/lib`
   (`impermanence.persistVarLib`), where NixOS services keep their state,
-  including `DynamicUser` services (`/var/lib/private`). Everything outside
+  including `DynamicUser` services (`/var/lib/private`). It would be backed
+  up once `backup.enable` is set (off on moon and vps today). Everything outside
   (`/etc`, `/root`, `/srv`, `/var/cache`, ...) is still wiped on reboot;
   `fs-diff` shows if a service writes there.
 - **Databases:** with `services.postgresql` enabled, all databases are dumped

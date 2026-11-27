@@ -28,10 +28,11 @@ workstations, plain btrfs on the servers); an initrd `rollback` service moves
 the old root to `/old_roots` (kept 7 days) and creates an empty one. Only
 `/nix`, `/home`, `/boot` and `/persist` survive. Workstations keep a curated
 persist list; servers set `impermanence.persistVarLib`, so all of `/var/lib`
-persists and any enabled service keeps its state and is backed up without
-being listed. On the workstations `~/.cache` is its own subvolume
-(`cacheSubvolume`): caches churn and can be rebuilt, so they stay out of the
-hourly `/home` snapshots but survive reboots.
+persists and any enabled service keeps its state without being listed; it
+would be backed up once `backup.enable` is set (off on moon and vps today).
+On the workstations `~/.cache` is its own subvolume (`cacheSubvolume`):
+caches churn and can be rebuilt, so they stay out of the hourly `/home`
+snapshots but survive reboots.
 
 ## Consequences
 

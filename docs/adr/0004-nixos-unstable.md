@@ -28,9 +28,10 @@ for that package is added then, not in advance.
 ## Consequences
 
 - One nixpkgs in `flake.lock`; no unused second channel to update.
-- Updates (`nix flake update`, reserved for a human) can break a package or
-  option at any time; there is no prepared fallback, so a fix means adding a
-  pinned input then.
+- Updates (`nix flake update`, reserved for a human, or the weekly CI job
+  that opens a `flake.lock` update PR for a human to merge,
+  docs/security-updates.md) can break a package or option at any time; there
+  is no prepared fallback, so a fix means adding a pinned input then.
 - A CVE fixed in nixpkgs but not yet in the locked revision: wait for the
   next update or pin an input with the fix (docs/security-updates.md).
 - `stateVersion` stays at each machine's first-install release and is not

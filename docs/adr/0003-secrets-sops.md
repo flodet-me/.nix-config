@@ -6,10 +6,11 @@ Recorded after the fact on 2026-11-27.
 ## Context
 
 The repository is public (pushed to GitHub), yet hosts need secrets such as
-the Mullvad account key and the servers' backup credentials. Hosts are
-reinstalled from the repository (installer stick, `provision-server`), and a
-host installed from the stick has its secrets from the first boot. Why
-sops-nix was picked over other tools is not recorded.
+the Mullvad account key, and the servers will need backup credentials once
+backups are enabled (`server/backup.nix`). Hosts are reinstalled from the
+repository (installer stick, `provision-server`), and a host installed from
+the stick has its secrets from the first boot. Why sops-nix was picked over
+other tools is not recorded.
 
 ## Options
 
