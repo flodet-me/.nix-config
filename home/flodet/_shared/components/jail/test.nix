@@ -209,14 +209,15 @@
         # by process name (pasta runs as passt.avx2 or pasta), not by command line
         machine.wait_until_succeeds("! pgrep -u alice '^(xdg-dbus-proxy|passt|pasta)'", timeout=10)
         # killing a one-off jail, also with Ctrl-C's signal or SIGKILL, ends what runs in it
+        # (a background job starts with SIGINT ignored, which nothing can trap:
+        # env gives the jail the default a terminal's foreground job has)
         for sig in ["TERM", "INT", "KILL"]:
-            alice("(jail ~/repo -- sleep 300 & echo $! > /tmp/oneoff; wait) >/dev/null 2>&1 &")
+            alice("(env --default-signal=INT jail ~/repo -- sleep 300 & echo $! > /tmp/oneoff; wait) >/dev/null 2>&1 &")
             machine.wait_until_succeeds("pgrep -u alice -x sleep")
             alice(f"kill -{sig} $(cat /tmp/oneoff)")
             machine.wait_until_succeeds("! pgrep -u alice -x sleep && ! pgrep -u alice '^(xdg-dbus-proxy|passt|pasta)'", timeout=10)
-        # the next start removes the socket a SIGKILLed one left
-        jail("true")
-        alice("! ls /run/user/1000/jails/*.bus-* 2>/dev/null")
+        # the proxy of the SIGKILLed one sees its pipe close and removes its socket
+        machine.wait_until_succeeds("! ls /run/user/1000/jails/*.bus-* 2>/dev/null", timeout=10)
 
     with subtest("nix build through the daemon"):
         alice("""cat > ~/repo/t.nix <<'EOF'

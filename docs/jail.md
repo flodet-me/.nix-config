@@ -63,8 +63,9 @@ The environment is built, not inherited: `HOME`, `USER`, `LOGNAME`, `PATH`
   services (`127.0.0.1`, `::1`) and its abstract Unix sockets (Xwayland's
   `@/tmp/.X11-unix/X0`, some D-Bus) are out of reach. Loopback inside the
   jail is its own and works (winvm's port forwards on `127.0.0.1` stay inside).
-- DNS: the jail's `resolv.conf` names `169.254.1.1`, which pasta forwards to
-  the host's first nameserver (`127.0.0.53`, resolved); search and options
+- DNS: the jail's `resolv.conf` names `169.254.1.1`, whose TCP and UDP ports
+  53 and 853 (DNS over TLS) pasta forwards (`--dns-forward`) to the same ports
+  of the host's first nameserver (`127.0.0.53`, resolved); search and options
   lines are the host's at the jail's start. `/run/systemd/resolve` is not bound.
 - With a host session bus (`$XDG_RUNTIME_DIR/bus`), `xdg-dbus-proxy --filter
   --talk=org.freedesktop.Notifications` serves the jail's bus; every other
@@ -73,9 +74,13 @@ The environment is built, not inherited: `HOME`, `USER`, `LOGNAME`, `PATH`
   `<name>.bus-<pid>` per one-off), outside the jail. Without a session bus the
   jail starts without one.
 - pasta and the proxy are children of `jail-run`, the jail's main process
-  (the `jail-<name>` unit, or the one-off command): a signal to it reaches
-  pasta, whose end ends the jail; the proxy ends with `jail-run` and its
-  socket is removed. The namespace has no name on disk, so nothing stale is
+  (the `jail-<name>` unit, or the one-off command): a signal to it (TERM,
+  Ctrl-C's INT, HUP) reaches pasta, and pasta has `jail-run`'s death as its
+  own (`setpriv --pdeathsig KILL`, so also after a SIGKILL); pasta's end ends
+  the jail. The proxy ends when `jail-run`'s pipe to it closes and removes
+  its socket. Jailed programs start with no signal ignored (`env
+  --default-signal`: a background start ignores SIGINT, pasta ignores
+  SIGPIPE). The namespace has no name on disk, so nothing stale is
   left after a stop. bwrap starts as root of pasta's user namespace and drops
   every capability (`--cap-drop ALL`), as it does for a normal user.
 
@@ -122,7 +127,7 @@ repository, which jailed code may have changed: check the URL it prints.
 ## Tested
 
 `nix build .#checks.x86_64-linux.jail` (NixOS VM; the test script itself takes
-about 67 s, with a second VM): hidden home paths and `~/.cache/docker` absent; `~/brain` read-only
+about 74 s, with a second VM): hidden home paths and `~/.cache/docker` absent; `~/brain` read-only
 except `inbox/`; writes to `~/.claude` config (`CLAUDE.md`, `settings.json`,
 `skills/`, `rules/`, `agents/`, `plugins/`) and `~/.codex` (`config.toml`,
 `AGENTS.md`, `rules/`) fail; the logins are shared; state written in
@@ -131,14 +136,16 @@ except `inbox/`; writes to `~/.claude` config (`CLAUDE.md`, `settings.json`,
 host's is not visible; `~/.claude.json` gets the login and MCP servers and
 keeps the jail's projects, the host file stays unchanged, also with a link
 planted in its place; home-manager files linked;
-`/usr/bin/env` works; no capabilities (also none in the bounding set);
+`/usr/bin/env` works; no capabilities (also none in the bounding set); no
+ignored signals (a one-off jail and the shared jail's processes);
 `sudo`, `systemd-run --user` and gpg-agent unavailable, the only socket in `/run/user` the D-Bus proxy, which
 answers for `org.freedesktop.Notifications` (a stand-in on the session bus) and
 not for another name; outbound TCP to a second test node and DNS (UDP and TCP,
 via resolved on the test VM) work, host listeners on `127.0.0.1` and `::1`, the same port
 on the namespace's gateway and a host abstract socket are unreachable,
-loopback inside works; neither pasta nor the proxy outlives a one-off jail,
-also one killed, or a stopped shared jail; `nix build` through the daemon; `/dev/kvm` inside iff
+loopback inside works; neither pasta, the jailed command nor the proxy and its
+socket outlive a one-off jail, also one ended by TERM, INT or KILL, or a
+stopped shared jail; `nix build` through the daemon; `/dev/kvm` inside iff
 outside; a link planted at a mount point does not stop the next start;
 `jail-push` pushes over ssh without running planted hooks, `core.fsmonitor`,
 `core.sshCommand` (the global one runs) or `uploadpack.packObjectsHook`,
@@ -183,16 +190,21 @@ a positive control outside the jail.
 - No `/sys`, `/run/opengl-driver`, Wayland or X11 sockets in the file system:
   GUI programs and GPU compute do not run inside.
 - Outbound traffic leaves as yours from the host, so the host's services on
-  addresses of other interfaces (a libvirt or Docker bridge, Tailscale,
-  anything listening on `0.0.0.0` reached through such an address) and the LAN
-  are reachable as from any program of yours; only loopback and abstract
-  sockets are cut. The one deliberate path to host loopback is pasta's DNS
+  addresses of other interfaces and the LAN are reachable as from any program
+  of yours; only loopback and abstract sockets are cut. A host listener on
+  `0.0.0.0` or `[::]` answers on every host address, for example Docker's
+  `docker0` (`172.17.0.1`), libvirt's `virbr0` (`192.168.122.1`), Tailscale or
+  the LAN address; only one bound to `127.0.0.1` or `::1` is out of reach. The one deliberate path to host loopback is pasta's DNS
   forwarder to your nameserver on port 53. There is no egress allowlist.
 - The namespace copies the host's addresses and routes when the jail starts
   (offline: a link-local fallback) and keeps them: after a network change
   (another Wi-Fi, a VPN), restart the jail if outbound or DNS misbehave.
 - A notification is the one D-Bus call that leaves: its text and actions are
-  the jail's, so it can show a misleading message.
+  the jail's, so it can show a misleading message. `--talk` opens the whole
+  connection that owns `org.freedesktop.Notifications`, every object and
+  method of it, not only the notification interface. On GNOME that is a
+  separate process of gnome-shell (`org.gnome.Shell.Notifications`), which
+  serves only notifications; with another desktop, check what owns the name.
 - A tmux server inside the jail (or a fake one in the socket directory) can
   draw anything in your terminal, also a prompt that looks like the host's;
   it cannot type into other programs (TIOCSTI is off or blocked).

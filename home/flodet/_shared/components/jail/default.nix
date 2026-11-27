@@ -202,6 +202,7 @@ let
     runtimeInputs = [
       pkgs.coreutils
       pkgs.passt
+      pkgs.util-linux
       pkgs.xdg-dbus-proxy
     ];
     text = ''
@@ -224,8 +225,11 @@ let
       # host's nameserver. Inside pasta's user namespace we are root: bwrap
       # maps back to our ids and drops every capability, as it does when
       # started by a normal user. Not exec: the proxy's pipe must stay open.
-      pasta --config-net --quiet -t none -u none -T none -U none --no-map-gw --dns-forward 169.254.1.1 \
-        -- ${bwrap} --uid "$(id -u)" --gid "$(id -g)" --cap-drop ALL "$@" <&0 &
+      # pasta dies with this script, even by SIGKILL (pdeathsig); env resets
+      # SIGINT, ignored in a background job, and pasta's ignored SIGPIPE.
+      setpriv --pdeathsig KILL env --default-signal \
+        pasta --config-net --quiet -t none -u none -T none -U none --no-map-gw --dns-forward 169.254.1.1 \
+        -- env --default-signal ${bwrap} --uid "$(id -u)" --gid "$(id -g)" --cap-drop ALL "$@" <&0 &
       pid=$!
       # A signal to this script (kill, systemctl stop) goes on to pasta, whose
       # death ends bwrap (--die-with-parent); then it is raised here again.
