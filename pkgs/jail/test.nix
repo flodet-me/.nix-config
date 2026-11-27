@@ -33,6 +33,25 @@
         extraGroups = [ "wheel" ];
         password = "pw";
         linger = true; # a user manager and session bus without a login
+        autoSubUidGidRange = true; # 100000:65536, as on the hosts: containers in a jail
+      };
+      # no /etc/subuid range: containers refused with a reason
+      users.users.bob = {
+        isNormalUser = true;
+        autoSubUidGidRange = false;
+      };
+      # the image the container tests load (offline): busybox, root and nobody, a page
+      environment.etc."jail-test/image.tar.gz".source = pkgs.dockerTools.buildImage {
+        name = "localhost/jailtest";
+        tag = "latest";
+        copyToRoot = pkgs.buildEnv {
+          name = "jailtest-root";
+          paths = [
+            pkgs.busybox
+            pkgs.dockerTools.fakeNss
+            (pkgs.writeTextDir "www/index.html" "hello-from-web\n")
+          ];
+        };
       };
       programs.gnupg.agent.enable = true; # its socket is the control for "no gpg-agent"
       environment.systemPackages = [
@@ -43,6 +62,7 @@
         pkgs.socat
         pkgs.zsh # the completion under zsh's bashcompinit
         pkgs.dig
+        pkgs.curl
         (pkgs.callPackage ../../home/flodet/_shared/components/claude-code/codex/wrapper.nix { })
       ];
       # names on the session bus: the one the jail may talk to, and another
@@ -957,5 +977,107 @@
         assert "main" in z and not any("touch" in x for x in z), z
         assert "main" in zcomplete(["jail-push", "/home/alice/repo", ""], "_jail_push")
         machine.succeed("test ! -e /tmp/pwned && test ! -e /tmp/chpwd")
+
+    # Containers (.jail line containers; docs/jail.md, ADR 0007)
+    k = "~/repok"
+    nopodman = "! pgrep -f '(^|/)(podman|[.]podman-wrapped|conmon|httpd)( |$)' && ! pgrep -u alice '^(xdg-dbus-proxy|passt|pasta)' && ! pgrep -u alice -f '^sleep infinity$'"
+
+    with subtest("containers: only with the .jail line containers"):
+        # without it: no tun device, no podman or docker, no API, no wrappers (see "no sudo")
+        jail('test ! -e /dev/net/tun && ! command -v podman && ! command -v docker && test -z "''${DOCKER_HOST:-}"'
+             " && test ! -e /run/user/1000/podman && ! grep -qsx podman /proc/[0-9]*/comm")
+        alice("""
+          git init -q ~/repok && cd ~/repok && git commit -q --allow-empty -m one
+          printf 'containers\\nport 8092\\n' > .jail
+          cat > compose.yaml <<'EOF'
+    services:
+      web:
+        image: localhost/jailtest
+        pull_policy: never
+        command: httpd -f -p 80 -h /www
+        ports: ["8092:80"]
+      client:
+        image: localhost/jailtest
+        pull_policy: never
+        depends_on: [web]
+        command: sh -c "until wget -qO- http://web/; do sleep 0.5; done"
+    EOF
+        """)
+        out = alice("jail config ~/repok 2>&1")
+        assert "would add: ports 8092 | ro none | rw none | containers" in out, out
+        out = start("true", answer="yes", repo=k)
+        assert "jail: in effect: ports 8092 | ro none | rw none | containers" in out, out
+        assert "is not applied" not in out, out
+        # without a subuid range: refused, naming what is missing
+        jr = "$(grep -o '/nix/store/[a-z0-9]*-jail-run/bin/jail-run' $(readlink -f $(command -v jail)) | head -n 1)"
+        ju = alice(f"grep -o '/nix/store/[a-z0-9]*-jail-userns/bin/jail-userns' {jr} | head -n 1").strip()
+        out = machine.fail(f"su - bob -c '{ju} true' 2>&1")
+        assert "no range for bob in /etc/subuid" in out, out
+
+    with subtest("containers: capabilities, fds, many uids"):
+        # CAP_SETUID and CAP_SETGID, in the jail's own user namespace only (newuidmap for podman)
+        caps = "grep -E '^Cap(Inh|Prm|Eff|Amb):' /proc/self/status | grep -v ':[[:space:]]*00000000000000c0$'"
+        jail(f'test -z "$({caps})" && grep -q "^NoNewPrivs:[[:space:]]*1$" /proc/self/status', repo=k)
+        # nothing open beyond 0-2 (3 is ls's): no user namespace or pipe fd left to the jail
+        jail("test \"$(ls /proc/self/fd | tr '\\n' ' ')\" = '0 1 2 3 '", repo=k)
+        jail("podman load -q -i /etc/jail-test/image.tar.gz && podman unshare cat /proc/self/uid_map | grep -Eq '^ *1 +100000 +65536$'", repo=k)
+        # a container chowns, switches users and runs as another uid; on the host those are subuids
+        jail('mkdir -p out && podman run --rm -v "$PWD/out:/out" localhost/jailtest sh -c'
+             " 'touch /out/f && chown 4321:4321 /out/f && su -s /bin/sh nobody -c \"id -u\"' | grep -qx 65534"
+             ' && test "$(podman run --rm --user 4321 localhost/jailtest id -u)" = 4321', repo=k)
+        alice('test "$(stat -c %u:%g ~/repok/out/f)" = 104320:104320')
+        # cgroup limits fail loudly (no delegated cgroup)
+        jail("! podman run --rm --memory 64m localhost/jailtest true 2> err && grep -q cgroup err", repo=k)
+
+    with subtest("containers: docker, a user network by name, build, the API socket inside only"):
+        jail('test "$DOCKER_HOST" = unix:///run/user/1000/podman/podman.sock && test -S /run/user/1000/podman/podman.sock'
+             " && docker network create n1 && docker run -d --network n1 --name a localhost/jailtest httpd -f -p 80 -h /www"
+             " && docker run --rm --network n1 localhost/jailtest wget -qO- http://a/ | grep -q hello-from-web"
+             " && docker ps --format '{{.Names}}' | grep -qx a", repo=k)
+        jail("printf 'FROM localhost/jailtest\\nRUN echo built > /built\\n' > Dockerfile && docker build -q -t localhost/built ."
+             " && docker run --rm localhost/built cat /built | grep -qx built", repo=k)
+        machine.wait_until_succeeds(nopodman, timeout=30)
+
+    with subtest("containers: docker compose, a published port in the jail and on the host"):
+        up = ("docker compose up -d && until docker compose logs client | grep -q hello-from-web; do sleep 1; done"
+              " && curl -sf http://127.0.0.1:8092/ | grep -q hello-from-web && podman compose ps | grep -q web"
+              " && touch ~/repok/up && sleep 300")
+        alice(f"rm -f /tmp/kjail; (jail ~/repok -- sh -c {shlex.quote(up)} </dev/null >/tmp/compose.log 2>&1 & echo $! > /tmp/kjail; wait) >/dev/null 2>&1 &")
+        machine.wait_until_succeeds("test -e /home/alice/repok/up || { test -s /tmp/kjail && ! kill -0 $(cat /tmp/kjail); }", timeout=180)
+        print(machine.succeed("cat /tmp/compose.log"))
+        alice("test -e ~/repok/up && curl -sf http://127.0.0.1:8092/ | grep -q hello-from-web")
+        # the API is the jail's own: no podman socket on the host
+        alice("test ! -e /run/user/1000/podman")
+        # it ends with the jail, containers and all, also by SIGKILL
+        alice("kill $(cat /tmp/kjail)")
+        machine.wait_until_succeeds(nopodman + " && ! ss -Htln 'sport = :8092' | grep -q .", timeout=30)
+        alice("(env --default-signal=INT jail ~/repok -- sleep 302 </dev/null & echo $! > /tmp/kjail; wait) >/dev/null 2>&1 &")
+        machine.wait_until_succeeds("pgrep -u alice -f '^sleep 302$' && pgrep -f '(^|/)podman$'", timeout=60)
+        alice("kill -KILL $(cat /tmp/kjail)")
+        machine.wait_until_succeeds(nopodman + " && ! pgrep -u alice -f '^sleep 302$'", timeout=30)
+
+    with subtest("containers: the shared jail's shells find them; each instance has its own"):
+        terminal("termk", repo="/home/alice/repok")
+        sockk = "$(echo /run/user/1000/jails/repok-*/tmux.sock)"
+        machine.wait_until_succeeds(f"su - alice -c 'tmux -S {sockk} list-clients' | grep -q .", timeout=60)
+        probe = ("command -v podman docker newuidmap > ~/repok/probe-k; docker run -d --name inshared localhost/jailtest sleep 600 >/dev/null;"
+                 " docker ps --format '{{.Names}}' >> ~/repok/probe-k; echo done >> ~/repok/probe-k")
+        alice(f"tmux -S {sockk} send-keys -t main {shlex.quote(probe)} Enter")
+        machine.wait_until_succeeds("grep -q done /home/alice/repok/probe-k", timeout=60)
+        out = alice("cat ~/repok/probe-k")
+        assert "/run/wrappers/bin/podman\n/run/wrappers/bin/docker\n/run/wrappers/bin/newuidmap\ninshared\n" in out, out
+        jail('test -z "$(docker ps -aq)" && test -z "$(podman ps -aq)"', repo=k)
+        alice("test ! -e /run/user/1000/podman")
+        alice("systemctl --user stop 'jail-repok-*' termk")
+        machine.wait_until_succeeds(nopodman, timeout=30)
+
+    with subtest("containers: jail reset deletes what they made as subuids"):
+        kn = jname("repok")
+        jail("podman volume create v >/dev/null && podman run --rm -v v:/d localhost/jailtest"
+             " sh -c 'mkdir /d/x && touch /d/x/f && chown -R 4321:4321 /d/x && chmod 700 /d/x'", repo=k)
+        # control: your own rm cannot
+        alice(f"! rm -rf ~/.cache/jails/{kn} 2>/dev/null && test -d ~/.cache/jails/{kn}")
+        answer(f"jail reset {kn} --all", "y")
+        alice(f"test ! -e ~/.cache/jails/{kn} && test ! -e {jails}/{kn}")
   '';
 }

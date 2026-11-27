@@ -99,6 +99,8 @@ port 5173
 ro ~/Datasets/images
 # read-write
 rw /srv/scratch/foo
+# podman, docker and docker compose inside (Containers, below)
+containers
 ```
 
 - `port N` (1024 to 65535): the host's `127.0.0.1:N` reaches the jail's
@@ -107,6 +109,8 @@ rw /srv/scratch/foo
   (`foo.localhost`) in the browser so its cookies stay apart.
 - `ro PATH`, `rw PATH`: an existing directory or file, at the same path
   inside. Absolute or `~/...`, no symlink on the way, no `.` or `..`.
+- `containers`: the jail's own rootless podman, `docker` and `docker compose`
+  (below).
 - `#` starts a comment line, blank lines are fine; any other line is an
   error naming the line.
 - Refused: `/tmp`; anything in `/nix`, `/etc`, `/run`, `/proc`, `/dev`,
@@ -159,6 +163,38 @@ again, without asking, when the same `.jail` comes back. A port in use on
 the host keeps a shared jail from starting (it names the port); a one-off
 jail starts without that port.
 
+## Containers
+
+With the line `containers` in an approved `.jail`, the jail runs its own
+rootless podman, with no daemon on the host and never the host's Docker or
+Podman socket:
+
+```sh
+docker run --rm -p 8080:80 nginx:alpine   # or podman run ...
+docker network create net && docker run -d --network net --name db postgres:alpine
+docker compose up -d                      # real Compose v2; podman compose is the same
+docker build -t app .
+```
+
+- Every jail instance (the shared jail, each one-off) starts its own podman
+  API service; `DOCKER_HOST` points at its socket in the jail's
+  `/run/user/<uid>`. It and every container end with the jail. One instance
+  does not see another's containers; images, volumes and networks are shared
+  through the jail's `~/.cache`.
+- Images and containers run with many uids: your subuid range
+  (`/etc/subuid`). Files a container writes into the repository can belong
+  to uid 100000 and up; delete those with `podman unshare rm ...` inside, or
+  they go with `jail reset --all`.
+- A port a container publishes (`-p 8080:80`) is on the jail's
+  `127.0.0.1:8080`; add `port 8080` to `.jail` to reach it from the host.
+- `--memory`, `--cpus` and other cgroup limits fail: the jail has no cgroup
+  of its own to give. `docker build` uses podman's builder (no BuildKit).
+- Cleanup: `podman system prune` / `podman volume prune` inside, or
+  `jail reset --all` (stopped jail). `podman system prune --external` also
+  deletes layers that another running instance of the jail uses.
+- `podman volume ls` in a new instance lists no old volumes, but naming one
+  again finds its data.
+
 ## Manage jails
 
 ```sh
@@ -204,7 +240,8 @@ it prints. It also asks about `.jail` again. The cache of a jail from before
 
 ## Limits
 
-- No GUI programs or GPU compute inside (no Wayland, X11 or `/sys`).
+- No GUI programs or GPU compute inside (no Wayland, X11 or `/sys`; with
+  `containers`, only the jail's own cgroup).
 - Writes to your `~/.claude` and `~/.codex` config fail inside (settings
   toggles, plugin installs, codex's trusted folders): change them outside.
 - A running jail keeps its `.jail` config, its home-manager files and its
