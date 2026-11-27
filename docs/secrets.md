@@ -3,6 +3,8 @@
 Secrets are encrypted with [sops](https://github.com/getsops/sops) and decrypted
 on each host by [sops-nix](https://github.com/Mic92/sops-nix).
 
+Why: [ADR 0003](adr/0003-secrets-sops.md).
+
 ## How it works
 
 - Each value in a `*secrets.yaml` is encrypted with a random data key. That
