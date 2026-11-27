@@ -349,6 +349,155 @@ Habits that save the most without hurting results:
   than wrong code.
 - Keep project `CLAUDE.md` files short and factual: they are read every session.
 
+## Token tools
+
+Three CLIs in `home.packages` of the Claude Code component, all from nixpkgs:
+
+- **ccusage**: reports Claude Code (and Codex) token use and cost from the
+  local session logs in `~/.claude/projects`. `ccusage daily`, `ccusage
+  session`, `ccusage blocks` (5-hour billing windows). The binary embeds a
+  price snapshot and the LiteLLM price list URL (verified with `strings`); a
+  `ccusage daily` made no network call under `strace`, but when it fetches is
+  not checked. Use `-O` (`--offline`) to stay on the cached prices.
+- **ast-grep**: structural search and rewrite on the syntax tree
+  (`ast-grep run -p 'foo($A)' -l rust`). Plain `grep`/`rg` stay fine for text.
+- **rtk** (1.2.0): runs a command and condenses its output before it reaches
+  the context (`rtk git status`, `rtk cargo test`, ...).
+
+### rtk trial
+
+`rtkTrial = true` in `home/flodet/_shared/components/claude-code/default.nix`
+turns on, all from Nix (nothing runs `rtk init`):
+
+- a `PreToolUse` hook (matcher `Bash`) in the Nix-owned `hooks`, calling
+  `claude-rtk-hook`, a Nix-built guard around `rtk hook claude` (see
+  [rtk and permissions](#rtk-and-permissions)). It rewrites the non-file
+  commands rtk knows (`git status` becomes `rtk git status`; also `cargo`,
+  `dotnet`, `docker`, test runners, ...) and leaves the rest unchanged.
+  `rtk verify` says `SKIP RTK hook not installed`: it only recognizes its
+  own command string; the warning rtk would print into command output is
+  off (`suppress_hook_warning`);
+- the agent instructions `~/.claude/rules/rtk.md` (condensed RTK.md, instead
+  of the `@RTK.md` line `rtk init` writes into `CLAUDE.md`).
+
+Always there, also with the trial off: `~/.config/rtk/config.toml` (telemetry
+off, recovery mode `sqlite`, so `rtk recall` can bring back elided output,
+file commands excluded from rewriting, see below).
+It is read-only, so `rtk config recall <mode>` and `rtk init` cannot change
+it: edit `rtkConfig`.
+
+**Turn it off:** set `rtkTrial = false` and switch. The hook and `rtk.md` go
+away (the activation merge drops the old `hooks`); the three tools stay.
+
+**Review after a week (around 2026-12-04):**
+
+- `rtk gain` (totals), `rtk gain -d` (per day), `rtk gain -F` (commands that
+  fell back to raw output), `rtk session` (how many Bash calls went through rtk).
+- `ccusage daily -O` for the same days, and the week before the trial for
+  comparison; `rtk cc-economics` puts both side by side.
+- Keep it if the savings are real and no session got stuck on condensed
+  output (`rtk bypass` showing up a lot means it hides too much). Otherwise
+  `rtkTrial = false`.
+
+rtk's history lives in `~/.local/share/rtk/history.db`; a jail (G-1,
+[agent-isolation.md](agent-isolation.md)) has its own home, so its sessions count there, not in
+the workstation's `rtk gain`.
+
+### rtk and permissions
+
+Claude Code checks its permission rules against the command a hook returns
+(hooks docs: it "evaluates permission rules ... against the input your hook
+returns"). rtk 1.2.0 alone breaks that in three ways (verified with
+`rtk hook claude`; the first also live by a review with Claude Code 2.1.329):
+
+- it rewrites `grep`, `rg`, `wc`, `diff`, `ls`, `find`, `stat`, `jq`,
+  `git diff --no-index`, `cat`, `head` on a `Read(...)`-denied path into
+  `rtk <cmd> <path>`. Claude Code checks the paths of the file commands it
+  knows against Read rules, `rtk` is not one, so the read ran unprompted;
+- it ignores ask rules (`Bash(git log *)` ask, `git log` became `rtk git log`)
+  and misses deny rules whose `*` is glued to a path (`Bash(cat ~/.ssh/*)`);
+  other deny rules it does honour, also behind `FOO=1` or `timeout 30`;
+- it returns `permissionDecision: "allow"` when allow rules cover the command
+  (a project allowing `Bash(grep *)` got `grep foo ~/.ssh/id` auto-allowed,
+  skipping the prompt and auto mode's classifier). It finds project rules
+  from its process directory up to the nearest `.claude/` only, not from the
+  input's `cwd` (the wrapper below collects every parent).
+
+A hook cannot resolve paths the way Claude Code does (after `cd`, through
+symlinks, `~/.config//sops`, `/run/./secrets`, `~/.\ssh`): a text check of
+the 2026-11-27 first version missed all of these (review, verified live).
+So rtk only rewrites commands that do not name files:
+
+- **`rtkConfig` excludes** every command in Claude Code 2.1.329's table of
+  commands whose paths it checks against Read/Edit rules (`cat`, `head`,
+  `tail`, `sed`, `grep`, `rg`, `ls`, `find`, `wc`, `diff`, `stat`, `jq`,
+  `awk`, `sort`, `cp`, `tee`, ... taken from its binary), plus `tree` and
+  `du`. Only `git` from that table is still rewritten.
+- **`claude-rtk-hook`** (`rtkHook` in `default.nix`) passes a command through
+  untouched, so Claude Code judges the original, when it:
+  - contains `cd`, `pushd`, `popd` or a git path option (`-C`,
+    `--no-index`, `--git-dir`, `--work-tree`, `--file`) as a word;
+  - runs outside a git work tree (no `.git` in `cwd` or a parent), or has a
+    word, quotes removed, that starts with `~`, `/`, `$` or `..` or contains
+    `/..`, `=/`, `=~` or `=$`: `git diff` of such paths, or of any paths
+    outside a work tree, diffs plain files (implicit `--no-index`). Only
+    `>/dev/null` / `> /dev/null` redirects are ignored; `main..HEAD` still
+    passes. Any `\`, `{` or backtick passes through too (`\/run`, `\> /dev/null`,
+    `{/dev/null,x}`);
+  - matches a `Bash(...)` deny or ask rule: the rule's text up to its first
+    `*` as whole words, with shell operators and runs of whitespace as word
+    breaks. Rules come from `~/.claude/settings.json` and from
+    `.claude/settings.json` / `settings.local.json` in the input's `cwd` and
+    every parent;
+  - hits anything unexpected: a settings file that is not valid JSON or has
+    an odd shape (`permissions` not an object, rules not a list of strings),
+    or input without a command. It fails closed: nothing is printed and
+    Claude Code runs the original command.
+- Otherwise it passes on only rtk's `updatedInput`, never a
+  `permissionDecision`, so the normal permission flow runs on the rewritten
+  command.
+
+Which directory Claude Code runs hooks in is not checked; the guard uses
+the input's `cwd`, so it does not depend on it (rtk's own deny check does).
+
+**Test:** building the managed settings (`managedSettings` in `default.nix`,
+part of every workstation build, so the Gate runs it; not the Check) feeds
+the hook PreToolUse JSON. It fails unless:
+
+- `git status` becomes `rtk git status` and `nix flake check` stays as is;
+- these stay unchanged: every Bash deny/ask rule, and 13 file commands on
+  every Read-denied path (home paths as `~/`, `$HOME/` and `/home/<user>/`),
+  bare and behind `FOO=1 `, `timeout 30 `, `cd /tmp && `;
+- the `cd`, `pushd`, `//`, `/./`, `\` and symlink spellings and
+  `git -C <link>` stay unchanged;
+- `git diff ~/.ssh/id_ed25519 /dev/null` (also via `$HOME`, a symlink,
+  `../`, `--word-diff /run/secrets/foo`, `-c x=y`, `--output=~/x`, `\/`,
+  `\> /dev/null`) stays
+  unchanged, and so do `git diff .ssh/id_ed25519 x` and `git status` outside
+  a work tree; inside one `git log main..HEAD`, `git diff A...B` and
+  `git status 2>/dev/null` are still rewritten;
+- in a project that allows `Bash(git *)` and `Bash(grep *)` and asks for
+  `Bash(git log *)`, `git log -3` and `git  log -3` stay unchanged (from its
+  root and a subdirectory), and no answer carries a `permissionDecision`;
+- below that project, a broken settings file (`{"permissions": {`,
+  `{"permissions": "x"}`, `{"permissions": {"deny": "Bash(x)"}}`) leaves
+  even `git status` unchanged.
+
+By hand:
+`echo '{"tool_name":"Bash","cwd":"'$PWD'","tool_input":{"command":"git status"}}' | claude-rtk-hook`
+(the store path is in `~/.claude/settings.json`).
+
+**Not covered:** commands typed in rtk form are not guarded. `rtk read
+~/.ssh/id_ed25519`, `rtk grep x <path>`, `rtk git push` or `rtk bypass <cmd>`
+are spellings that no Bash deny and no Read path check matches. `rtk.md`
+tells Claude never to bypass a refused command; the rest relies on Claude
+not typing them.
+
+**Auto mode** (unverified): the hooks docs describe a case where auto mode
+can deny a call whose input a hook changed without a decision, and also say
+command hooks from settings may change Bash input in interactive sessions.
+During the review, look for "a hook changed this call's input" in sessions.
+
 ## Installed plugins
 
 ### ponytail (`ponytail@ponytail`)
