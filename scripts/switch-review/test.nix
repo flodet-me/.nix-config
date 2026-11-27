@@ -45,12 +45,23 @@ pkgs.runCommand "switch-review-test"
     # large: summary instead of a diff
     { head -c 70000 /dev/zero; echo big-binary-marker; } > new/assets/big.bin
     head -c 1100000 < <(yes large-text-marker) > new/home/large.txt
+    # names that are special as array subscripts
+    printf 'at-marker\n' > new/@
+    printf 'star-marker\n' > 'new/*'
+    printf 'subscript-marker\n' > 'new/x[$(touch pwned)]'
     # The real flow passes a resolved store path; a symlinked root must work too.
     ln -s new newlink
 
     switch-review --dirs old newlink > out
     cat out
     has '+home-change-marker = 2;'
+    has 'A @'
+    has '+at-marker'
+    has 'A *'
+    has '+star-marker'
+    has 'A x[$(touch pwned)]'
+    has '+subscript-marker'
+    [[ -e pwned ]] && fail "a file name was evaluated"
     has 'M docs/c.md'
     hasnt docs-change-marker
     has 'A docs/sub/n.md'
@@ -93,7 +104,7 @@ pkgs.runCommand "switch-review-test"
     #!${pkgs.runtimeShell}
     case "\$1 \$2" in
       "flake prefetch") cat "$stubs/prefetch.json" ;;
-      "build "*) printf '%s\n' "\$*" > "$stubs/build-args"; cat "$stubs/out-path" ;;
+      "build "*) printf '%s\n' "\$*" > "$stubs/build-args"; [[ ! -e $stubs/build-fails ]] && cat "$stubs/out-path" ;;
       *) echo "unexpected nix \$*" >&2; exit 2 ;;
     esac
     EOF
@@ -145,6 +156,26 @@ pkgs.runCommand "switch-review-test"
     # also on a first switch
     rm "$fake/flake-source"
     ./sr --switch > out 2>&1 && { cat out; fail "mismatch accepted on a first switch"; }
+    has 'nothing was switched'
+    hasnt NH-RAN
+    # the failure message is complete when switch-review returns
+    for i in $(seq 200); do
+      ./sr --switch > out 2>&1 && fail "mismatch accepted"
+      grep -qF 'nothing was switched' out || fail "failure output incomplete in run $i"
+    done
+
+    # a failed build or review never switches
+    echo "$PWD/out-ok" > "$stubs/out-path"
+    touch "$stubs/build-fails"
+    ./sr --switch > out 2>&1 && { cat out; fail "failed build accepted"; }
+    cat out
+    has 'nothing was switched'
+    hasnt NH-RAN
+    rm "$stubs/build-fails"
+    touch "$PWD/not-a-tree"
+    ln -s "$PWD/not-a-tree" "$fake/flake-source"
+    ./sr --switch > out 2>&1 && { cat out; fail "failed review accepted"; }
+    cat out
     has 'nothing was switched'
     hasnt NH-RAN
 
