@@ -44,3 +44,22 @@ suggest"); reset always asks.
 | Item | What | Status | Commit |
 |---|---|---|---|
 | I1 jail-manage | repo file, list/status/stop/reset/help, completion, tests, docs | open | |
+
+## G-10 winvm ssh CMD works on Windows 10  (status: open)
+
+Goal: "Do all of it." (the `winvm ssh <command>` bug the G-9 smoke test found)
+Accept:
+- `winvm ssh CMD` runs CMD with its quotes as typed and passes its exit code
+  on both guest login shells (PowerShell, cmd.exe: vs-deploy recipe), on
+  Windows 10's OpenSSH 7.7, which strips double quotes, and newer ones.
+- Everything built on it (`run`, the smoke checks on files after snapshot
+  and reset) works again.
+- `tests/smoke.sh` on desktop: every check passes (throwaway VM `smoke-test`).
+- Check and Gate green.
+Not in scope: other winvm changes.
+Assumptions: the smoke test may boot the throwaway VM `smoke-test` in
+~/Projects/windows-vm ("do all of it").
+
+| Item | What | Status | Commit |
+|---|---|---|---|
+| I1 winvm-ssh | quote-safe guest command line, smoke test green | open | |
