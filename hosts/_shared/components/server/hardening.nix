@@ -100,6 +100,9 @@ in
     wheelNeedsPassword = false; # see default.nix: the YubiKey is the gate
   };
   nix.settings.allowed-users = [ "@wheel" ];
+  # `nixos-rebuild --target-host --sudo` copies unsigned closures as flodet
+  # (docs/cloud.md). Workstations keep only root (docs/agent-isolation.md).
+  nix.settings.trusted-users = [ "@wheel" ];
   environment.defaultPackages = lib.mkForce [ ]; # no perl/rsync/strace by default
 
   # --- Network exposure ---------------------------------------------------------

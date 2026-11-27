@@ -30,7 +30,23 @@
 
   networking.networkmanager.enable = true;
   services.printing.enable = true;
-  virtualisation.docker.enable = true;
+  # Rootless: the docker group would be root. Data in ~/.local/share/docker.
+  virtualisation.docker.rootless = {
+    enable = true;
+    setSocketVariable = true; # DOCKER_HOST=unix://$XDG_RUNTIME_DIR/docker.sock
+  };
+
+  # Closed root paths for agents (docs/agent-isolation.md, design step 1)
+  assertions = [
+    {
+      assertion = config.nix.settings.trusted-users == [ "root" ];
+      message = "workstations: only root may be a trusted Nix user";
+    }
+    {
+      assertion = !builtins.elem "docker" config.users.users.${config.host.user}.extraGroups;
+      message = "workstations: the docker group is root, use rootless Docker";
+    }
+  ];
 
   # QMK/Vial keyboards and the headset
   hardware.keyboard.qmk.enable = true;
