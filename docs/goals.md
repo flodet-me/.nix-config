@@ -15,6 +15,7 @@ Assumptions:
 - The user's "yes" to Docker means rootless is fine. Old system Docker images/volumes stay in /persist/var/lib/docker, unused.
 - `jail` is a home-manager module on the workstations (desktop.nix), the repo is bound at its own absolute path, HOME stays /home/flodet inside.
 - A real Windows boot through winvm in a jail is checked by hand after the switch, not in the VM test.
+- User, 2026-11-27, asked for custom directories per jail: added I3c as a Nix option keyed by repository path (host-owned, never a file inside the repository), read-only by default.
 - User, 2026-11-27, asked to see websites served from a jail: added I3b, host→jail TCP forwards on 127.0.0.1 chosen at jail start (pasta `-t`), never jail→host.
 - User, 2026-11-27: a running jail may keep a stale Claude login after a refresh outside; accepted for now (restart the jail). After G-1 is done, re-run the Claude Code setup audit and re-evaluate its quick wins (deny rules for ~/Nextcloud, ~/Documents, keyring, key files).
 
@@ -24,6 +25,7 @@ Assumptions:
 | I2 jail | `jail` / `jail-push`, tmux-shared jail per repo, VM test `checks.jail`, docs | done | 015d25b |
 | I3 jail-net | pasta netns (no host loopback), xdg-dbus-proxy for notifications, test | open | |
 | I3b jail-ports | `jail --port N`: host 127.0.0.1:N forwarded into the jail (host→jail only), test, docs | open | |
+| I3c jail-binds | home-manager option: extra read-only / read-write directories per repository (and for all jails), Nix-owned, test, docs | open | |
 | I4 jail-winvm | winvm binds and `winvm` wrapper inside the jail, test | open | |
 
 ## G-2 LLM token tools  (status: done)
