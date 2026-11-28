@@ -51,8 +51,11 @@ Every project brings its own tools through its flake and direnv
    wins over a global one.
 2. **Settings, other servers, format on save: `.nvim.lua`** in the project
    root, committed. Neovim runs it (`'exrc'`, also from parent directories)
-   only after you `:trust` it, and asks again after every change, so read it
-   first: it is code. Example:
+   only after you trust it, and asks again after every change, so read it
+   first: it is code. At the prompt press `v`, read it in the window that
+   opens, then `:trust` there. `:trust` in another buffer (the empty start
+   buffer, a file tree) fails with "Cannot update trust file: buffer is not
+   associated with a file". Example:
 
    ```lua
    vim.lsp.config('rust_analyzer', {
